@@ -24,9 +24,9 @@ All22 is a fantasy football web portal for exactly one user (me). It runs as a N
 **Viewing and analytics:**
 - Drafts list page: every saved draft as a row (date, site, type, strategy, rating), filterable by site, type, and strategy; sortable by date and rating. Clicking a row opens a detail page showing the full board with my picks highlighted, with edit and delete (delete requires a confirm click).
 - Analytics page, computed across all saved drafts and respecting the same site/type/strategy filters:
-  - Exposure report: every player I drafted, with count and % of drafts, sorted by % descending.
+  - Exposure report: every player I drafted, with count and % of drafts, sorted by % descending — the primary view.
+  - Top trends summary: most-drafted player, most-used strategy, average draft slot I hold.
   - Strategy breakdown: count of drafts per strategy tag, with my average star rating per strategy.
-  - Position-by-round table: for my picks, how often each position is taken in each round.
 
 ### Feature 2 — Analyst Compare (Phase 4)
 
@@ -39,12 +39,20 @@ All22 is a fantasy football web portal for exactly one user (me). It runs as a N
 - A page that converts pasted FantasyPros rankings (their CSV export format and their copy-paste rankings text) into a downloadable CSV in Underdog's rankings-upload format. Output preview is shown before download; rows that failed conversion are listed visibly.
 - Conversion uses `lib/players.js` for name normalization. Structure the converter so input-format → internal list → output-format are separate steps, so new output formats can be added later as new files.
 
+### Feature 4 — Yahoo Fantasy API integration (Phase 6)
+
+- OAuth 2.0 flow: the app redirects me to Yahoo, I approve, Yahoo redirects back with a token. Tokens stored in the DB (not in my browser). Refresh tokens silently when they expire.
+- After connecting Yahoo, the app can: list my active leagues, pull my team's current roster and starting lineup, and pull the live draft board/results for any of my leagues.
+- Pulled draft data is fed through the same `lib/parsers/` + `lib/players.js` pipeline as pasted drafts — it lands in the same drafts table with `source = 'yahoo_api'`.
+- Display a "Connected as [Yahoo username]" status on the settings page; a "Disconnect" button revokes the token.
+- Yahoo credentials (`YAHOO_CLIENT_ID`, `YAHOO_CLIENT_SECRET`) are Railway env vars — never in code.
+
 ## Constraints
 
 (CLAUDE.md is binding; in addition:)
-- Yahoo API integration is future work: do not build it, but keep all parsing/normalization server-side in `lib/` so it can slot in later.
-- No web scraping, no fetching from fantasy sites — all data arrives by paste or upload.
-- No AI API calls and no API keys anywhere in v1.
+- Yahoo API uses OAuth 2.0 server-side. Client ID and secret are Railway env vars only. Token refresh logic lives in `lib/yahoo.js`.
+- No web scraping, no fetching from fantasy sites outside the Yahoo official API — all other data arrives by paste or upload.
+- No in-app AI API calls and no AI API keys anywhere in v1.
 - Dependencies for Phase 1 limited to: express, pg, dotenv, cookie-session (or equivalently minimal). Anything else: ask first.
 
 ## Definition of Done (per phase — self-verify before declaring victory)
@@ -58,8 +66,8 @@ All22 is a fantasy football web portal for exactly one user (me). It runs as a N
 
 ## Anti-goals (hard prohibitions)
 
-- No user accounts, OAuth, or multi-user anything (the single APP_PASSWORD gate is the entire auth story).
-- No Yahoo API work in v1. No scraping. No in-app AI calls.
+- No user accounts or multi-user anything (the single APP_PASSWORD gate is the entire auth story — the Yahoo OAuth flow is only for connecting to MY Yahoo account, not for logging users in).
+- No web scraping. No in-app AI API calls. No data sources other than paste, upload, and the Yahoo official API.
 - No React/SPA frameworks, no build step, no ORM, no TypeScript.
 - No speculative features beyond this spec — if an idea seems valuable, list it in docs/IDEAS.md instead of building it.
 
