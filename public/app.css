@@ -1,0 +1,122 @@
+:root {
+  --bg: #14171c;
+  --surface: #1d2129;
+  --border: #2c323d;
+  --text: #e6e9ee;
+  --text-dim: #9aa3b0;
+  --accent: #4f9cf9;
+  --error-bg: #3a1f23;
+  --error-border: #a33c4a;
+  --error-text: #f3aab5;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+main {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+h1, h2 { line-height: 1.2; }
+h1 { font-size: 1.5rem; }
+
+/* Nav */
+nav {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  align-items: center;
+}
+nav .brand {
+  font-weight: 700;
+  color: var(--text);
+  margin-right: 8px;
+}
+nav a {
+  color: var(--text-dim);
+  padding: 2px 0;
+  white-space: nowrap;
+}
+nav a.active, nav a:hover { color: var(--text); text-decoration: none; }
+nav form { margin-left: auto; }
+
+/* Error banner — every page includes #error-banner; app.js fills it */
+#error-banner {
+  display: none;
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  color: var(--error-text);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 12px 16px 0;
+}
+#error-banner.visible { display: block; }
+
+/* Forms & buttons */
+input, select, textarea, button {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  width: 100%;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+button {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b1220;
+  font-weight: 600;
+  cursor: pointer;
+  width: auto;
+}
+button:hover { filter: brightness(1.1); }
+button.link {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-weight: 400;
+  padding: 2px 0;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+}
+
+.muted { color: var(--text-dim); }
+
+/* Login page */
+.login-wrap {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.login-card { width: 100%; max-width: 360px; }
+.login-card h1 { margin-top: 0; }
+.login-card button { width: 100%; margin-top: 12px; }

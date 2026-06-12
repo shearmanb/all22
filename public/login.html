@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>All22 — Login</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="card login-card">
+      <h1>All22</h1>
+      <div id="error-banner"></div>
+      <form method="POST" action="/login">
+        <label for="password" class="muted">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" autofocus required>
+        <button type="submit">Log in</button>
+      </form>
+    </div>
+  </div>
+  <script src="/app.js"></script>
+  <script>
+    var err = new URLSearchParams(location.search).get('error');
+    if (err === '1') showError('Incorrect password. Try again.');
+    else if (err === 'config') showError('Server is missing its APP_PASSWORD setting.');
+  </script>
+</body>
+</html>
