@@ -7,6 +7,7 @@ const cookieSession = require('cookie-session');
 const { runMigrations } = require('./db/migrate');
 const healthRouter = require('./routes/health');
 const authRouter = require('./routes/auth');
+const draftsRouter = require('./routes/drafts');
 
 const app = express();
 
@@ -38,6 +39,8 @@ app.use((req, res, next) => {
   }
   res.redirect('/login');
 });
+
+app.use('/api/drafts', draftsRouter);
 
 app.use(express.static(path.join(__dirname, 'public')));
 

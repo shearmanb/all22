@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>New Draft — All22</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 500px) { .form-grid { grid-template-columns: 1fr; } }
+    .form-grid .full { grid-column: 1 / -1; }
+    label { display: block; font-size: .85rem; color: var(--text-dim); margin-bottom: 4px; }
+    .section-title { font-size: 1rem; font-weight: 600; margin: 20px 0 10px; }
+    textarea { font-family: monospace; font-size: .85rem; resize: vertical; min-height: 200px; }
+    .table-wrap { overflow-x: auto; margin-top: 12px; }
+    table { border-collapse: collapse; width: 100%; min-width: 600px; font-size: .85rem; }
+    th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); color: var(--text-dim); font-weight: 500; white-space: nowrap; }
+    td { padding: 4px 4px; border-bottom: 1px solid var(--border); }
+    td input[type=text], td input[type=number] { padding: 4px 6px; font-size: .82rem; border-radius: 6px; }
+    td input[type=number] { width: 64px; }
+    td input.player-name { width: 160px; }
+    td input.pos { width: 56px; }
+    td input.team { width: 56px; }
+    td input[type=checkbox] { width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent); }
+    .btn-remove { background: none; border: none; color: var(--text-dim); font-size: 1.1rem; cursor: pointer; padding: 0 4px; line-height: 1; }
+    .btn-remove:hover { color: var(--error-text); }
+    .unparse-list { margin: 8px 0 0; padding: 0; list-style: none; }
+    .unparse-list li { font-size: .82rem; color: var(--text-dim); padding: 2px 0; font-family: monospace; }
+    .unparse-list li::before { content: "⚠ "; color: #e6a817; }
+    .hint { font-size: .8rem; color: var(--text-dim); }
+    .stars { display: flex; gap: 4px; }
+    .stars button { background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--text-dim); width: 36px; height: 36px; font-size: 1rem; cursor: pointer; padding: 0; }
+    .stars button.active { border-color: var(--accent); color: #f5c842; }
+    #preview-section { display: none; }
+    #save-btn { display: none; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">All22</span>
+    <a href="/">Home</a>
+    <a href="/drafts.html" class="active">Draft Tracker</a>
+    <a href="/analytics.html">Analytics</a>
+    <a href="/compare.html">Analyst Compare</a>
+    <a href="/convert.html">Converters</a>
+    <a href="/yahoo.html">Yahoo</a>
+    <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
+  </nav>
+  <div id="error-banner"></div>
+  <main>
+    <h1>New Draft</h1>
+
+    <!-- Metadata -->
+    <div class="card">
+      <div class="form-grid">
+        <div>
+          <label for="site">Site</label>
+          <select id="site">
+            <option value="underdog">Underdog</option>
+            <option value="yahoo">Yahoo</option>
+            <option value="sleeper">Sleeper</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div>
+          <label for="draft-type">Draft Type</label>
+          <select id="draft-type">
+            <option value="Best Ball">Best Ball</option>
+            <option value="Mock">Mock</option>
+            <option value="Season League">Season League</option>
+          </select>
+        </div>
+        <div>
+          <label for="drafted-at">Date</label>
+          <input type="date" id="drafted-at">
+        </div>
+        <div>
+          <label for="league-size">League Size</label>
+          <input type="number" id="league-size" value="12" min="4" max="24">
+        </div>
+        <div>
+          <label for="my-slot">My Draft Slot</label>
+          <input type="number" id="my-slot" value="1" min="1" max="24">
+        </div>
+        <div>
+          <label for="strategy">Strategy (optional)</label>
+          <select id="strategy">
+            <option value="">— choose —</option>
+            <option>Hero RB</option>
+            <option>Zero RB</option>
+            <option>Robust RB</option>
+            <option>Anchor TE</option>
+            <option>Late-Round QB</option>
+            <option>Balanced</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div>
+          <label>Rating (optional)</label>
+          <div class="stars" id="stars">
+            <button type="button" data-v="1">★</button>
+            <button type="button" data-v="2">★</button>
+            <button type="button" data-v="3">★</button>
+            <button type="button" data-v="4">★</button>
+            <button type="button" data-v="5">★</button>
+          </div>
+        </div>
+        <div class="full">
+          <label for="notes">Notes (optional)</label>
+          <textarea id="notes" rows="2" style="min-height:60px"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- Paste area -->
+    <div class="section-title">Paste Draft Board</div>
+    <div class="card">
+      <textarea id="paste-area" placeholder="Paste your Underdog draft results here..."></textarea>
+      <p class="hint">Accepted: <code>1.03 A.J. Brown WR PHI</code> or <code>36 AJ Brown WR PHI</code></p>
+      <button type="button" id="parse-btn" style="margin-top:10px">Parse Draft</button>
+    </div>
+
+    <!-- Preview -->
+    <div id="preview-section">
+      <div class="section-title">Preview <span id="parse-summary" class="muted"></span></div>
+
+      <div id="unparse-box" style="display:none" class="card" style="padding:12px">
+        <p style="margin:0 0 6px;font-size:.85rem;color:#e6a817">⚠ Couldn't parse these lines — they were NOT dropped. Add them manually below if needed.</p>
+        <ul class="unparse-list" id="unparse-list"></ul>
+      </div>
+
+      <div class="card" style="margin-top:12px;padding:12px">
+        <div class="table-wrap">
+          <table id="preview-table">
+            <thead>
+              <tr>
+                <th>#</th><th>Rnd</th><th>Player Name</th><th>Pos</th><th>Team</th><th>Slot</th><th>Mine</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="preview-body"></tbody>
+          </table>
+        </div>
+        <button type="button" id="add-row-btn" class="link" style="margin-top:10px;font-size:.85rem">+ Add pick manually</button>
+      </div>
+
+      <div id="suggested-strategy" style="display:none;margin-top:10px" class="hint"></div>
+      <button type="button" id="save-btn">Save Draft</button>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+    // Set date default to today
+    document.getElementById('drafted-at').value = new Date().toISOString().slice(0, 10);
+
+    // Star rating
+    let rating = 0;
+    document.getElementById('stars').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-v]');
+      if (!btn) return;
+      const v = +btn.dataset.v;
+      rating = rating === v ? 0 : v;
+      document.querySelectorAll('#stars button').forEach((b) => {
+        b.classList.toggle('active', +b.dataset.v <= rating);
+      });
+    });
+
+    // Parse
+    document.getElementById('parse-btn').addEventListener('click', doParse);
+
+    async function doParse() {
+      const text = document.getElementById('paste-area').value;
+      const site = document.getElementById('site').value;
+      const leagueSize = document.getElementById('league-size').value;
+      const mySlot = document.getElementById('my-slot').value;
+
+      const data = await apiFetch('/api/drafts/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, site, leagueSize, mySlot }),
+      }).catch(() => null);
+      if (!data) return;
+
+      renderPreview(data.picks, data.unparseable);
+    }
+
+    function renderPreview(picks, unparseable) {
+      // Summary
+      document.getElementById('parse-summary').textContent =
+        `— ${picks.length} picks parsed, ${unparseable.length} line(s) couldn't be parsed`;
+
+      // Unparseable
+      const unparseBox = document.getElementById('unparse-box');
+      const unparseList = document.getElementById('unparse-list');
+      unparseList.innerHTML = '';
+      if (unparseable.length) {
+        unparseable.forEach((u) => {
+          const li = document.createElement('li');
+          li.textContent = `Line ${u.lineNumber}: ${u.line}`;
+          unparseList.appendChild(li);
+        });
+        unparseBox.style.display = '';
+      } else {
+        unparseBox.style.display = 'none';
+      }
+
+      // Table
+      const tbody = document.getElementById('preview-body');
+      tbody.innerHTML = '';
+      picks.forEach((p) => addRow(p));
+
+      document.getElementById('preview-section').style.display = '';
+      document.getElementById('save-btn').style.display = '';
+      document.getElementById('preview-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function addRow(p) {
+      p = p || { overallPick: '', round: '', playerName: '', position: '', nflTeam: '', draftSlot: '', isMyPick: false };
+      const tbody = document.getElementById('preview-body');
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="number" class="f-overall" value="${p.overallPick}" min="1"></td>
+        <td><input type="number" class="f-round" value="${p.round}" min="1"></td>
+        <td><input type="text" class="player-name f-name" value="${esc(p.playerName)}"></td>
+        <td><input type="text" class="pos f-pos" value="${esc(p.position)}"></td>
+        <td><input type="text" class="team f-team" value="${esc(p.nflTeam)}"></td>
+        <td><input type="number" class="f-slot" value="${p.draftSlot || ''}" min="1"></td>
+        <td><input type="checkbox" class="f-mine" ${p.isMyPick ? 'checked' : ''}></td>
+        <td><button class="btn-remove" title="Remove row">×</button></td>
+      `;
+      tr.querySelector('.btn-remove').addEventListener('click', () => tr.remove());
+      tbody.appendChild(tr);
+    }
+
+    document.getElementById('add-row-btn').addEventListener('click', () => {
+      addRow(null);
+      document.getElementById('preview-body').lastElementChild
+        .querySelector('.f-overall').focus();
+    });
+
+    function esc(s) { return (s || '').replace(/"/g, '&quot;'); }
+
+    function collectPicks() {
+      return Array.from(document.querySelectorAll('#preview-body tr')).map((tr) => ({
+        overallPick: parseInt(tr.querySelector('.f-overall').value, 10) || 0,
+        round:       parseInt(tr.querySelector('.f-round').value, 10) || 0,
+        playerName:  tr.querySelector('.f-name').value.trim(),
+        position:    tr.querySelector('.f-pos').value.trim().toUpperCase(),
+        nflTeam:     tr.querySelector('.f-team').value.trim().toUpperCase(),
+        draftSlot:   parseInt(tr.querySelector('.f-slot').value, 10) || null,
+        isMyPick:    tr.querySelector('.f-mine').checked,
+      })).filter((p) => p.playerName);
+    }
+
+    document.getElementById('save-btn').addEventListener('click', async () => {
+      const picks = collectPicks();
+      if (!picks.length) { showError('No picks to save.'); return; }
+
+      const body = {
+        site:       document.getElementById('site').value,
+        draftType:  document.getElementById('draft-type').value,
+        draftedAt:  document.getElementById('drafted-at').value,
+        leagueSize: document.getElementById('league-size').value,
+        mySlot:     document.getElementById('my-slot').value,
+        strategy:   document.getElementById('strategy').value || null,
+        rating:     rating || null,
+        notes:      document.getElementById('notes').value.trim() || null,
+        picks,
+      };
+
+      const data = await apiFetch('/api/drafts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).catch(() => null);
+      if (data) window.location.href = `/draft-detail.html?id=${data.id}`;
+    });
+  </script>
+</body>
+</html>

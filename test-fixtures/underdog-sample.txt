@@ -1,0 +1,44 @@
+Round 1
+1.01 Justin Jefferson WR MIN
+1.02 Ja'Marr Chase WR CIN
+1.03 A.J. Brown WR PHI
+1.04 Tyreek Hill WR MIA
+1.05 Davante Adams WR LV
+1.06 Patrick Mahomes QB KC
+1.07 Cooper Kupp WR LAR
+1.08 Travis Kelce TE KC
+1.09 Josh Allen QB BUF
+1.10 Lamar Jackson QB BAL
+1.11 Derrick Henry RB TEN
+1.12 Nick Chubb RB CLE
+
+Round 2
+2.01 Jonathan Taylor RB IND
+2.02 Austin Ekeler RB LAC
+2.03 Najee Harris RB PIT
+2.04 D'Andre Swift Jr. RB DET
+2.05 Alvin Kamara RB NO
+2.06 Aaron Jones RB GB
+2.07 Joe Mixon RB CIN
+2.08 D.K. Metcalf WR SEA
+2.09 Stefon Diggs WR BUF
+2.10 Saquon Barkley RB NYG
+2.11 Christian McCaffrey RB SF
+2.12 Tony Pollard RB DAL
+
+Round 3
+3.01 Keenan Allen WR LAC
+3.02 Mike Evans WR TB
+3.03 DeAndre Hopkins WR ARI
+3.04 Terry McLaurin WR WAS
+3.05 Jaylen Waddle WR MIA
+3.06 Deebo Samuel WR SF
+3.07 DJ Moore WR CHI
+3.08 Tee Higgins WR CIN
+3.09 Chris Olave WR NO
+3.10 Amari Cooper WR CLE
+3.11 Michael Pittman WR IND
+3.12 George Kittle TE SF
+
+Best Ball Draft - 12 Teams - June 2026
+Manager: TestUser - Slot 3

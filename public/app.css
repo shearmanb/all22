@@ -109,6 +109,9 @@ button.link {
 
 .muted { color: var(--text-dim); }
 
+/* Shared table wrapper for horizontal scroll on mobile */
+.table-wrap { overflow-x: auto; }
+
 /* Login page */
 .login-wrap {
   min-height: 100dvh;
