@@ -214,7 +214,7 @@
           li.textContent = `Line ${u.lineNumber}: ${u.line}`;
           unparseList.appendChild(li);
         });
-        unparseBox.style.display = '';
+        unparseBox.style.display = 'block';
       } else {
         unparseBox.style.display = 'none';
       }
@@ -224,8 +224,8 @@
       tbody.innerHTML = '';
       picks.forEach((p) => addRow(p));
 
-      document.getElementById('preview-section').style.display = '';
-      document.getElementById('save-btn').style.display = '';
+      document.getElementById('preview-section').style.display = 'block';
+      document.getElementById('save-btn').style.display = 'block';
       document.getElementById('preview-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
