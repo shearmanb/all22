@@ -57,6 +57,7 @@
           <label for="site">Site</label>
           <select id="site">
             <option value="underdog">Underdog</option>
+            <option value="fantasypros">FantasyPros</option>
             <option value="yahoo">Yahoo</option>
             <option value="sleeper">Sleeper</option>
             <option value="other">Other</option>
@@ -116,7 +117,7 @@
     <div class="section-title">Paste Draft Board</div>
     <div class="card">
       <textarea id="paste-area" placeholder="Paste your Underdog draft results here..."></textarea>
-      <p class="hint">Accepted: <code>1.03 A.J. Brown WR PHI</code> or <code>36 AJ Brown WR PHI</code></p>
+      <p class="hint" id="paste-hint">Accepted: <code>1.03 A.J. Brown WR PHI</code> or <code>36 AJ Brown WR PHI</code></p>
       <button type="button" id="parse-btn" style="margin-top:10px">Parse Draft</button>
     </div>
 
@@ -153,6 +154,15 @@
     // Set date default to today
     document.getElementById('drafted-at').value = new Date().toISOString().slice(0, 10);
 
+    // Update paste hint when site changes
+    const HINTS = {
+      underdog:    'Accepted: <code>1.03 A.J. Brown WR PHI</code> or <code>36 AJ Brown WR PHI</code>',
+      fantasypros: 'Paste your team view from DraftWizard. All picks will be marked as yours; draft slot is auto-detected.',
+    };
+    document.getElementById('site').addEventListener('change', function () {
+      document.getElementById('paste-hint').innerHTML = HINTS[this.value] || HINTS.underdog;
+    });
+
     // Star rating
     let rating = 0;
     document.getElementById('stars').addEventListener('click', (e) => {
@@ -180,6 +190,11 @@
         body: JSON.stringify({ text, site, leagueSize, mySlot }),
       }).catch(() => null);
       if (!data) return;
+
+      // FantasyPros parser infers the draft slot from the first round-1 pick.
+      if (data.inferredMySlot) {
+        document.getElementById('my-slot').value = data.inferredMySlot;
+      }
 
       renderPreview(data.picks, data.unparseable);
     }
