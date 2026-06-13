@@ -4,7 +4,7 @@ _Last updated: 2026-06-13_
 
 ## Branch
 - Working branch: `claude/great-allen-o10s5a`
-- Both `claude/great-allen-o10s5a` and `main` are in sync at commit `acc55d3`
+- Both `claude/great-allen-o10s5a` and `main` are in sync at commit `290e672`
 - Railway auto-deploys from `main`
 
 ## Completed Phases
@@ -22,35 +22,43 @@ _Last updated: 2026-06-13_
 
 ### Phase 2 — Draft Tracker Core ✅
 - `db/migrations/002_drafts.sql`: `drafts` + `picks` tables, cascade delete index
+- `db/migrations/003_datetime.sql`: `drafted_at` DATE → TIMESTAMPTZ (supports multiple drafts/day)
+- `db/migrations/004_draft_flags.sql`: `is_test BOOLEAN`, `checked_out_at INT` on drafts
 - `lib/players.js`: `normalize(name)` (lowercase key) + `clean(name)` (display). Strips Jr/Sr/II/III, periods (A.J.→AJ), collapses whitespace.
 - `lib/strategy.js`: `suggest(myPicks)` → Anchor TE > Robust RB > Hero RB > Late-Round QB > Zero RB > Balanced
 - `lib/parsers/underdog.js`: Single-line format `R.SS PlayerName POS TEAM`. Snake-draft slot/overall computation. Handles R.S, overall-only, comma variants, round headers.
-- `lib/parsers/fantasypros.js`: Auto-detects two formats:
+- `lib/parsers/fantasypros.js`: Auto-detects two formats. Normalizes `\r\n` → `\n` before detection (fixes browser paste bug).
   - **Full board** ("Rd N" headers): 3-line blocks (FirstName/LastName/TEAM-POS), teams in draft-slot column order, "Redo" marks user's column to infer mySlot. 204 picks from 17-round 12-team draft, 0 unparseable.
   - **Team view** ("Starters"/"Bench" headers): individual pick blocks with (Bye N) and R.SS notation, all picks marked isMyPick=true, mySlot inferred from R1.
 - `lib/parsers/index.js`: Registry with underdog + fantasypros; fallback to underdog.
-- `routes/drafts.js`: POST /parse, GET /, POST /, GET /:id, PUT /:id, DELETE /:id
-- `public/drafts-new.html`: Site dropdown (Underdog/FantasyPros/Yahoo/Sleeper/Other), paste→parse→preview table (editable cells, mine checkbox, add/remove rows)→save. Auto-fills mySlot from inferredMySlot.
-- `public/drafts.html`: Filterable (site/type/strategy) sortable list.
-- `public/draft-detail.html`: Full pick board (mine highlighted blue), inline metadata edit, double-confirm delete.
+- `routes/drafts.js`:
+  - POST /parse → returns picks, unparseable, inferredMySlot, **suggestedStrategy**, **positionCounts**
+  - GET / → list with filters (site/draftType/strategy), sort by date or rating
+  - POST / → save draft + picks; computes suggestedStrategy, stores is_test + checked_out_at
+  - GET /:id → detail with picks
+  - PUT /:id → edit metadata including is_test + checked_out_at
+  - DELETE /:id → cascade deletes picks
+- `public/drafts-new.html`:
+  - Site dropdown (Underdog/FantasyPros/Yahoo/Sleeper/Other)
+  - datetime-local input (defaults to now)
+  - "Checked out at pick #" + "Test draft" checkbox
+  - paste→parse→preview table (editable cells, mine checkbox, add/remove rows)→save
+  - After parse: system analysis bar shows suggested strategy + position counts (e.g. 2 QB · 4 RB · 6 WR)
+  - Auto-fills mySlot from inferredMySlot
+- `public/drafts.html`: Filterable (site/type/strategy) sortable list. Shows full datetime. TEST badge on test drafts.
+- `public/draft-detail.html`: Full pick board (mine highlighted blue), inline metadata edit (datetime-local, is_test, checked_out_at), double-confirm delete. Position counts shown in pick header.
 - `test-fixtures/underdog-sample.txt`: 36-pick 3-round Underdog fixture
-- `test-fixtures/fantasypros-sample.txt`: 17-pick team-view fixture (user's real draft)
-- `test-fixtures/fantasypros-board.txt`: 204-pick full-board fixture (user's real draft)
+- `test-fixtures/fantasypros-sample.txt`: 17-pick team-view fixture
+- `test-fixtures/fantasypros-board.txt`: 204-pick full-board fixture (user's real draft, 12 teams, 17 rounds)
 
-**Checkpoint**: NOT YET RUN by user. Needs real browser test with paste flow.
+**Checkpoint passed**: FantasyPros full-board paste works (204 picks, 17 mine, slot=3). System strategy suggestion + position counts display confirmed working.
 
 ## Next Steps
 
-### Phase 2 Checkpoint (user must run)
-1. Open Railway URL → New Draft → FantasyPros
-2. Paste full board text → Parse → 204 picks, 17 mine, slot=3 auto-filled
-3. Save → detail page, picks highlighted, strategy=Robust RB
-4. Test edit metadata, delete with double-confirm
-5. Filter list by site/type/strategy
-
-### Phase 3 — Draft Analytics (next session)
+### Phase 3 — Draft Analytics
 Per `docs/SESSION_PLAN.md`:
 - Exposure report: every player drafted, count + % of drafts, sorted by % descending
+- **Exclude `is_test = true` drafts by default; add toggle to include them**
 - Top trends: most-drafted player, most-used strategy, avg draft slot
 - Strategy breakdown: count per strategy + avg rating
 - Filters: same site/type/strategy filters as list page
@@ -60,7 +68,7 @@ Per `docs/SESSION_PLAN.md`:
 
 ### Phase 4 — Analyst Compare
 ### Phase 5 — Converters
-### Phase 6 — Yahoo Fantasy API
+### Phase 6 — Yahoo Fantasy API (requires Yahoo Developer app pre-work)
 
 ## Key Architecture Reminders
 - No ORM, raw SQL via `pg`
