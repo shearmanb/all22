@@ -70,7 +70,7 @@ router.get('/', async (req, res) => {
 // POST /api/drafts — save a new draft with picks.
 router.post('/', async (req, res) => {
   try {
-    const { site, draftType, draftedAt, leagueSize, mySlot, strategy, rating, notes, picks, source = 'manual' } = req.body;
+    const { site, draftType, draftedAt, leagueSize, mySlot, strategy, rating, notes, picks, source = 'manual', isTest = false, checkedOutAt = null } = req.body;
 
     if (!site || !draftType || !draftedAt || !leagueSize || !mySlot) {
       return res.json({ ok: false, error: 'Site, draft type, date, league size, and my slot are required.' });
@@ -87,8 +87,8 @@ router.post('/', async (req, res) => {
       await client.query('BEGIN');
       const { rows: [draft] } = await client.query(
         `INSERT INTO drafts
-           (site, draft_type, drafted_at, league_size, my_slot, strategy, suggested_strategy, rating, notes, source)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           (site, draft_type, drafted_at, league_size, my_slot, strategy, suggested_strategy, rating, notes, source, is_test, checked_out_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
          RETURNING id`,
         [
           site, draftType, draftedAt,
@@ -96,6 +96,8 @@ router.post('/', async (req, res) => {
           strategy || null, suggestedStrategy,
           rating ? parseInt(rating, 10) : null,
           notes || null, source,
+          !!isTest,
+          checkedOutAt ? parseInt(checkedOutAt, 10) : null,
         ]
       );
       for (const p of picks) {
@@ -147,7 +149,7 @@ router.get('/:id', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const { site, draftType, draftedAt, leagueSize, mySlot, strategy, rating, notes } = req.body;
+    const { site, draftType, draftedAt, leagueSize, mySlot, strategy, rating, notes, isTest = false, checkedOutAt = null } = req.body;
 
     if (!site || !draftType || !draftedAt || !leagueSize || !mySlot) {
       return res.json({ ok: false, error: 'Site, draft type, date, league size, and my slot are required.' });
@@ -156,14 +158,16 @@ router.put('/:id', async (req, res) => {
     const { rowCount } = await pool.query(
       `UPDATE drafts
        SET site=$1, draft_type=$2, drafted_at=$3, league_size=$4, my_slot=$5,
-           strategy=$6, rating=$7, notes=$8
-       WHERE id=$9`,
+           strategy=$6, rating=$7, notes=$8, is_test=$9, checked_out_at=$10
+       WHERE id=$11`,
       [
         site, draftType, draftedAt,
         parseInt(leagueSize, 10), parseInt(mySlot, 10),
         strategy || null,
         rating ? parseInt(rating, 10) : null,
         notes || null,
+        !!isTest,
+        checkedOutAt ? parseInt(checkedOutAt, 10) : null,
         id,
       ]
     );

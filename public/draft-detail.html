@@ -109,6 +109,14 @@
             <button type="button" data-v="5">★</button>
           </div>
         </div>
+        <div>
+          <label class="field-label" for="e-checked-out">Checked out at pick #</label>
+          <input type="number" id="e-checked-out" min="1" placeholder="optional">
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding-top:20px">
+          <input type="checkbox" id="e-is-test" style="width:18px;height:18px;cursor:pointer;accent-color:var(--accent)">
+          <label for="e-is-test" class="field-label" style="margin:0;cursor:pointer">Test draft — exclude from analytics</label>
+        </div>
         <div class="full">
           <label class="field-label" for="e-notes">Notes</label>
           <textarea id="e-notes" rows="3" style="min-height:60px"></textarea>
@@ -180,6 +188,8 @@
         <div class="meta-item"><label>My Slot</label><span>${d.my_slot}</span></div>
         <div class="meta-item"><label>Strategy</label>${strat}${suggested}</div>
         <div class="meta-item"><label>Rating</label>${ratingHtml}</div>
+        ${d.checked_out_at ? `<div class="meta-item"><label>Checked out at pick</label><span>#${d.checked_out_at}</span></div>` : ''}
+        ${d.is_test ? `<div class="meta-item"><label>Flags</label><span class="badge" style="color:#e6a817;border-color:#e6a817">TEST</span></div>` : ''}
         ${d.notes ? `<div class="meta-item" style="grid-column:1/-1"><label>Notes</label><pre class="notes-pre">${esc(d.notes)}</pre></div>` : ''}
       `;
     }
@@ -222,6 +232,8 @@
       document.getElementById('e-slot').value = d.my_slot || '';
       document.getElementById('e-strategy').value = d.strategy || '';
       document.getElementById('e-notes').value = d.notes || '';
+      document.getElementById('e-checked-out').value = d.checked_out_at || '';
+      document.getElementById('e-is-test').checked = !!d.is_test;
       editRating = d.rating || 0;
       document.querySelectorAll('#e-stars button').forEach((b) => {
         b.classList.toggle('active', +b.dataset.v <= editRating);
@@ -252,9 +264,11 @@
         draftedAt:  document.getElementById('e-date').value,
         leagueSize: document.getElementById('e-size').value,
         mySlot:     document.getElementById('e-slot').value,
-        strategy:   document.getElementById('e-strategy').value || null,
-        rating:     editRating || null,
-        notes:      document.getElementById('e-notes').value.trim() || null,
+        strategy:      document.getElementById('e-strategy').value || null,
+        rating:        editRating || null,
+        notes:         document.getElementById('e-notes').value.trim() || null,
+        isTest:        document.getElementById('e-is-test').checked,
+        checkedOutAt:  parseInt(document.getElementById('e-checked-out').value, 10) || null,
       };
       const data = await apiFetch(`/api/drafts/${id}`, {
         method: 'PUT',

@@ -123,7 +123,7 @@
       tbody.innerHTML = rows.map((d) => `
         <tr onclick="location.href='/draft-detail.html?id=${d.id}'">
           <td>${d.drafted_at ? new Date(d.drafted_at).toLocaleString() : '—'}</td>
-          <td>${esc(d.site)}</td>
+          <td>${esc(d.site)}${d.is_test ? ' <span style="font-size:.7rem;color:#e6a817;border:1px solid #e6a817;border-radius:10px;padding:1px 5px">TEST</span>' : ''}</td>
           <td>${esc(d.draft_type)}</td>
           <td>${d.strategy ? `<span class="badge">${esc(d.strategy)}</span>` : '<span class="muted">—</span>'}</td>
           <td>${stars(d.rating)}</td>
