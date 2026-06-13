@@ -1,0 +1,675 @@
+Younghoe Frankenstein
+Joe Pisapia
+Your Team
+On Burrowed Time
+Griddy Little Liars
+Django Achaned
+Dude, Where's Lamar?
+Eat, Pray, Love
+Pat Fitzmaurice
+DeVonta Be The Very Best
+Derek Brown
+Andrew Erickson
+Rd 1
+Puka
+Nacua
+LAR - WR
+Ja'Marr
+Chase
+CIN - WR
+Jahmyr
+Gibbs
+DET - RB
+
+Redo
+Bijan
+Robinson
+ATL - RB
+Christian
+McCaffrey
+SF - RB
+Jaxon
+Smith-Njigba
+SEA - WR
+Amon-Ra
+St. Brown
+DET - WR
+Jonathan
+Taylor
+IND - RB
+Ashton
+Jeanty
+LV - RB
+CeeDee
+Lamb
+DAL - WR
+Justin
+Jefferson
+MIN - WR
+James
+Cook III
+BUF - RB
+Rd 2
+Zay
+Flowers
+BAL - WR
+George
+Pickens
+DAL - WR
+Omarion
+Hampton
+LAC - RB
+
+Redo
+Malik
+Nabers
+NYG - WR
+Chris
+Olave
+NO - WR
+Rashee
+Rice
+KC - WR
+Chase
+Brown
+CIN - RB
+Saquon
+Barkley
+PHI - RB
+De'Von
+Achane
+MIA - RB
+Nico
+Collins
+HOU - WR
+Drake
+London
+ATL - WR
+A.J.
+Brown
+NE - WR
+Rd 3
+Garrett
+Wilson
+NYJ - WR
+Brock
+Bowers
+LV - TE
+Ladd
+McConkey
+LAC - WR
+
+Redo
+Trey
+McBride
+ARI - TE
+Kenneth
+Walker III
+KC - RB
+Josh
+Allen
+BUF - QB
+Derrick
+Henry
+BAL - RB
+Jeremiyah
+Love
+ARI - RB
+Tetairoa
+McMillan
+CAR - WR
+Lamar
+Jackson
+BAL - QB
+Javonte
+Williams
+DAL - RB
+Drake
+Maye
+NE - QB
+Rd 4
+Harold
+Fannin Jr.
+CLE - TE
+DJ
+Moore
+BUF - WR
+Cam
+Skattebo
+NYG - RB
+
+Redo
+Josh
+Jacobs
+GB - RB
+Travis
+Etienne Jr.
+NO - RB
+Colston
+Loveland
+CHI - TE
+Tee
+Higgins
+CIN - WR
+Breece
+Hall
+NYJ - RB
+Kyren
+Williams
+LAR - RB
+Luther
+Burden III
+CHI - WR
+Jaylen
+Waddle
+DEN - WR
+DeVonta
+Smith
+PHI - WR
+Rd 5
+Quinshon
+Judkins
+CLE - RB
+D'Andre
+Swift
+CHI - RB
+Terry
+McLaurin
+WAS - WR
+
+Redo
+Davante
+Adams
+LAR - WR
+Rome
+Odunze
+CHI - WR
+Bucky
+Irving
+TB - RB
+Emeka
+Egbuka
+TB - WR
+Jameson
+Williams
+DET - WR
+Christian
+Watson
+GB - WR
+David
+Montgomery
+HOU - RB
+Jalen
+Hurts
+PHI - QB
+Carnell
+Tate
+TEN - WR
+Rd 6
+Chris
+Godwin Jr.
+TB - WR
+Courtland
+Sutton
+DEN - WR
+Tucker
+Kraft
+GB - TE
+
+Redo
+DK
+Metcalf
+PIT - WR
+Joe
+Burrow
+CIN - QB
+TreVeyon
+Henderson
+NE - RB
+Marvin
+Harrison Jr.
+ARI - WR
+Brian
+Thomas Jr.
+JAC - WR
+Jayden
+Daniels
+WAS - QB
+Tyler
+Warren
+IND - TE
+Parker
+Washington
+JAC - WR
+Mike
+Evans
+SF - WR
+Rd 7
+Michael
+Pittman Jr.
+PIT - WR
+Bhayshul
+Tuten
+JAC - RB
+Justin
+Herbert
+LAC - QB
+
+Redo
+Caleb
+Williams
+CHI - QB
+Travis
+Kelce
+KC - TE
+Jakobi
+Meyers
+JAC - WR
+Jordyn
+Tyson
+NO - WR
+Dak
+Prescott
+DAL - QB
+Kyle
+Pitts Sr.
+ATL - TE
+Alec
+Pierce
+IND - WR
+Tony
+Pollard
+TEN - RB
+RJ
+Harvey
+DEN - RB
+Rd 8
+Kyler
+Murray
+MIN - QB
+Rico
+Dowdle
+PIT - RB
+Jaxson
+Dart
+NYG - QB
+
+Redo
+Chuba
+Hubbard
+CAR - RB
+Khalil
+Shakir
+BUF - WR
+Michael
+Wilson
+ARI - WR
+Trevor
+Lawrence
+JAC - QB
+Sam
+LaPorta
+DET - TE
+Ricky
+Pearsall
+SF - WR
+Jaylen
+Warren
+PIT - RB
+Wan'Dale
+Robinson
+TEN - WR
+Makai
+Lemon
+PHI - WR
+Rd 9
+Jordan
+Mason
+MIN - RB
+Rhamondre
+Stevenson
+NE - RB
+Quentin
+Johnston
+LAC - WR
+
+Redo
+Jordan
+Addison
+MIN - WR
+Jadarian
+Price
+SEA - RB
+Josh
+Downs
+IND - WR
+Jayden
+Reed
+GB - WR
+Xavier
+Worthy
+KC - WR
+Blake
+Corum
+LAR - RB
+Aaron
+Jones Sr.
+MIN - RB
+KC
+Concepcion
+CLE - WR
+Rachaad
+White
+WAS - RB
+Rd 10
+Tyjae
+Spears
+TEN - RB
+Tyler
+Allgeier
+ARI - RB
+Jonathon
+Brooks
+CAR - RB
+
+Redo
+Woody
+Marks
+HOU - RB
+Deebo
+Samuel Sr.
+- WR
+Jacory
+Croskey-Merritt
+WAS - RB
+J.K.
+Dobbins
+DEN - RB
+Matthew
+Golden
+GB - WR
+Jayden
+Higgins
+HOU - WR
+Kyle
+Monangai
+CHI - RB
+Romeo
+Doubs
+NE - WR
+Kenneth
+Gainwell
+TB - RB
+Rd 11
+Chris
+Rodriguez Jr.
+JAC - RB
+Alvin
+Kamara
+NO - RB
+Jalen
+Coker
+CAR - WR
+
+Redo
+Denzel
+Boston
+CLE - WR
+Jauan
+Jennings
+MIN - WR
+Tyrone
+Tracy Jr.
+NYG - RB
+Dalton
+Kincaid
+BUF - TE
+Rashid
+Shaheed
+SEA - WR
+Omar
+Cooper Jr.
+NYJ - WR
+Zach
+Charbonnet
+SEA - RB
+Isaiah
+Likely
+NYG - TE
+Travis
+Hunter
+JAC - WR
+Rd 12
+Denver
+Broncos
+DEN - DST
+Matthew
+Stafford
+LAR - QB
+Brandon
+Aiyuk
+SF - WR
+
+Redo
+Emanuel
+Wilson
+SEA - RB
+Brenton
+Strange
+JAC - TE
+James
+Conner
+ARI - RB
+Isiah
+Pacheco
+DET - RB
+Jalen
+McMillan
+TB - WR
+Jerry
+Jeudy
+CLE - WR
+Dylan
+Sampson
+CLE - RB
+Keaton
+Mitchell
+LAC - RB
+Stefon
+Diggs
+- WR
+Rd 13
+Brian
+Robinson Jr.
+ATL - RB
+Bo
+Nix
+DEN - QB
+Malik
+Washington
+MIA - WR
+
+Redo
+Adonai
+Mitchell
+NYJ - WR
+Kayshon
+Boutte
+NE - WR
+Kansas City
+Chiefs
+KC - DST
+George
+Kittle
+SF - TE
+Jonah
+Coleman
+DEN - RB
+Emmett
+Johnson
+KC - RB
+Houston
+Texans
+HOU - DST
+Tank
+Bigsby
+PHI - RB
+Jaylin
+Noel
+HOU - WR
+Rd 14
+Justice
+Hill
+BAL - RB
+Isaac
+TeSlaa
+DET - WR
+Oronde
+Gadsden II
+LAC - TE
+
+Redo
+Patrick
+Mahomes II
+KC - QB
+Kimani
+Vidal
+LAC - RB
+Braelon
+Allen
+NYJ - RB
+Sean
+Tucker
+TB - RB
+Jake
+Ferguson
+DAL - TE
+Brock
+Purdy
+SF - QB
+Tre'
+Harris
+LAC - WR
+Mike
+Washington Jr.
+LV - RB
+Chig
+Okonkwo
+WAS - TE
+Rd 15
+Jordan
+Love
+GB - QB
+Ray
+Davis
+BUF - RB
+Philadelphia
+Eagles
+PHI - DST
+
+Redo
+Nicholas
+Singleton
+TEN - RB
+Kaytron
+Allen
+WAS - RB
+Dallas
+Goedert
+PHI - TE
+Jaylen
+Wright
+MIA - RB
+Jared
+Goff
+DET - QB
+Jalen
+Nailor
+LV - WR
+Mark
+Andrews
+BAL - TE
+Greg
+Dulcich
+MIA - TE
+MarShawn
+Lloyd
+GB - RB
+Rd 16
+Samaje
+Perine
+CIN - RB
+Los Angeles
+Chargers
+LAC - DST
+Dontayvion
+Wicks
+PHI - WR
+
+Redo
+Pittsburgh
+Steelers
+PIT - DST
+Jacksonville
+Jaguars
+JAC - DST
+Kaleb
+Johnson
+PIT - RB
+Minnesota
+Vikings
+MIN - DST
+New England
+Patriots
+NE - DST
+Los Angeles
+Rams
+LAR - DST
+Isaiah
+Davis
+NYJ - RB
+Kaelon
+Black
+SF - RB
+Seattle
+Seahawks
+SEA - DST
+Rd 17
+Tyler
+Loop
+BAL - K
+Brandon
+Aubrey
+DAL - K
+Cameron
+Dicker
+LAC - K
+
+Redo
+Ka'imi
+Fairbairn
+HOU - K
+Cam
+Little
+JAC - K
+Harrison
+Butker
+KC - K
+Jason
+Myers
+SEA - K
+Eddy
+Pineiro
+SF - K
+Harrison
+Mevis
+LAR - K
+Evan
+McPherson
+CIN - K
+Detroit
+Lions
+DET - DST
+Ollie
+Gordon II
+MIA - RB
