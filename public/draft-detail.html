@@ -80,8 +80,8 @@
           </select>
         </div>
         <div>
-          <label class="field-label" for="e-date">Date</label>
-          <input type="date" id="e-date">
+          <label class="field-label" for="e-date">Date &amp; Time</label>
+          <input type="datetime-local" id="e-date">
         </div>
         <div>
           <label class="field-label" for="e-size">League Size</label>
@@ -160,7 +160,7 @@
 
     function renderMeta(d) {
       document.getElementById('page-title').textContent =
-        `${d.site} ${d.draft_type} — ${d.drafted_at ? d.drafted_at.slice(0,10) : ''}`;
+        `${d.site} ${d.draft_type} — ${d.drafted_at ? new Date(d.drafted_at).toLocaleString() : ''}`;
 
       const strat = d.strategy
         ? `<span class="badge">${esc(d.strategy)}</span>`
@@ -173,7 +173,7 @@
         : '<span class="muted">—</span>';
 
       document.getElementById('meta-grid').innerHTML = `
-        <div class="meta-item"><label>Date</label><span>${d.drafted_at ? esc(d.drafted_at.slice(0,10)) : '—'}</span></div>
+        <div class="meta-item"><label>Date &amp; Time</label><span>${d.drafted_at ? esc(new Date(d.drafted_at).toLocaleString()) : '—'}</span></div>
         <div class="meta-item"><label>Site</label><span>${esc(d.site)}</span></div>
         <div class="meta-item"><label>Type</label><span>${esc(d.draft_type)}</span></div>
         <div class="meta-item"><label>League Size</label><span>${d.league_size}</span></div>
@@ -185,9 +185,19 @@
     }
 
     function renderPicks(picks) {
-      const mine = picks.filter((p) => p.is_my_pick).length;
+      const mine = picks.filter((p) => p.is_my_pick);
+      const posCounts = {};
+      for (const p of mine) {
+        const pos = p.position || 'Other';
+        posCounts[pos] = (posCounts[pos] || 0) + 1;
+      }
+      const posOrder = ['QB','RB','WR','TE','K','DST','DEF','Other'];
+      const posStr = [
+        ...posOrder.filter((p) => posCounts[p]).map((p) => `${posCounts[p]} ${p}`),
+        ...Object.keys(posCounts).filter((p) => !posOrder.includes(p)).map((p) => `${posCounts[p]} ${p}`),
+      ].join(' · ');
       document.getElementById('pick-counts').textContent =
-        `${mine} my picks · ${picks.length} total`;
+        `${mine.length} my picks · ${picks.length} total` + (posStr ? ` — ${posStr}` : '');
 
       const tbody = document.getElementById('picks-body');
       tbody.innerHTML = picks.map((p) => `
@@ -207,7 +217,7 @@
       const d = draftData;
       document.getElementById('e-site').value = d.site || '';
       document.getElementById('e-type').value = d.draft_type || '';
-      document.getElementById('e-date').value = d.drafted_at ? d.drafted_at.slice(0,10) : '';
+      document.getElementById('e-date').value = d.drafted_at ? new Date(d.drafted_at).toISOString().slice(0,16) : '';
       document.getElementById('e-size').value = d.league_size || '';
       document.getElementById('e-slot').value = d.my_slot || '';
       document.getElementById('e-strategy').value = d.strategy || '';

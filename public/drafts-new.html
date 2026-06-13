@@ -72,8 +72,8 @@
           </select>
         </div>
         <div>
-          <label for="drafted-at">Date</label>
-          <input type="date" id="drafted-at">
+          <label for="drafted-at">Date &amp; Time</label>
+          <input type="datetime-local" id="drafted-at">
         </div>
         <div>
           <label for="league-size">League Size</label>
@@ -84,7 +84,7 @@
           <input type="number" id="my-slot" value="1" min="1" max="24">
         </div>
         <div>
-          <label for="strategy">Strategy (optional)</label>
+          <label for="strategy">Strategy override (optional)</label>
           <select id="strategy">
             <option value="">— choose —</option>
             <option>Hero RB</option>
@@ -151,8 +151,10 @@
 
   <script src="/app.js"></script>
   <script>
-    // Set date default to today
-    document.getElementById('drafted-at').value = new Date().toISOString().slice(0, 10);
+    // Set date+time default to now (local time)
+    const now = new Date();
+    now.setSeconds(0, 0);
+    document.getElementById('drafted-at').value = now.toISOString().slice(0, 16);
 
     // Update paste hint when site changes
     const HINTS = {
@@ -196,10 +198,10 @@
         document.getElementById('my-slot').value = data.inferredMySlot;
       }
 
-      renderPreview(data.picks, data.unparseable);
+      renderPreview(data.picks, data.unparseable, data.suggestedStrategy, data.positionCounts);
     }
 
-    function renderPreview(picks, unparseable) {
+    function renderPreview(picks, unparseable, suggestedStrategy, positionCounts) {
       // Summary
       document.getElementById('parse-summary').textContent =
         `— ${picks.length} picks parsed, ${unparseable.length} line(s) couldn't be parsed`;
@@ -223,6 +225,25 @@
       const tbody = document.getElementById('preview-body');
       tbody.innerHTML = '';
       picks.forEach((p) => addRow(p));
+
+      // System analysis
+      const sysDiv = document.getElementById('suggested-strategy');
+      if (suggestedStrategy || (positionCounts && Object.keys(positionCounts).length)) {
+        const posOrder = ['QB','RB','WR','TE','K','DST','DEF','Other'];
+        const posParts = posOrder
+          .filter((p) => positionCounts && positionCounts[p])
+          .map((p) => `${positionCounts[p]} ${p}`);
+        const extraPos = Object.keys(positionCounts || {})
+          .filter((p) => !posOrder.includes(p))
+          .map((p) => `${positionCounts[p]} ${p}`);
+        const posStr = [...posParts, ...extraPos].join(' · ');
+        sysDiv.innerHTML =
+          `<strong>System:</strong> Strategy → <strong>${suggestedStrategy || '—'}</strong>` +
+          (posStr ? `&nbsp;&nbsp;|&nbsp;&nbsp;My picks: ${posStr}` : '');
+        sysDiv.style.display = 'block';
+      } else {
+        sysDiv.style.display = 'none';
+      }
 
       document.getElementById('preview-section').style.display = 'block';
       document.getElementById('save-btn').style.display = 'block';

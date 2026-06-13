@@ -17,7 +17,16 @@ router.post('/parse', async (req, res) => {
       leagueSize: parseInt(leagueSize, 10) || 12,
       mySlot: parseInt(mySlot, 10) || 1,
     });
-    res.json({ ok: true, data: result });
+
+    const myPicks = result.picks.filter((p) => p.isMyPick);
+    const suggestedStrategy = suggest(myPicks);
+    const positionCounts = {};
+    for (const p of myPicks) {
+      const pos = p.position || 'Other';
+      positionCounts[pos] = (positionCounts[pos] || 0) + 1;
+    }
+
+    res.json({ ok: true, data: { ...result, suggestedStrategy, positionCounts } });
   } catch (err) {
     console.error(`POST /api/drafts/parse: ${err.message}`);
     res.json({ ok: false, error: err.message });
