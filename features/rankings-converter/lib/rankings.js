@@ -17,8 +17,9 @@ const players = require('../../../lib/players');
 // Words that only appear in header/label rows, never in a player name.
 const HEADER_WORDS = new Set([
   'rank', 'ranks', 'ranking', 'rankings', 'rk', 'no', 'player', 'players',
-  'pos', 'position', 'positions', 'team', 'tier', 'tiers', 'bye', 'adp',
+  'pos', 'position', 'positions', 'team', 'teams', 'tier', 'tiers', 'bye', 'adp',
   'overall', 'name', 'ecr', 'avg', 'best', 'worst', 'proj', 'pts',
+  'def', 'dst', 'defense', 'defenses',
 ]);
 
 function looksLikeJunk(line) {
@@ -73,6 +74,10 @@ function parseLine(rawLine) {
   if (line.includes(',')) {
     const segments = line.split(',').map((s) => s.trim());
     const rawName = stripRankPrefix(segments[0]);
+    // A row that's just a team (no player) is a defense — e.g.
+    // "1 Philadelphia Eagles, PHI, BYE" or "Cowboys DST".
+    const dst = players.teamDefenseFromLine(rawName);
+    if (dst) return { name: players.teamDefenseName(dst), position: 'DST', team: dst };
     const name = players.display(rawName);
     const team = findTeamInSegments(segments.slice(1));
     if (name && /[a-z]/i.test(name) && players.key(name).length >= 2) {
@@ -90,6 +95,11 @@ function parseLine(rawLine) {
   // Drop a leading rank token: digits + optional "." / ")" + REQUIRED space.
   line = line.replace(/^\s*\d{1,3}[.)]?\s+/, '');
   if (!line) return null;
+
+  // A row that's just a team name (no player) is a defense, e.g. "49ers",
+  // "Dallas Cowboys", "PHI DST".
+  const dst = players.teamDefenseFromLine(line);
+  if (dst) return { name: players.teamDefenseName(dst), position: 'DST', team: dst };
 
   const tokens = line.split(/\s+/).filter(Boolean);
   const position = players.findPosition(tokens);
