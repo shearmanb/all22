@@ -11,12 +11,16 @@ Deploys to Railway: push to `main` = production deploy. Postgres lives on Railwa
 - Single shared password gate via `APP_PASSWORD` env var (cookie session). No user accounts.
 - Yahoo Fantasy API: OAuth 2.0 server-side only. Credentials in `YAHOO_CLIENT_ID` / `YAHOO_CLIENT_SECRET` Railway env vars. Token logic lives in `lib/yahoo.js`. Yahoo OAuth is for connecting to MY Yahoo account — it is NOT a user login system.
 
-## File layout
-- `server.js` — Express app entry; mounts routes from `routes/`
-- `routes/<feature>.js` — one router per feature (drafts, rankings, convert, yahoo)
-- `lib/` — shared logic (players.js, parsers/, etc.)
-- `public/` — static pages, one HTML file per page; shared `app.css` (dark theme) and `app.js`
-- `db/migrations/` — numbered SQL migrations
+## File layout (modular monolith — one repo, one Railway deploy, one login)
+The portal is a splash page plus self-contained **feature modules**. Shared core stays at the root; each applet lives in its own folder so adding or changing one never touches another.
+- `server.js` — Express app entry; mounts core routers, then loops `features/index.js` to mount each applet's API router + static pages.
+- `features/index.js` — the feature registry (the ONE place applets are listed). Add an applet = new folder + one entry here.
+- `features/<name>/` — a self-contained applet: `router.js` (its `/api` routes), `public/` (its pages, served at the site root), and optionally `lib/` and `test-fixtures/`. Current applets: `draft-tracker`, `rankings-converter`.
+- `routes/auth.js`, `routes/health.js` — core (shared) routers: login/logout and `/health`.
+- `lib/players.js` — shared canonical name logic (used by every feature). Other genuinely shared code lives in `lib/`.
+- `public/` — shared/core pages + assets: `index.html` (splash launcher), `login.html`, `app.css` (dark theme), `app.js` (`showError`/`clearError`/`apiFetch`).
+- `db/pool.js`, `db/migrate.js` — one shared Postgres pool + boot-time migration runner.
+- `db/migrations/` — numbered SQL migrations (shared history, single DB). Name new files with a feature prefix, e.g. `005_converter_ranking_sets.sql`; never edit an applied migration.
 
 ## Conventions
 - API routes: `/api/<feature>/...` returning JSON `{ ok: true, data }` or `{ ok: false, error: "human-readable message" }`.

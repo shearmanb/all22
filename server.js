@@ -7,7 +7,7 @@ const cookieSession = require('cookie-session');
 const { runMigrations } = require('./db/migrate');
 const healthRouter = require('./routes/health');
 const authRouter = require('./routes/auth');
-const draftsRouter = require('./routes/drafts');
+const features = require('./features');
 
 const app = express();
 
@@ -40,8 +40,15 @@ app.use((req, res, next) => {
   res.redirect('/login');
 });
 
-app.use('/api/drafts', draftsRouter);
+// Mount each applet from the registry: its API router + its static pages.
+// Feature pages are served at the site root, so links like /drafts.html and
+// /convert.html resolve directly (filenames are distinct across features).
+for (const feature of features) {
+  app.use(feature.apiMount, feature.router);
+  app.use(express.static(feature.publicDir));
+}
 
+// Shared/core pages (splash, login) and assets.
 app.use(express.static(path.join(__dirname, 'public')));
 
 // 404s: JSON for API, simple message otherwise.

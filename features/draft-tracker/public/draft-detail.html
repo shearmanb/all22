@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Draft Detail — All22</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+    .meta-item label { font-size: .75rem; color: var(--text-dim); display: block; margin-bottom: 2px; }
+    .meta-item span { font-weight: 500; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: .78rem; background: var(--border); }
+    .badge.suggested { border: 1px solid var(--border); background: none; color: var(--text-dim); font-style: italic; }
+    .rating { color: #f5c842; font-size: 1.1rem; }
+    .actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+    .btn-danger { background: var(--error-bg); border-color: var(--error-border); color: var(--error-text); }
+    .btn-danger:hover { filter: brightness(1.2); }
+    .table-wrap { overflow-x: auto; margin-top: 12px; }
+    table { border-collapse: collapse; width: 100%; min-width: 500px; font-size: .85rem; }
+    th { text-align: left; padding: 6px 10px; border-bottom: 2px solid var(--border); color: var(--text-dim); font-weight: 500; white-space: nowrap; }
+    td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
+    tr.mine td { background: rgba(79,156,249,.09); }
+    tr.mine td:first-child { border-left: 3px solid var(--accent); }
+    tr:hover td { filter: brightness(1.08); }
+    /* Edit form (hidden by default) */
+    #edit-section { display: none; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 500px) { .form-grid { grid-template-columns: 1fr; } }
+    .form-grid .full { grid-column: 1 / -1; }
+    label.field-label { font-size: .85rem; color: var(--text-dim); margin-bottom: 4px; display: block; }
+    .stars { display: flex; gap: 4px; }
+    .stars button { background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--text-dim); width: 36px; height: 36px; font-size: 1rem; cursor: pointer; padding: 0; }
+    .stars button.active { border-color: var(--accent); color: #f5c842; }
+    .notes-pre { white-space: pre-wrap; font-size: .875rem; color: var(--text-dim); margin: 0; }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">All22</span>
+    <a href="/">Home</a>
+    <a href="/drafts.html" class="active">Draft Tracker</a>
+    <a href="/convert.html">Rankings Converter</a>
+    <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
+  </nav>
+  <div id="error-banner"></div>
+  <main>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <h1 id="page-title" style="margin:0">Draft</h1>
+      <a href="/drafts.html" style="font-size:.85rem">← All drafts</a>
+    </div>
+
+    <!-- Metadata view -->
+    <div id="meta-view" class="card" style="margin-top:14px">
+      <div class="meta-grid" id="meta-grid"></div>
+      <div class="actions">
+        <button type="button" id="edit-btn">Edit</button>
+        <button type="button" id="delete-btn" class="btn-danger">Delete</button>
+      </div>
+    </div>
+
+    <!-- Edit form -->
+    <div id="edit-section" class="card" style="margin-top:14px">
+      <div class="form-grid">
+        <div>
+          <label class="field-label" for="e-site">Site</label>
+          <select id="e-site">
+            <option value="Underdog">Underdog</option>
+            <option value="Yahoo">Yahoo</option>
+            <option value="Sleeper">Sleeper</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label" for="e-type">Draft Type</label>
+          <select id="e-type">
+            <option>Best Ball</option><option>Mock</option><option>Season League</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label" for="e-date">Date &amp; Time</label>
+          <input type="datetime-local" id="e-date">
+        </div>
+        <div>
+          <label class="field-label" for="e-size">League Size</label>
+          <input type="number" id="e-size" min="4" max="24">
+        </div>
+        <div>
+          <label class="field-label" for="e-slot">My Draft Slot</label>
+          <input type="number" id="e-slot" min="1" max="24">
+        </div>
+        <div>
+          <label class="field-label" for="e-strategy">Strategy</label>
+          <select id="e-strategy">
+            <option value="">— choose —</option>
+            <option>Hero RB</option><option>Zero RB</option><option>Robust RB</option>
+            <option>Anchor TE</option><option>Late-Round QB</option><option>Balanced</option><option>Other</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">Rating</label>
+          <div class="stars" id="e-stars">
+            <button type="button" data-v="1">★</button>
+            <button type="button" data-v="2">★</button>
+            <button type="button" data-v="3">★</button>
+            <button type="button" data-v="4">★</button>
+            <button type="button" data-v="5">★</button>
+          </div>
+        </div>
+        <div>
+          <label class="field-label" for="e-checked-out">Checked out at pick #</label>
+          <input type="number" id="e-checked-out" min="1" placeholder="optional">
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding-top:20px">
+          <input type="checkbox" id="e-is-test" style="width:18px;height:18px;cursor:pointer;accent-color:var(--accent)">
+          <label for="e-is-test" class="field-label" style="margin:0;cursor:pointer">Test draft — exclude from analytics</label>
+        </div>
+        <div class="full">
+          <label class="field-label" for="e-notes">Notes</label>
+          <textarea id="e-notes" rows="3" style="min-height:60px"></textarea>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:12px">
+        <button type="button" id="save-edit-btn">Save Changes</button>
+        <button type="button" id="cancel-edit-btn" class="link">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Picks table -->
+    <div style="margin-top:20px">
+      <div style="font-weight:600;margin-bottom:6px">
+        Pick Board <span class="muted" id="pick-counts" style="font-size:.85rem;font-weight:400"></span>
+      </div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>#</th><th>Rnd</th><th>Player</th><th>Pos</th><th>Team</th><th>Slot</th></tr>
+            </thead>
+            <tbody id="picks-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+    const id = new URLSearchParams(location.search).get('id');
+    if (!id) location.href = '/drafts.html';
+
+    let draftData = null;
+    let editRating = 0;
+
+    async function loadDraft() {
+      const data = await apiFetch(`/api/drafts/${id}`).catch(() => null);
+      if (!data) return;
+      draftData = data;
+      renderMeta(data);
+      renderPicks(data.picks);
+    }
+
+    function esc(s) {
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function renderMeta(d) {
+      document.getElementById('page-title').textContent =
+        `${d.site} ${d.draft_type} — ${d.drafted_at ? new Date(d.drafted_at).toLocaleString() : ''}`;
+
+      const strat = d.strategy
+        ? `<span class="badge">${esc(d.strategy)}</span>`
+        : '<span class="muted">—</span>';
+      const suggested = d.suggested_strategy
+        ? ` <span class="badge suggested" title="Auto-suggested from your picks">≈ ${esc(d.suggested_strategy)}</span>`
+        : '';
+      const ratingHtml = d.rating
+        ? `<span class="rating">${'★'.repeat(d.rating)}</span>`
+        : '<span class="muted">—</span>';
+
+      document.getElementById('meta-grid').innerHTML = `
+        <div class="meta-item"><label>Date &amp; Time</label><span>${d.drafted_at ? esc(new Date(d.drafted_at).toLocaleString()) : '—'}</span></div>
+        <div class="meta-item"><label>Site</label><span>${esc(d.site)}</span></div>
+        <div class="meta-item"><label>Type</label><span>${esc(d.draft_type)}</span></div>
+        <div class="meta-item"><label>League Size</label><span>${d.league_size}</span></div>
+        <div class="meta-item"><label>My Slot</label><span>${d.my_slot}</span></div>
+        <div class="meta-item"><label>Strategy</label>${strat}${suggested}</div>
+        <div class="meta-item"><label>Rating</label>${ratingHtml}</div>
+        ${d.checked_out_at ? `<div class="meta-item"><label>Checked out at pick</label><span>#${d.checked_out_at}</span></div>` : ''}
+        ${d.is_test ? `<div class="meta-item"><label>Flags</label><span class="badge" style="color:#e6a817;border-color:#e6a817">TEST</span></div>` : ''}
+        ${d.notes ? `<div class="meta-item" style="grid-column:1/-1"><label>Notes</label><pre class="notes-pre">${esc(d.notes)}</pre></div>` : ''}
+      `;
+    }
+
+    function renderPicks(picks) {
+      const mine = picks.filter((p) => p.is_my_pick);
+      const posCounts = {};
+      for (const p of mine) {
+        const pos = p.position || 'Other';
+        posCounts[pos] = (posCounts[pos] || 0) + 1;
+      }
+      const posOrder = ['QB','RB','WR','TE','K','DST','DEF','Other'];
+      const posStr = [
+        ...posOrder.filter((p) => posCounts[p]).map((p) => `${posCounts[p]} ${p}`),
+        ...Object.keys(posCounts).filter((p) => !posOrder.includes(p)).map((p) => `${posCounts[p]} ${p}`),
+      ].join(' · ');
+      document.getElementById('pick-counts').textContent =
+        `${mine.length} my picks · ${picks.length} total` + (posStr ? ` — ${posStr}` : '');
+
+      const tbody = document.getElementById('picks-body');
+      tbody.innerHTML = picks.map((p) => `
+        <tr class="${p.is_my_pick ? 'mine' : ''}">
+          <td>${p.overall_pick}</td>
+          <td>${p.round}</td>
+          <td>${esc(p.player_name)}${p.is_my_pick ? ' <span style="font-size:.7rem;color:var(--accent)">▶ me</span>' : ''}</td>
+          <td>${esc(p.position || '—')}</td>
+          <td>${esc(p.nfl_team || '—')}</td>
+          <td>${p.draft_slot || '—'}</td>
+        </tr>`
+      ).join('');
+    }
+
+    // Edit
+    document.getElementById('edit-btn').addEventListener('click', () => {
+      const d = draftData;
+      document.getElementById('e-site').value = d.site || '';
+      document.getElementById('e-type').value = d.draft_type || '';
+      document.getElementById('e-date').value = d.drafted_at ? new Date(d.drafted_at).toISOString().slice(0,16) : '';
+      document.getElementById('e-size').value = d.league_size || '';
+      document.getElementById('e-slot').value = d.my_slot || '';
+      document.getElementById('e-strategy').value = d.strategy || '';
+      document.getElementById('e-notes').value = d.notes || '';
+      document.getElementById('e-checked-out').value = d.checked_out_at || '';
+      document.getElementById('e-is-test').checked = !!d.is_test;
+      editRating = d.rating || 0;
+      document.querySelectorAll('#e-stars button').forEach((b) => {
+        b.classList.toggle('active', +b.dataset.v <= editRating);
+      });
+      document.getElementById('meta-view').style.display = 'none';
+      document.getElementById('edit-section').style.display = '';
+    });
+
+    document.getElementById('e-stars').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-v]');
+      if (!btn) return;
+      const v = +btn.dataset.v;
+      editRating = editRating === v ? 0 : v;
+      document.querySelectorAll('#e-stars button').forEach((b) => {
+        b.classList.toggle('active', +b.dataset.v <= editRating);
+      });
+    });
+
+    document.getElementById('cancel-edit-btn').addEventListener('click', () => {
+      document.getElementById('edit-section').style.display = 'none';
+      document.getElementById('meta-view').style.display = '';
+    });
+
+    document.getElementById('save-edit-btn').addEventListener('click', async () => {
+      const body = {
+        site:       document.getElementById('e-site').value,
+        draftType:  document.getElementById('e-type').value,
+        draftedAt:  document.getElementById('e-date').value,
+        leagueSize: document.getElementById('e-size').value,
+        mySlot:     document.getElementById('e-slot').value,
+        strategy:      document.getElementById('e-strategy').value || null,
+        rating:        editRating || null,
+        notes:         document.getElementById('e-notes').value.trim() || null,
+        isTest:        document.getElementById('e-is-test').checked,
+        checkedOutAt:  parseInt(document.getElementById('e-checked-out').value, 10) || null,
+      };
+      const data = await apiFetch(`/api/drafts/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).catch(() => null);
+      if (data) {
+        document.getElementById('edit-section').style.display = 'none';
+        document.getElementById('meta-view').style.display = '';
+        await loadDraft();
+      }
+    });
+
+    // Delete
+    let deleteStep = 0;
+    document.getElementById('delete-btn').addEventListener('click', async () => {
+      if (deleteStep === 0) {
+        document.getElementById('delete-btn').textContent = 'Confirm Delete';
+        deleteStep = 1;
+        setTimeout(() => {
+          document.getElementById('delete-btn').textContent = 'Delete';
+          deleteStep = 0;
+        }, 4000);
+        return;
+      }
+      const data = await apiFetch(`/api/drafts/${id}`, { method: 'DELETE' }).catch(() => null);
+      if (data) window.location.href = '/drafts.html';
+    });
+
+    loadDraft();
+  </script>
+</body>
+</html>

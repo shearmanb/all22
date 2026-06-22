@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>All22 — Rankings Converter</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">All22</span>
+    <a href="/">Home</a>
+    <a href="/drafts.html">Draft Tracker</a>
+    <a href="/convert.html" class="active">Rankings Converter</a>
+    <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
+  </nav>
+  <div id="error-banner"></div>
+  <main>
+    <h1>Rankings Converter</h1>
+    <p class="muted">Paste a screenshot (or text) of any rankings list. Fix anything that looks off, then download it in the format each site wants.</p>
+
+    <!-- STEP 1: INPUT -->
+    <div class="card">
+      <h2>1. Paste your rankings</h2>
+      <div id="dropzone" class="dropzone" tabindex="0">
+        <p><strong>Paste a screenshot here</strong> (Ctrl/Cmd-V), drag an image in, or <span style="text-decoration:underline">click to choose a file</span>.</p>
+        <p class="muted" style="font-size:0.82rem">Reading a screenshot happens on the server with offline OCR — the first one can take ~20–30s while it warms up.</p>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+      <img id="preview-img" class="preview-img" alt="" style="display:none">
+
+      <label for="text" class="muted section-gap">…or paste rankings as text (one player per line, e.g. <span class="muted">1. Ja'Marr Chase WR CIN</span>)</label>
+      <textarea id="text" rows="5" placeholder="1. Ja'Marr Chase WR CIN&#10;2. Bijan Robinson RB ATL&#10;3. Justin Jefferson WR MIN"></textarea>
+      <div class="row section-gap">
+        <button id="parse-text">Parse text</button>
+        <span class="muted" style="font-size:0.85rem">Screenshots parse automatically once read.</span>
+      </div>
+      <div id="notice-banner" class="notice-banner"></div>
+    </div>
+
+    <!-- STEP 2: PREVIEW / EDIT -->
+    <div class="card section-gap" id="preview-panel" style="display:none">
+      <div class="row" style="justify-content:space-between">
+        <h2 style="margin:0">2. Check &amp; fix <span class="muted" id="count"></span></h2>
+        <button class="link" id="add-row" style="color:var(--accent)">+ Add player</button>
+      </div>
+      <p class="muted" style="font-size:0.85rem">Rank follows the row order. Edit any cell so names match across sites.</p>
+      <div class="row section-gap">
+        <label class="muted" style="margin:0">Set position for all rows:</label>
+        <select id="bulk-pos" class="inline">
+          <option value="">— choose —</option>
+          <option>QB</option><option>RB</option><option>WR</option>
+          <option>TE</option><option>K</option><option>DST</option>
+        </select>
+        <button id="apply-pos">Apply to all</button>
+        <span class="muted" style="font-size:0.8rem">A single-position screenshot (all QBs, all RBs) has no position text.</span>
+      </div>
+      <div class="table-wrap section-gap">
+        <table class="editable-table">
+          <thead>
+            <tr><th class="num">#</th><th>Player</th><th style="width:80px">Pos</th><th style="width:80px">Team</th><th class="act"></th></tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div id="unparsed-wrap" style="display:none" class="section-gap">
+        <span class="pill warn">Couldn't read these lines — add them manually if needed</span>
+        <ul class="unparsed" id="unparsed"></ul>
+      </div>
+    </div>
+
+    <!-- STEP 3: EXPORT -->
+    <div class="card section-gap" id="export-panel" style="display:none">
+      <h2>3. Download for a site</h2>
+      <div class="export-grid" id="formats"></div>
+
+      <h2 class="section-gap">Save these rankings</h2>
+      <p class="muted" style="font-size:0.85rem">Optional — keep this list to re-download later. (Needs the database; export works without saving.)</p>
+      <div class="row">
+        <input type="text" id="set-name" class="inline" placeholder="Name (e.g. My Top 200 — June)" style="flex:2;min-width:180px">
+        <input type="text" id="set-source" class="inline" placeholder="Source note (optional)" style="flex:1;min-width:140px">
+        <button id="save-set">Save</button>
+      </div>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+    var playersState = [];
+    function $(id) { return document.getElementById(id); }
+    function esc(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function showNotice(msg) {
+      var b = $('notice-banner');
+      b.textContent = msg || '';
+      b.classList.toggle('visible', !!msg);
+    }
+
+    // ---- Rendering ----
+    function render() {
+      var tbody = $('rows');
+      tbody.innerHTML = '';
+      playersState.forEach(function (p, i) {
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td class="num">' + (i + 1) + '</td>' +
+          '<td><input type="text" data-i="' + i + '" data-f="name" value="' + esc(p.name) + '"></td>' +
+          '<td><input type="text" data-i="' + i + '" data-f="position" value="' + esc(p.position) + '"></td>' +
+          '<td><input type="text" data-i="' + i + '" data-f="team" value="' + esc(p.team) + '"></td>' +
+          '<td class="act"><button class="linkbtn" title="Remove" data-del="' + i + '">×</button></td>';
+        tbody.appendChild(tr);
+      });
+      $('count').textContent = playersState.length ? '(' + playersState.length + ')' : '';
+      var has = playersState.length > 0;
+      $('preview-panel').style.display = has ? 'block' : 'none';
+      $('export-panel').style.display = has ? 'block' : 'none';
+    }
+
+    $('rows').addEventListener('input', function (e) {
+      var i = e.target.getAttribute('data-i'), f = e.target.getAttribute('data-f');
+      if (i === null) return;
+      playersState[+i][f] = e.target.value;
+    });
+    $('rows').addEventListener('click', function (e) {
+      var del = e.target.getAttribute('data-del');
+      if (del === null) return;
+      playersState.splice(+del, 1);
+      render();
+    });
+    $('add-row').addEventListener('click', function () {
+      playersState.push({ name: '', position: '', team: '' });
+      render();
+      var inputs = $('rows').querySelectorAll('input[data-f="name"]');
+      if (inputs.length) inputs[inputs.length - 1].focus();
+    });
+    $('apply-pos').addEventListener('click', function () {
+      var pos = $('bulk-pos').value;
+      if (!pos) return;
+      playersState.forEach(function (p) { p.position = pos; });
+      render();
+    });
+
+    function setResult(data) {
+      playersState = (data.players || []).map(function (p) {
+        return { name: p.name, position: p.position || '', team: p.team || '' };
+      });
+      render();
+      var ul = $('unparsed'); ul.innerHTML = '';
+      if (data.unparsed && data.unparsed.length) {
+        data.unparsed.forEach(function (u) {
+          var li = document.createElement('li');
+          li.textContent = u.line + '  — ' + u.reason;
+          ul.appendChild(li);
+        });
+        $('unparsed-wrap').style.display = 'block';
+      } else {
+        $('unparsed-wrap').style.display = 'none';
+      }
+    }
+
+    // ---- Text parse ----
+    $('parse-text').addEventListener('click', async function () {
+      showNotice('');
+      var text = $('text').value;
+      if (!text.trim()) { showError('Paste some rankings text first.'); return; }
+      var btn = $('parse-text'); btn.disabled = true;
+      try {
+        var data = await apiFetch('/api/convert/parse', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: text })
+        });
+        setResult(data);
+        if (data.note) showNotice(data.note);
+      } catch (err) { /* apiFetch already showed it */ }
+      finally { btn.disabled = false; }
+    });
+
+    // ---- Screenshot / OCR ----
+    async function runOcr(dataUrl) {
+      showNotice('');
+      $('preview-img').src = dataUrl;
+      $('preview-img').style.display = 'block';
+      var dz = $('dropzone'), original = dz.innerHTML;
+      dz.innerHTML = '<p><span class="spinner"></span>Reading screenshot… (first one is slow)</p>';
+      try {
+        var data = await apiFetch('/api/convert/ocr', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: dataUrl })
+        });
+        setResult(data);
+        if (data.note) showNotice(data.note);
+        else if (data.unparsed && data.unparsed.length) showNotice('Read the screenshot — check the rows below; some lines need a manual look.');
+      } catch (err) { /* shown */ }
+      finally { dz.innerHTML = original; bindDropzone(); }
+    }
+
+    function fileToDataUrl(file) {
+      return new Promise(function (resolve, reject) {
+        var r = new FileReader();
+        r.onload = function () { resolve(r.result); };
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+    }
+
+    function bindDropzone() {
+      var dz = $('dropzone');
+      dz.addEventListener('click', function () { $('file').click(); });
+      dz.addEventListener('dragover', function (e) { e.preventDefault(); dz.classList.add('drag'); });
+      dz.addEventListener('dragleave', function () { dz.classList.remove('drag'); });
+      dz.addEventListener('drop', async function (e) {
+        e.preventDefault(); dz.classList.remove('drag');
+        var f = e.dataTransfer.files && e.dataTransfer.files[0];
+        if (f && f.type.indexOf('image/') === 0) runOcr(await fileToDataUrl(f));
+      });
+    }
+    bindDropzone();
+
+    $('file').addEventListener('change', async function (e) {
+      var f = e.target.files && e.target.files[0];
+      if (f) runOcr(await fileToDataUrl(f));
+    });
+
+    document.addEventListener('paste', async function (e) {
+      var items = (e.clipboardData && e.clipboardData.items) || [];
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].type && items[i].type.indexOf('image/') === 0) {
+          var f = items[i].getAsFile();
+          if (f) { e.preventDefault(); runOcr(await fileToDataUrl(f)); return; }
+        }
+      }
+    });
+
+    // ---- Export ----
+    async function loadFormats() {
+      try {
+        var list = await apiFetch('/api/convert/formats');
+        var grid = $('formats'); grid.innerHTML = '';
+        list.forEach(function (f) {
+          var card = document.createElement('div');
+          card.className = 'export-card';
+          card.innerHTML =
+            '<h3>' + esc(f.label) + ' ' + (f.verified ? '' : '<span class="pill warn">verify columns</span>') + '</h3>' +
+            '<p>' + esc(f.description) + '</p>' +
+            '<div class="row"><button data-fmt="' + esc(f.id) + '">Download CSV</button></div>';
+          grid.appendChild(card);
+        });
+      } catch (err) { /* shown */ }
+    }
+
+    $('formats').addEventListener('click', async function (e) {
+      var fmt = e.target.getAttribute('data-fmt');
+      if (!fmt) return;
+      clearError();
+      if (!playersState.length) { showError('Nothing to export yet.'); return; }
+      try {
+        var res = await fetch('/api/convert/export', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ players: playersState, format: fmt })
+        });
+        if (!res.ok) {
+          var msg = 'Export failed.';
+          try { var j = await res.json(); if (j.error) msg = j.error; } catch (e2) {}
+          showError(msg); return;
+        }
+        var blob = await res.blob();
+        var cd = res.headers.get('Content-Disposition') || '';
+        var m = cd.match(/filename="([^"]+)"/);
+        var name = m ? m[1] : fmt + '.csv';
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = name; document.body.appendChild(a); a.click();
+        a.remove(); URL.revokeObjectURL(url);
+      } catch (err) { showError('Could not download the file.'); }
+    });
+
+    // ---- Save ----
+    $('save-set').addEventListener('click', async function () {
+      clearError();
+      if (!playersState.length) { showError('Nothing to save yet.'); return; }
+      var name = $('set-name').value.trim();
+      if (!name) { showError('Give this ranking set a name.'); return; }
+      var btn = $('save-set'); btn.disabled = true;
+      try {
+        await apiFetch('/api/convert/save', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name, source: $('set-source').value, players: playersState })
+        });
+        showNotice('Saved "' + name + '".');
+        $('set-name').value = ''; $('set-source').value = '';
+      } catch (err) { /* shown */ }
+      finally { btn.disabled = false; }
+    });
+
+    loadFormats();
+  </script>
+</body>
+</html>
