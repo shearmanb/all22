@@ -22,13 +22,30 @@ let workerPromise = null;
 
 async function getWorker() {
   if (!workerPromise) {
-    const { createWorker } = require('tesseract.js');
-    workerPromise = createWorker('eng', 1, {
-      langPath: LANG_PATH,        // read eng.traineddata.gz from disk
-      corePath: CORE_PATH,        // local WASM core
-      cachePath: os.tmpdir(),     // decompressed model cache (not in the repo)
-      gzip: true,
-    }).catch((err) => {
+    workerPromise = (async () => {
+      const { createWorker } = require('tesseract.js');
+      const worker = await createWorker('eng', 1, {
+        langPath: LANG_PATH,        // read eng.traineddata.gz from disk
+        corePath: CORE_PATH,        // local WASM core
+        cachePath: os.tmpdir(),     // decompressed model cache (not in the repo)
+        gzip: true,
+      });
+      // Rankings are a single column of one-line rows. PSM 6 ("assume a uniform
+      // block of text") reads such lists more reliably than the default auto
+      // mode, which can mis-segment screenshots that have side chrome. Keeping
+      // interword spaces intact preserves the "Name  POS  TEAM" gaps the parser
+      // relies on.
+      try {
+        await worker.setParameters({
+          tessedit_pageseg_mode: '6',
+          preserve_interword_spaces: '1',
+        });
+      } catch (e) {
+        // Non-fatal: fall back to defaults if a param isn't supported.
+        console.error(`ocr: setParameters failed: ${e.message}`);
+      }
+      return worker;
+    })().catch((err) => {
       workerPromise = null;       // allow a retry on the next request
       throw err;
     });

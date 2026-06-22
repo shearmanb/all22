@@ -48,7 +48,7 @@
           <button class="link" id="add-row" style="color:var(--accent)">+ Add player</button>
         </div>
       </div>
-      <p class="muted" style="font-size:0.85rem">Rank follows the row order. Edit any cell so names match across sites.</p>
+      <p class="muted" style="font-size:0.85rem">Rank comes from the list's first column (edit it if OCR misread). Position rank (QB5, RB12…) is figured automatically from the ranks. Edit any cell so names match across sites.</p>
       <div class="row section-gap">
         <label class="muted" style="margin:0">Set position for all rows:</label>
         <select id="bulk-pos" class="inline">
@@ -62,7 +62,7 @@
       <div class="table-wrap section-gap">
         <table class="editable-table">
           <thead>
-            <tr><th class="num">#</th><th>Player</th><th style="width:80px">Pos</th><th style="width:80px">Team</th><th class="act"></th></tr>
+            <tr><th style="width:60px">Rank</th><th>Player</th><th style="width:64px">Pos</th><th style="width:64px">Team</th><th style="width:68px">Pos Rank</th><th class="act"></th></tr>
           </thead>
           <tbody id="rows"></tbody>
         </table>
@@ -85,6 +85,17 @@
         <input type="text" id="set-source" class="inline" placeholder="Source note (optional)" style="flex:1;min-width:140px">
         <button id="save-set">Save</button>
       </div>
+    </div>
+
+    <!-- FIX QUEUE -->
+    <div class="card section-gap" id="fixes-panel">
+      <h2>Fix queue</h2>
+      <p class="muted" style="font-size:0.85rem">When OCR can't get a team or position — like telling NY Jets from NY Giants — fix it in the table above, then remember it here once. Every future import auto-fills these for you.</p>
+      <div class="row">
+        <button id="remember-fixes">Remember team &amp; position fixes</button>
+        <button class="link" id="reload-fixes" style="color:var(--accent)">Refresh</button>
+      </div>
+      <div id="fixes-list" class="section-gap"></div>
     </div>
   </main>
 
@@ -116,17 +127,40 @@
       b.classList.toggle('visible', !!msg);
     }
 
+    // Position rank ("QB5") for each row, derived from overall-rank order within
+    // each position. Mirrors the server so the preview matches the export.
+    function computePosRanks(list) {
+      var labels = [];
+      var idx = list.map(function (_, i) { return i; });
+      idx.sort(function (a, b) {
+        var ra = Number(list[a].rank), rb = Number(list[b].rank);
+        if (!isFinite(ra) || ra <= 0) ra = a + 1;
+        if (!isFinite(rb) || rb <= 0) rb = b + 1;
+        return (ra - rb) || (a - b);
+      });
+      var counters = {};
+      idx.forEach(function (i) {
+        var pos = (list[i].position || '').toUpperCase().replace(/\./g, '');
+        if (!pos) { labels[i] = ''; return; }
+        counters[pos] = (counters[pos] || 0) + 1;
+        labels[i] = pos + counters[pos];
+      });
+      return labels;
+    }
+
     // ---- Rendering ----
     function render() {
       var tbody = $('rows');
+      var posLabels = computePosRanks(playersState);
       tbody.innerHTML = '';
       playersState.forEach(function (p, i) {
         var tr = document.createElement('tr');
         tr.innerHTML =
-          '<td class="num">' + (i + 1) + '</td>' +
+          '<td><input class="rank-input" type="number" min="1" data-i="' + i + '" data-f="rank" value="' + esc(p.rank) + '"></td>' +
           '<td><input type="text" data-i="' + i + '" data-f="name" value="' + esc(p.name) + '"></td>' +
           '<td><input type="text" data-i="' + i + '" data-f="position" value="' + esc(p.position) + '"></td>' +
           '<td><input type="text" data-i="' + i + '" data-f="team" value="' + esc(p.team) + '"></td>' +
+          '<td class="num posrank">' + esc(posLabels[i] || '') + '</td>' +
           '<td class="act"><button class="linkbtn" title="Remove" data-del="' + i + '">×</button></td>';
         tbody.appendChild(tr);
       });
@@ -136,10 +170,16 @@
       $('export-panel').style.display = has ? 'block' : 'none';
     }
 
+    // Live-update state on every keystroke (keeps focus — no re-render here).
     $('rows').addEventListener('input', function (e) {
       var i = e.target.getAttribute('data-i'), f = e.target.getAttribute('data-f');
       if (i === null) return;
       playersState[+i][f] = e.target.value;
+    });
+    // On blur of a rank or position cell, re-render so Pos Rank recalculates.
+    $('rows').addEventListener('change', function (e) {
+      var f = e.target.getAttribute('data-f');
+      if (f === 'rank' || f === 'position') render();
     });
     $('rows').addEventListener('click', function (e) {
       var del = e.target.getAttribute('data-del');
@@ -148,7 +188,7 @@
       render();
     });
     $('add-row').addEventListener('click', function () {
-      playersState.push({ name: '', position: '', team: '' });
+      playersState.push({ name: '', position: '', team: '', rank: '' });
       render();
       var inputs = $('rows').querySelectorAll('input[data-f="name"]');
       if (inputs.length) inputs[inputs.length - 1].focus();
@@ -170,7 +210,7 @@
         var k = normKey(p.name);
         if (k && seen[k]) { dupes++; return; }
         if (k) seen[k] = true;
-        playersState.push({ name: p.name, position: p.position || '', team: p.team || '' });
+        playersState.push({ name: p.name, position: p.position || '', team: p.team || '', rank: p.rank });
         added++;
       });
       if (data.unparsed && data.unparsed.length) {
@@ -264,10 +304,11 @@
             ? ('Reading screenshot ' + (j + 1) + ' of ' + imgs.length + '…')
             : 'Reading screenshot… (the first one is slow)';
           setStatus('<span class="spinner"></span>' + label);
+          var processed = await preprocessImage(dataUrl);
           try {
             var data = await apiFetch('/api/convert/ocr', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ image: dataUrl })
+              body: JSON.stringify({ image: processed })
             });
             var r = addResult(data);
             totalAdded += r.added; totalDupes += r.dupes;
@@ -289,6 +330,42 @@
         r.onload = function () { resolve(r.result); };
         r.onerror = reject;
         r.readAsDataURL(file);
+      });
+    }
+
+    // Clean a screenshot before OCR: upscale small images so small text is
+    // legible, convert to grayscale, and boost contrast a touch. This is done in
+    // a canvas (no libraries) and noticeably improves Tesseract's accuracy on
+    // phone screenshots. Falls back to the original image if anything goes wrong.
+    function preprocessImage(dataUrl) {
+      return new Promise(function (resolve) {
+        var img = new Image();
+        img.onload = function () {
+          try {
+            var w = img.naturalWidth, h = img.naturalHeight;
+            if (!w || !h) { resolve(dataUrl); return; }
+            var maxDim = Math.max(w, h);
+            var scale = maxDim < 1400 ? 2 : 1;       // enlarge small captures
+            if (maxDim * scale > 2600) scale = 2600 / maxDim; // but cap the size
+            var cw = Math.round(w * scale), ch = Math.round(h * scale);
+            var c = document.createElement('canvas');
+            c.width = cw; c.height = ch;
+            var ctx = c.getContext('2d');
+            ctx.drawImage(img, 0, 0, cw, ch);
+            var data = ctx.getImageData(0, 0, cw, ch);
+            var d = data.data, contrast = 1.25, intercept = 128 * (1 - contrast);
+            for (var i = 0; i < d.length; i += 4) {
+              var g = 0.3 * d[i] + 0.59 * d[i + 1] + 0.11 * d[i + 2];
+              g = g * contrast + intercept;
+              g = g < 0 ? 0 : g > 255 ? 255 : g;
+              d[i] = d[i + 1] = d[i + 2] = g;
+            }
+            ctx.putImageData(data, 0, 0);
+            resolve(c.toDataURL('image/png'));
+          } catch (e) { resolve(dataUrl); }
+        };
+        img.onerror = function () { resolve(dataUrl); };
+        img.src = dataUrl;
       });
     }
 
@@ -383,7 +460,67 @@
       finally { btn.disabled = false; }
     });
 
+    // ---- Fix queue ----
+    async function loadFixes() {
+      try {
+        var list = await apiFetch('/api/convert/corrections');
+        var wrap = $('fixes-list'); wrap.innerHTML = '';
+        if (!list.length) {
+          wrap.innerHTML = '<p class="muted" style="font-size:0.85rem">No saved fixes yet.</p>';
+          return;
+        }
+        var table = document.createElement('table');
+        table.className = 'editable-table';
+        table.innerHTML = '<thead><tr><th>Player</th><th style="width:64px">Pos</th><th style="width:64px">Team</th><th class="act"></th></tr></thead>';
+        var tb = document.createElement('tbody');
+        list.forEach(function (f) {
+          var tr = document.createElement('tr');
+          tr.innerHTML =
+            '<td>' + esc(f.name) + '</td>' +
+            '<td>' + esc(f.position || '') + '</td>' +
+            '<td>' + esc(f.team || '') + '</td>' +
+            '<td class="act"><button class="linkbtn" title="Forget" data-fix-del="' + esc(f.id) + '">×</button></td>';
+          tb.appendChild(tr);
+        });
+        table.appendChild(tb);
+        wrap.appendChild(table);
+      } catch (err) { /* shown */ }
+    }
+
+    $('remember-fixes').addEventListener('click', async function () {
+      clearError();
+      var fixes = playersState
+        .filter(function (p) { return (p.name || '').trim() && ((p.team || '').trim() || (p.position || '').trim()); })
+        .map(function (p) { return { name: p.name, team: p.team, position: p.position }; });
+      if (!fixes.length) {
+        showError('Nothing to remember yet — fill in a team or position in the table first.');
+        return;
+      }
+      var btn = this; btn.disabled = true;
+      try {
+        var data = await apiFetch('/api/convert/corrections', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fixes: fixes })
+        });
+        showNotice('Remembered ' + data.saved + ' fix' + (data.saved === 1 ? '' : 'es') + ' — future imports will fill these in automatically.');
+        loadFixes();
+      } catch (err) { /* shown */ }
+      finally { btn.disabled = false; }
+    });
+
+    $('reload-fixes').addEventListener('click', loadFixes);
+
+    $('fixes-list').addEventListener('click', async function (e) {
+      var id = e.target.getAttribute('data-fix-del');
+      if (!id) return;
+      try {
+        await apiFetch('/api/convert/corrections/' + id, { method: 'DELETE' });
+        loadFixes();
+      } catch (err) { /* shown */ }
+    });
+
     loadFormats();
+    loadFixes();
   </script>
 </body>
 </html>
