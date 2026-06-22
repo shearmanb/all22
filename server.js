@@ -12,7 +12,9 @@ const features = require('./features');
 const app = express();
 
 app.use(express.urlencoded({ extended: false }));
-app.use(express.json());
+// Screenshots reach the converter as base64 data URLs in the JSON body, so the
+// limit must be well above Express's 100kb default (a phone screenshot is a few MB).
+app.use(express.json({ limit: '25mb' }));
 
 app.use(cookieSession({
   name: 'all22',
