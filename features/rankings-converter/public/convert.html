@@ -17,15 +17,16 @@
   <div id="error-banner"></div>
   <main>
     <h1>Rankings Converter</h1>
-    <p class="muted">Paste a screenshot (or text) of any rankings list. Fix anything that looks off, then download it in the format each site wants.</p>
+    <p class="muted">Paste one or more screenshots (or text) of any rankings list — each screenshot's players are added to the same list. Fix anything that looks off, then download it in the format each site wants.</p>
 
     <!-- STEP 1: INPUT -->
     <div class="card">
       <h2>1. Paste your rankings</h2>
       <div id="dropzone" class="dropzone" tabindex="0">
-        <p><strong>Paste a screenshot here</strong> (Ctrl/Cmd-V), drag an image in, or <span style="text-decoration:underline">click to choose a file</span>.</p>
-        <p class="muted" style="font-size:0.82rem">Reading a screenshot happens on the server with offline OCR — the first one can take ~20–30s while it warms up.</p>
-        <input type="file" id="file" accept="image/*" hidden>
+        <p><strong>Paste screenshots here</strong> (Ctrl/Cmd-V), drag images in, or <span style="text-decoration:underline">click to choose files</span>.</p>
+        <p class="muted" style="font-size:0.82rem">Add as many screenshots as you like — each one's players are added to the list below. Reading happens on the server with offline OCR, so the first one can take ~20–30s while it warms up.</p>
+        <p id="dz-status" class="muted" style="font-size:0.9rem;margin:6px 0 0;display:none"></p>
+        <input type="file" id="file" accept="image/*" hidden multiple>
       </div>
       <img id="preview-img" class="preview-img" alt="" style="display:none">
 
@@ -42,7 +43,10 @@
     <div class="card section-gap" id="preview-panel" style="display:none">
       <div class="row" style="justify-content:space-between">
         <h2 style="margin:0">2. Check &amp; fix <span class="muted" id="count"></span></h2>
-        <button class="link" id="add-row" style="color:var(--accent)">+ Add player</button>
+        <div class="row" style="gap:14px">
+          <button class="link" id="clear-all" style="color:var(--text-dim)">Start over</button>
+          <button class="link" id="add-row" style="color:var(--accent)">+ Add player</button>
+        </div>
       </div>
       <p class="muted" style="font-size:0.85rem">Rank follows the row order. Edit any cell so names match across sites.</p>
       <div class="row section-gap">
@@ -87,7 +91,21 @@
   <script src="/app.js"></script>
   <script>
     var playersState = [];
+    var unparsedState = [];
+    var screenshotCount = 0;
     function $(id) { return document.getElementById(id); }
+    // Lightweight client-side matching key (mirrors lib/players.js key() closely
+    // enough to catch obvious duplicates when screenshots overlap). Server still
+    // re-normalizes on export, so this is only for in-page dedupe.
+    function normKey(name) {
+      return String(name || '')
+        .toLowerCase()
+        .replace(/[.'`,]/g, '')
+        .replace(/-/g, ' ')
+        .replace(/\b(jr|sr|ii|iii|iv|v)\b/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
     function esc(s) {
       return String(s == null ? '' : s)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -142,14 +160,31 @@
       render();
     });
 
-    function setResult(data) {
-      playersState = (data.players || []).map(function (p) {
-        return { name: p.name, position: p.position || '', team: p.team || '' };
+    // Append a parse/OCR result to the running list, skipping players we already
+    // have (by normalized name) so overlapping screenshots don't duplicate rows.
+    function addResult(data) {
+      var seen = {};
+      playersState.forEach(function (p) { var k = normKey(p.name); if (k) seen[k] = true; });
+      var added = 0, dupes = 0;
+      (data.players || []).forEach(function (p) {
+        var k = normKey(p.name);
+        if (k && seen[k]) { dupes++; return; }
+        if (k) seen[k] = true;
+        playersState.push({ name: p.name, position: p.position || '', team: p.team || '' });
+        added++;
       });
-      render();
-      var ul = $('unparsed'); ul.innerHTML = '';
       if (data.unparsed && data.unparsed.length) {
-        data.unparsed.forEach(function (u) {
+        data.unparsed.forEach(function (u) { unparsedState.push(u); });
+      }
+      renderUnparsed();
+      render();
+      return { added: added, dupes: dupes };
+    }
+
+    function renderUnparsed() {
+      var ul = $('unparsed'); ul.innerHTML = '';
+      if (unparsedState.length) {
+        unparsedState.forEach(function (u) {
           var li = document.createElement('li');
           li.textContent = u.line + '  — ' + u.reason;
           ul.appendChild(li);
@@ -158,6 +193,25 @@
       } else {
         $('unparsed-wrap').style.display = 'none';
       }
+    }
+
+    function clearAll() {
+      playersState = [];
+      unparsedState = [];
+      screenshotCount = 0;
+      $('preview-img').style.display = 'none';
+      $('preview-img').removeAttribute('src');
+      setStatus('');
+      showNotice('');
+      renderUnparsed();
+      render();
+    }
+    $('clear-all').addEventListener('click', clearAll);
+
+    function setStatus(html) {
+      var s = $('dz-status');
+      if (!html) { s.style.display = 'none'; s.innerHTML = ''; }
+      else { s.style.display = 'block'; s.innerHTML = html; }
     }
 
     // ---- Text parse ----
@@ -171,29 +225,62 @@
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: text })
         });
-        setResult(data);
+        var r = addResult(data);
         if (data.note) showNotice(data.note);
+        else if (r.added) showNotice(summary(r, 1, false) );
       } catch (err) { /* apiFetch already showed it */ }
       finally { btn.disabled = false; }
     });
 
     // ---- Screenshot / OCR ----
-    async function runOcr(dataUrl) {
+    // Build a human summary of how many players an add brought in.
+    function summary(r, shots, multiShot) {
+      var msg = 'Added ' + r.added + ' player' + (r.added === 1 ? '' : 's');
+      if (multiShot && shots > 1) msg += ' from ' + shots + ' screenshots';
+      msg += ' — ' + playersState.length + ' total in the list.';
+      if (r.dupes) msg += ' Skipped ' + r.dupes + ' already on the list.';
+      return msg;
+    }
+
+    var ocrBusy = false;
+    // Read one or more image files, in order, appending each to the list. Runs
+    // sequentially because the server shares a single OCR worker.
+    async function runOcrFiles(fileList) {
+      var imgs = [];
+      for (var i = 0; i < fileList.length; i++) {
+        var f = fileList[i];
+        if (f && f.type && f.type.indexOf('image/') === 0) imgs.push(f);
+      }
+      if (!imgs.length || ocrBusy) return;
+      ocrBusy = true;
       showNotice('');
-      $('preview-img').src = dataUrl;
-      $('preview-img').style.display = 'block';
-      var dz = $('dropzone'), original = dz.innerHTML;
-      dz.innerHTML = '<p><span class="spinner"></span>Reading screenshot… (first one is slow)</p>';
+      var totalAdded = 0, totalDupes = 0, read = 0, failed = 0;
       try {
-        var data = await apiFetch('/api/convert/ocr', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: dataUrl })
-        });
-        setResult(data);
-        if (data.note) showNotice(data.note);
-        else if (data.unparsed && data.unparsed.length) showNotice('Read the screenshot — check the rows below; some lines need a manual look.');
-      } catch (err) { /* shown */ }
-      finally { dz.innerHTML = original; bindDropzone(); }
+        for (var j = 0; j < imgs.length; j++) {
+          var dataUrl = await fileToDataUrl(imgs[j]);
+          $('preview-img').src = dataUrl;
+          $('preview-img').style.display = 'block';
+          var label = imgs.length > 1
+            ? ('Reading screenshot ' + (j + 1) + ' of ' + imgs.length + '…')
+            : 'Reading screenshot… (the first one is slow)';
+          setStatus('<span class="spinner"></span>' + label);
+          try {
+            var data = await apiFetch('/api/convert/ocr', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ image: dataUrl })
+            });
+            var r = addResult(data);
+            totalAdded += r.added; totalDupes += r.dupes;
+            read++; screenshotCount++;
+          } catch (err) { failed++; /* apiFetch already showed the error */ }
+        }
+      } finally {
+        ocrBusy = false;
+        setStatus('');
+      }
+      if (totalAdded || read) {
+        showNotice(summary({ added: totalAdded, dupes: totalDupes }, read, true));
+      }
     }
 
     function fileToDataUrl(file) {
@@ -205,32 +292,34 @@
       });
     }
 
-    function bindDropzone() {
+    // Bind dropzone interactions once. The dropzone's own content is never
+    // wiped (status goes in #dz-status), so listeners stay valid across reads.
+    (function bindDropzone() {
       var dz = $('dropzone');
       dz.addEventListener('click', function () { $('file').click(); });
       dz.addEventListener('dragover', function (e) { e.preventDefault(); dz.classList.add('drag'); });
       dz.addEventListener('dragleave', function () { dz.classList.remove('drag'); });
-      dz.addEventListener('drop', async function (e) {
+      dz.addEventListener('drop', function (e) {
         e.preventDefault(); dz.classList.remove('drag');
-        var f = e.dataTransfer.files && e.dataTransfer.files[0];
-        if (f && f.type.indexOf('image/') === 0) runOcr(await fileToDataUrl(f));
+        if (e.dataTransfer && e.dataTransfer.files) runOcrFiles(e.dataTransfer.files);
       });
-    }
-    bindDropzone();
+    })();
 
-    $('file').addEventListener('change', async function (e) {
-      var f = e.target.files && e.target.files[0];
-      if (f) runOcr(await fileToDataUrl(f));
+    $('file').addEventListener('change', function (e) {
+      if (e.target.files && e.target.files.length) runOcrFiles(e.target.files);
+      e.target.value = '';  // allow re-picking the same file(s) later
     });
 
-    document.addEventListener('paste', async function (e) {
+    document.addEventListener('paste', function (e) {
       var items = (e.clipboardData && e.clipboardData.items) || [];
+      var files = [];
       for (var i = 0; i < items.length; i++) {
         if (items[i].type && items[i].type.indexOf('image/') === 0) {
           var f = items[i].getAsFile();
-          if (f) { e.preventDefault(); runOcr(await fileToDataUrl(f)); return; }
+          if (f) files.push(f);
         }
       }
+      if (files.length) { e.preventDefault(); runOcrFiles(files); }
     });
 
     // ---- Export ----
