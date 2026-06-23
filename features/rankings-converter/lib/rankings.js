@@ -48,15 +48,6 @@ function stripRankPrefix(segment) {
   return tokens.join(' ');
 }
 
-// The rank is the FIRST number at the very start of a row (the leftmost column).
-// A trailing ADP-movement badge ("2.13", "5v2") also starts with digits, but the
-// rank is always the first integer run, so we read just that. Returns null when
-// the row has no leading number.
-function leadingRank(segment) {
-  const m = String(segment || '').trim().match(/^(\d{1,3})/);
-  return m ? parseInt(m[1], 10) : null;
-}
-
 // Find an NFL team among comma segments (everything after the name). Cleans OCR
 // noise to letters and validates against the canonical team list.
 function findTeamInSegments(segments) {
@@ -82,24 +73,22 @@ function parseLine(rawLine) {
   // comma we care about and is ignored.
   if (line.includes(',')) {
     const segments = line.split(',').map((s) => s.trim());
-    const srcRank = leadingRank(segments[0]);
     const rawName = stripRankPrefix(segments[0]);
     // A row that's just a team (no player) is a defense — e.g.
     // "1 Philadelphia Eagles, PHI, BYE" or "Cowboys DST".
     const dst = players.teamDefenseFromLine(rawName);
-    if (dst) return { name: players.teamDefenseName(dst), position: 'DST', team: dst, srcRank };
+    if (dst) return { name: players.teamDefenseName(dst), position: 'DST', team: dst };
     const name = players.display(rawName);
     const team = findTeamInSegments(segments.slice(1));
     if (name && /[a-z]/i.test(name) && players.key(name).length >= 2) {
       // Position isn't present in these per-position lists; left blank here and
       // set in bulk from the UI (the screenshot is all one position).
-      return { name, position: '', team, srcRank };
+      return { name, position: '', team };
     }
     return null;
   }
 
   // --- Space-delimited format: "Rank Name POS TEAM" -------------------------
-  const srcRank = leadingRank(line);
   // Drop a rank glued to the name by a separator, e.g. "12.Patrick" -> "Patrick"
   // or "3)Bijan" -> "Bijan". The "[.)]" requirement keeps "49ers" intact (no
   // separator after the digits there).
@@ -114,7 +103,7 @@ function parseLine(rawLine) {
   // A row that's just a team name (no player) is a defense, e.g. "49ers",
   // "Dallas Cowboys", "PHI DST".
   const dst = players.teamDefenseFromLine(line);
-  if (dst) return { name: players.teamDefenseName(dst), position: 'DST', team: dst, srcRank };
+  if (dst) return { name: players.teamDefenseName(dst), position: 'DST', team: dst };
 
   const tokens = line.split(/\s+/).filter(Boolean);
   const position = players.findPosition(tokens);
@@ -156,9 +145,10 @@ function parse(rawText) {
     seen.add(k);
 
     players_out.push({
-      // Prefer the rank read from the screenshot's first column; fall back to
-      // appearance order when a row has no leading number.
-      rank: parsed.srcRank != null ? parsed.srcRank : players_out.length + 1,
+      // Rank is the order players are listed — the first row is rank 1, etc.
+      // The OCR'd rank column is unreliable (movement arrows/badges next to it
+      // get misread as digits), and rankings are always listed in rank order.
+      rank: players_out.length + 1,
       name: parsed.name,
       position: parsed.position,
       team: parsed.team,

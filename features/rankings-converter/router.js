@@ -12,39 +12,33 @@ const pool = require('../../db/pool');
 
 const hasDb = () => Boolean(process.env.DATABASE_URL);
 
-// Assign a position rank ("QB5") to each entry, derived from overall-rank order
-// within each position. Mutates and returns the same list.
+// Assign a position rank ("QB5") to each entry by its order within its position.
+// The list is already in overall-rank order, so this is just a per-position
+// running count. Mutates and returns the same list.
 function addPositionRank(list) {
   const counters = {};
-  const order = list
-    .map((_, i) => i)
-    .sort((a, b) => (list[a].rank - list[b].rank) || (a - b));
-  for (const i of order) {
-    const pos = list[i].position;
-    if (!pos) { list[i].posRank = null; continue; }
-    counters[pos] = (counters[pos] || 0) + 1;
-    list[i].posRank = counters[pos];
+  for (const item of list) {
+    if (!item.position) { item.posRank = null; continue; }
+    counters[item.position] = (counters[item.position] || 0) + 1;
+    item.posRank = counters[item.position];
   }
   return list;
 }
 
 // Re-rank a client-supplied list into the canonical internal shape. Overall rank
-// comes from the row's own rank (read from the screenshot's first column, or
-// edited in the preview), falling back to position in the list. Names are
-// re-normalized through lib/players.js so preview edits are cleaned consistently.
+// is the row's POSITION in the list — players are always pasted in rank order, so
+// the first row is rank 1 (this also accumulates correctly across screenshots).
+// Names are re-normalized through lib/players.js so preview edits are cleaned.
 function normalizeList(list) {
   if (!Array.isArray(list)) return [];
   const out = list
     .filter((p) => p && (p.name || '').trim())
-    .map((p, i) => {
-      const n = Number(p.rank);
-      return {
-        rank: Number.isFinite(n) && n > 0 ? Math.trunc(n) : i + 1,
-        name: players.display(p.name),
-        position: (p.position || '').toUpperCase().replace(/\./g, ''),
-        team: (p.team || '').toUpperCase().replace(/\./g, ''),
-      };
-    });
+    .map((p, i) => ({
+      rank: i + 1,
+      name: players.display(p.name),
+      position: (p.position || '').toUpperCase().replace(/\./g, ''),
+      team: (p.team || '').toUpperCase().replace(/\./g, ''),
+    }));
   return addPositionRank(out);
 }
 

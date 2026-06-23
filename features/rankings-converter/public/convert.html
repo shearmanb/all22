@@ -48,17 +48,18 @@
           <button class="link" id="add-row" style="color:var(--accent)">+ Add player</button>
         </div>
       </div>
-      <p class="muted" style="font-size:0.85rem">Rank comes from the list's first column (edit it if OCR misread). Position rank (QB5, RB12…) is figured automatically from the ranks. Edit any cell so names match across sites.</p>
+      <p class="muted" style="font-size:0.85rem">Rank follows the order players are listed — the first is #1. Position rank (QB5, RB12…) is figured automatically. Edit any cell so names match across sites.</p>
       <div class="row section-gap">
-        <label class="muted" style="margin:0">Set position for all rows:</label>
+        <label class="muted" style="margin:0">Set position to:</label>
         <select id="bulk-pos" class="inline">
           <option value="">— choose —</option>
           <option>QB</option><option>RB</option><option>WR</option>
           <option>TE</option><option>K</option><option>DST</option>
         </select>
-        <button id="apply-pos">Apply to all</button>
-        <span class="muted" style="font-size:0.8rem">A single-position screenshot (all QBs, all RBs) has no position text.</span>
+        <button id="apply-pos-blank">Apply to blank rows</button>
+        <button id="apply-pos-all" class="link" style="color:var(--accent)">Apply to all rows</button>
       </div>
+      <p class="muted" style="font-size:0.8rem;margin:6px 0 0">Loaded a QB screenshot, then an RB one? Pick a position and use <strong>Apply to blank rows</strong> — it fills only the newly added players and leaves the ones you already set alone.</p>
       <div class="table-wrap section-gap">
         <table class="editable-table">
           <thead>
@@ -127,20 +128,12 @@
       b.classList.toggle('visible', !!msg);
     }
 
-    // Position rank ("QB5") for each row, derived from overall-rank order within
-    // each position. Mirrors the server so the preview matches the export.
+    // Position rank ("QB5") for each row. The list is already in rank order, so
+    // it's a per-position running count down the list. Mirrors the server.
     function computePosRanks(list) {
-      var labels = [];
-      var idx = list.map(function (_, i) { return i; });
-      idx.sort(function (a, b) {
-        var ra = Number(list[a].rank), rb = Number(list[b].rank);
-        if (!isFinite(ra) || ra <= 0) ra = a + 1;
-        if (!isFinite(rb) || rb <= 0) rb = b + 1;
-        return (ra - rb) || (a - b);
-      });
-      var counters = {};
-      idx.forEach(function (i) {
-        var pos = (list[i].position || '').toUpperCase().replace(/\./g, '');
+      var labels = [], counters = {};
+      list.forEach(function (p, i) {
+        var pos = (p.position || '').toUpperCase().replace(/\./g, '');
         if (!pos) { labels[i] = ''; return; }
         counters[pos] = (counters[pos] || 0) + 1;
         labels[i] = pos + counters[pos];
@@ -156,7 +149,7 @@
       playersState.forEach(function (p, i) {
         var tr = document.createElement('tr');
         tr.innerHTML =
-          '<td><input class="rank-input" type="number" min="1" data-i="' + i + '" data-f="rank" value="' + esc(p.rank) + '"></td>' +
+          '<td class="num">' + (i + 1) + '</td>' +
           '<td><input type="text" data-i="' + i + '" data-f="name" value="' + esc(p.name) + '"></td>' +
           '<td><input type="text" data-i="' + i + '" data-f="position" value="' + esc(p.position) + '"></td>' +
           '<td><input type="text" data-i="' + i + '" data-f="team" value="' + esc(p.team) + '"></td>' +
@@ -176,10 +169,9 @@
       if (i === null) return;
       playersState[+i][f] = e.target.value;
     });
-    // On blur of a rank or position cell, re-render so Pos Rank recalculates.
+    // On blur of a position cell, re-render so Pos Rank recalculates.
     $('rows').addEventListener('change', function (e) {
-      var f = e.target.getAttribute('data-f');
-      if (f === 'rank' || f === 'position') render();
+      if (e.target.getAttribute('data-f') === 'position') render();
     });
     $('rows').addEventListener('click', function (e) {
       var del = e.target.getAttribute('data-del');
@@ -193,11 +185,25 @@
       var inputs = $('rows').querySelectorAll('input[data-f="name"]');
       if (inputs.length) inputs[inputs.length - 1].focus();
     });
-    $('apply-pos').addEventListener('click', function () {
+    // Fill only the rows that don't have a position yet — so setting RBs after
+    // QBs doesn't turn Josh Allen into an RB.
+    $('apply-pos-blank').addEventListener('click', function () {
       var pos = $('bulk-pos').value;
-      if (!pos) return;
+      if (!pos) { showError('Pick a position first.'); return; }
+      var n = 0;
+      playersState.forEach(function (p) {
+        if (!(p.position || '').trim()) { p.position = pos; n++; }
+      });
+      render();
+      showNotice(n ? ('Set ' + n + ' blank row' + (n === 1 ? '' : 's') + ' to ' + pos + '.') : ('No blank rows to set — every row already has a position.'));
+    });
+    // Override every row's position (use when the whole list is one position).
+    $('apply-pos-all').addEventListener('click', function () {
+      var pos = $('bulk-pos').value;
+      if (!pos) { showError('Pick a position first.'); return; }
       playersState.forEach(function (p) { p.position = pos; });
       render();
+      showNotice('Set all ' + playersState.length + ' rows to ' + pos + '.');
     });
 
     // Append a parse/OCR result to the running list, skipping players we already
