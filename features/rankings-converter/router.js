@@ -6,6 +6,7 @@ const router = express.Router();
 
 const ocr = require('./lib/ocr');
 const rankingsParser = require('./lib/rankings');
+const roster = require('./lib/roster');
 const converters = require('./lib/converters');
 const players = require('../../lib/players');
 const pool = require('../../db/pool');
@@ -84,11 +85,13 @@ router.post('/ocr', async (req, res) => {
     }
     const text = await ocr.imageToText(image);
     const { players: parsed, unparsed } = rankingsParser.parse(text);
+    // Fill team/position from the NFL roster (by name), then let saved fixes win.
+    const enriched = await roster.enrich(parsed);
     applyCorrections(parsed, await loadCorrections());
     const note = parsed.length
       ? ''
       : 'No players were detected in that screenshot. Try a sharper, higher-contrast image, or paste the rankings as text.';
-    res.json({ ok: true, data: { players: parsed, unparsed, text, note } });
+    res.json({ ok: true, data: { players: parsed, unparsed, text, note, enriched } });
   } catch (err) {
     console.error(`POST /api/convert/ocr: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not read that screenshot. Try a clearer image or paste the rankings as text.' });
@@ -103,8 +106,9 @@ router.post('/parse', async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Paste some rankings text first.' });
     }
     const { players: parsed, unparsed } = rankingsParser.parse(text);
+    const enriched = await roster.enrich(parsed);
     applyCorrections(parsed, await loadCorrections());
-    res.json({ ok: true, data: { players: parsed, unparsed, note: parsed.length ? '' : 'No players found in that text.' } });
+    res.json({ ok: true, data: { players: parsed, unparsed, enriched, note: parsed.length ? '' : 'No players found in that text.' } });
   } catch (err) {
     console.error(`POST /api/convert/parse: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not parse that text.' });
