@@ -15,38 +15,44 @@ const SLEEPER_URL = 'https://api.sleeper.app/v1/players/nfl';
 const TTL_MS = 24 * 60 * 60 * 1000;       // refresh at most once a day
 const SKILL = new Set(['QB', 'RB', 'WR', 'TE', 'K']);
 
-let cache = null;     // Map(nameKey -> { position, team, name, active, skill })
+let cache = null;     // { index, byKey } — fuzzy name index over the roster
 let cacheAt = 0;
 let inflight = null;
 
-// Turn Sleeper's id-keyed object into a name-keyed Map. When two players share a
-// name, prefer the active, skill-position one (the fantasy-relevant match).
-function buildMap(data) {
-  const map = new Map();
+// Turn Sleeper's id-keyed object into a de-duped list of {name, position, team}.
+// When two players share a name, prefer the active, skill-position one.
+function buildList(data) {
+  const byKey = new Map();
   for (const id in data) {
     const p = data[id];
     if (!p) continue;
     const name = p.full_name || [p.first_name, p.last_name].filter(Boolean).join(' ');
     if (!name) continue;
-    const key = players.key(name);
-    if (!key) continue;
+    const k = players.key(name);
+    if (!k) continue;
     let position = (p.position || '').toUpperCase();
     if (position === 'DEF') position = 'DST';
     const candidate = {
+      name,
       position,
       team: (p.team || '').toUpperCase(),
-      name,
       active: !!p.active,
       skill: SKILL.has(position),
     };
-    const existing = map.get(key);
-    if (!existing) { map.set(key, candidate); continue; }
+    const existing = byKey.get(k);
+    if (!existing) { byKey.set(k, candidate); continue; }
     const better =
       (candidate.active && !existing.active) ||
       (candidate.active === existing.active && candidate.skill && !existing.skill);
-    if (better) map.set(key, candidate);
+    if (better) byKey.set(k, candidate);
   }
-  return map;
+  return Array.from(byKey.values());
+}
+
+// Build the fuzzy name index from the roster list (kept separate so it's testable
+// without the network).
+function buildMap(data) {
+  return players.buildNameIndex(buildList(data));
 }
 
 async function fetchRoster() {
@@ -62,26 +68,30 @@ async function getMap() {
   if (!inflight) {
     inflight = fetchRoster()
       .then((map) => { cache = map; cacheAt = Date.now(); inflight = null; return map; })
-      .catch((err) => { inflight = null; console.error(`roster: ${err.message}`); return cache || new Map(); });
+      .catch((err) => { inflight = null; console.error(`roster: ${err.message}`); return cache || players.buildNameIndex([]); });
   }
   return inflight;
 }
 
-// Fill position/team from the roster wherever the parser left them blank.
-// Returns the number of players we matched (for a "filled N from NFL rosters"
-// note). Existing OCR values are kept — the roster only fills gaps.
+// Match each player to the roster by name (tolerant of OCR noise / variants) and
+// fill in what's missing. On a confident match we also correct the NAME to the
+// canonical roster spelling — that's what fixes "].K. Dobbins" -> "J.K. Dobbins",
+// "TylerAllgeier" -> "Tyler Allgeier", etc. Team/position only fill blanks, so a
+// value OCR did read is kept. Returns the number of players matched.
 async function enrich(list) {
-  let map;
-  try { map = await getMap(); } catch (e) { return 0; }
-  if (!map || !map.size) return 0;
+  let index;
+  try { index = await getMap(); } catch (e) { return 0; }
+  if (!index || !index.byKey || !index.byKey.size) return 0;
   let matched = 0;
   for (const p of list) {
-    const hit = map.get(players.key(p.name));
+    // Team defenses are already resolved by the parser; don't rename them.
+    if (p.position === 'DST') continue;
+    const hit = players.findName(p.name, index);
     if (!hit) continue;
-    let touched = false;
-    if (!p.position && hit.position) { p.position = hit.position; touched = true; }
-    if (!p.team && hit.team) { p.team = hit.team; touched = true; }
-    if (touched) matched += 1;
+    if (hit.name) p.name = hit.name; // canonical spelling — also fixes OCR-garbled names
+    if (!p.position && hit.position) p.position = hit.position;
+    if (!p.team && hit.team) p.team = hit.team;
+    matched += 1;
   }
   return matched;
 }

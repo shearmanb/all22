@@ -44,7 +44,12 @@ function looksLikeJunk(line) {
 // leading whitespace-separated tokens that contain a digit until the name begins.
 function stripRankPrefix(segment) {
   const tokens = segment.trim().split(/\s+/).filter(Boolean);
-  while (tokens.length && /\d/.test(tokens[0])) tokens.shift();
+  // Drop leading rank/movement-badge tokens: anything containing a digit
+  // ("17", "2v1", "10~8") or made of pure symbols (a misread arrow like "+").
+  // Stop at the first token that has a letter — the start of the name.
+  while (tokens.length > 1 && (/\d/.test(tokens[0]) || !/[a-z0-9]/i.test(tokens[0]))) {
+    tokens.shift();
+  }
   return tokens.join(' ');
 }
 
