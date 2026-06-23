@@ -44,7 +44,136 @@
         <span class="tile-soon">Coming soon</span>
       </div>
     </div>
+
+    <section class="news-head">
+      <h2>What's New</h2>
+      <span id="news-updated" class="muted"></span>
+      <button id="news-refresh" class="news-refresh" type="button">Refresh</button>
+    </section>
+    <p class="muted">Latest from the sites you follow — skim here, click through only if it's worth your time.</p>
+    <div id="news" class="news-loading">Loading…</div>
   </main>
   <script src="/app.js"></script>
+  <script>
+  (function () {
+    var newsEl = document.getElementById('news');
+    var updatedEl = document.getElementById('news-updated');
+    var refreshBtn = document.getElementById('news-refresh');
+
+    function el(tag, className, text) {
+      var n = document.createElement(tag);
+      if (className) n.className = className;
+      if (text != null) n.textContent = text; // textContent, never innerHTML: feed data is untrusted
+      return n;
+    }
+
+    function extLink(node, href) {
+      node.href = href;
+      node.target = '_blank';
+      node.rel = 'noopener noreferrer';
+      return node;
+    }
+
+    function timeAgo(value) {
+      if (!value) return '';
+      var then = new Date(value).getTime();
+      if (isNaN(then)) return '';
+      var secs = Math.round((Date.now() - then) / 1000);
+      if (secs < 60) return 'just now';
+      var mins = Math.round(secs / 60);
+      if (mins < 60) return mins + 'm ago';
+      var hrs = Math.round(mins / 60);
+      if (hrs < 24) return hrs + 'h ago';
+      var days = Math.round(hrs / 24);
+      if (days < 30) return days + 'd ago';
+      return new Date(value).toLocaleDateString();
+    }
+
+    function renderItem(item) {
+      var wrap = el('div', 'news-item');
+      var title = el(item.url ? 'a' : 'span', 'news-title', item.title || '(untitled)');
+      if (item.url) extLink(title, item.url);
+      wrap.appendChild(title);
+
+      var meta = [];
+      if (item.publishedAt) meta.push(timeAgo(item.publishedAt));
+      if (item.author) meta.push(item.author);
+      if (meta.length) wrap.appendChild(el('div', 'news-meta', meta.join(' · ')));
+
+      if (item.summary) wrap.appendChild(el('div', 'news-summary', item.summary));
+      return wrap;
+    }
+
+    function renderSource(src) {
+      var card = el('div', 'card news-source');
+
+      var head = el('div', 'news-source-head');
+      var h2 = el('h2');
+      h2.appendChild(extLink(el('a', null, src.name), src.siteUrl));
+      head.appendChild(h2);
+      if (src.lastOk && src.lastFetchedAt) {
+        head.appendChild(el('span', 'news-source-note', 'updated ' + timeAgo(src.lastFetchedAt)));
+      }
+      card.appendChild(head);
+
+      if (src.lastError) {
+        card.appendChild(el('div', 'news-source-error', "Couldn't refresh: " + src.lastError));
+      }
+
+      if (src.kind === 'link') {
+        var tile = el('div', 'news-link-tile');
+        tile.appendChild(extLink(el('a', null, 'Open ' + src.name + ' →'), src.siteUrl));
+        tile.appendChild(el('div', 'muted', src.key === 'fantasypoints'
+          ? 'Subscription site — open to read the latest articles.'
+          : 'Open for the latest player news.'));
+        card.appendChild(tile);
+      } else if (src.items && src.items.length) {
+        src.items.forEach(function (it) { card.appendChild(renderItem(it)); });
+      } else if (!src.lastError) {
+        card.appendChild(el('div', 'muted', 'No recent items yet.'));
+      }
+      return card;
+    }
+
+    function render(sources) {
+      newsEl.className = '';
+      newsEl.textContent = '';
+      if (!sources || !sources.length) {
+        newsEl.appendChild(el('div', 'muted', 'No sources configured.'));
+        updatedEl.textContent = '';
+        return;
+      }
+      var newest = null;
+      sources.forEach(function (s) {
+        if (s.lastOk && s.lastFetchedAt) {
+          var t = new Date(s.lastFetchedAt).getTime();
+          if (!newest || t > newest) newest = t;
+        }
+        newsEl.appendChild(renderSource(s));
+      });
+      updatedEl.textContent = newest ? 'updated ' + timeAgo(newest) : '';
+    }
+
+    function setBusy(busy, label) {
+      refreshBtn.disabled = busy;
+      refreshBtn.textContent = label;
+    }
+
+    refreshBtn.addEventListener('click', function () {
+      setBusy(true, 'Refreshing…');
+      apiFetch('/api/news/refresh', { method: 'POST' })
+        .then(render)
+        .catch(function () { /* apiFetch already surfaced the error banner */ })
+        .finally(function () { setBusy(false, 'Refresh'); });
+    });
+
+    apiFetch('/api/news')
+      .then(render)
+      .catch(function () {
+        newsEl.className = '';
+        newsEl.textContent = '';
+      });
+  })();
+  </script>
 </body>
 </html>

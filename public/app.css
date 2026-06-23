@@ -155,6 +155,35 @@ button.link {
   color: var(--text-dim);
 }
 
+/* ===== Homepage news aggregator ===== */
+.news-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-top: 28px; }
+.news-head h2 { margin: 0; }
+.news-refresh { margin-left: auto; }
+#news-updated { font-size: 0.85rem; }
+.news-loading { color: var(--text-dim); }
+
+.news-source { margin-top: 14px; }
+.news-source-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.news-source-head h2 { font-size: 1.05rem; margin: 0; }
+.news-source-note { color: var(--text-dim); font-size: 0.8rem; }
+
+.news-item { padding: 8px 0; }
+.news-item + .news-item { border-top: 1px solid var(--border); }
+.news-title { font-weight: 600; }
+.news-meta { color: var(--text-dim); font-size: 0.8rem; margin-top: 2px; }
+.news-summary { color: var(--text-dim); font-size: 0.92rem; margin-top: 4px; }
+
+.news-link-tile a { font-weight: 600; }
+.news-source-error {
+  color: var(--error-text);
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  margin-top: 6px;
+}
+
 /* ===== Rankings Converter ===== */
 .notice-banner {
   display: none;

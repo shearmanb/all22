@@ -7,6 +7,7 @@ const cookieSession = require('cookie-session');
 const { runMigrations } = require('./db/migrate');
 const healthRouter = require('./routes/health');
 const authRouter = require('./routes/auth');
+const newsRouter = require('./routes/news');
 const features = require('./features');
 
 const app = express();
@@ -41,6 +42,10 @@ app.use((req, res, next) => {
   }
   res.redirect('/login');
 });
+
+// Homepage news aggregator — a core part of the splash page (not an applet),
+// so it's mounted here rather than in the feature registry.
+app.use('/api/news', newsRouter);
 
 // Mount each applet from the registry: its API router + its static pages.
 // Feature pages are served at the site root, so links like /drafts.html and
