@@ -339,9 +339,13 @@
       });
     }
 
-    // Clean a screenshot before OCR: upscale small images so small text is
-    // legible, convert to grayscale, and darken faint text. Done in a canvas (no
-    // libraries). Falls back to the original image if anything goes wrong.
+    // Clean a screenshot before OCR. The one transform that reliably helps
+    // Tesseract is UPSCALING small text (it expects ~30px-tall letters), so we
+    // enlarge low-res captures and convert to grayscale — then hand off to
+    // Tesseract's own binarization, which separates faint gray text from the
+    // white background better than a hand-tuned contrast curve (a manual curve
+    // either bleached the light team codes away or crushed thin strokes and
+    // dropped whole rows). No libraries; falls back to the original on error.
     function preprocessImage(dataUrl) {
       return new Promise(function (resolve) {
         var img = new Image();
@@ -350,10 +354,9 @@
             var w = img.naturalWidth, h = img.naturalHeight;
             if (!w || !h) { resolve(dataUrl); return; }
             var maxDim = Math.max(w, h);
-            // Upscale small/low-res captures so tiny text — like 2-letter team
-            // codes — has enough pixels to read. Target ~1600px on the long edge,
-            // up to 3x.
-            var scale = maxDim < 1600 ? Math.min(3, 1600 / maxDim) : 1;
+            // Enlarge small/low-res captures toward ~1500px on the long edge,
+            // up to 2.5x. Leave already-large images alone.
+            var scale = maxDim < 1500 ? Math.min(2.5, 1500 / maxDim) : 1;
             var cw = Math.round(w * scale), ch = Math.round(h * scale);
             var c = document.createElement('canvas');
             c.width = cw; c.height = ch;
@@ -363,16 +366,8 @@
             ctx.drawImage(img, 0, 0, cw, ch);
             var data = ctx.getImageData(0, 0, cw, ch);
             var d = data.data;
-            // Grayscale, then a contrast curve pivoted HIGH (near the white
-            // background) so the light-gray secondary text — the team/bye codes —
-            // gets DARKER and more legible, while the white background stays
-            // white. A mid-gray pivot (the old behaviour) bleached that light
-            // text toward white and dropped teams like "SF".
-            var contrast = 1.7, pivot = 205, intercept = pivot * (1 - contrast);
             for (var i = 0; i < d.length; i += 4) {
               var g = 0.3 * d[i] + 0.59 * d[i + 1] + 0.11 * d[i + 2];
-              g = g * contrast + intercept;
-              g = g < 0 ? 0 : g > 255 ? 255 : g;
               d[i] = d[i + 1] = d[i + 2] = g;
             }
             ctx.putImageData(data, 0, 0);
