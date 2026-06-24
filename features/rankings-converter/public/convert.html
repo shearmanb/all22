@@ -39,6 +39,20 @@
       <div id="notice-banner" class="notice-banner"></div>
     </div>
 
+    <!-- SAVED RANKINGS (your library) -->
+    <div class="card section-gap" id="library-panel">
+      <h2>Saved rankings</h2>
+      <p class="muted" style="font-size:0.85rem">Your ranked lists are kept here between visits — they won't disappear when you reload. <strong>Load</strong> one to edit it or convert it to Underdog; <strong>Update</strong> replaces it in place, or <strong>Save as new</strong> keeps a separate copy.</p>
+      <div id="sets-list"></div>
+      <div class="row section-gap">
+        <input type="text" id="set-name" class="inline" placeholder="Name (e.g. My Top 200 — June)" style="flex:2;min-width:180px">
+        <input type="text" id="set-source" class="inline" placeholder="Note (optional)" style="flex:1;min-width:140px">
+        <button id="save-set">Save as new</button>
+        <button id="update-set" style="display:none">Update</button>
+      </div>
+      <p id="loaded-indicator" class="muted" style="display:none;font-size:0.85rem;margin:8px 0 0"></p>
+    </div>
+
     <!-- STEP 2: PREVIEW / EDIT -->
     <div class="card section-gap" id="preview-panel" style="display:none">
       <div class="row" style="justify-content:space-between">
@@ -82,16 +96,6 @@
       <h2>3. Download for a site</h2>
       <p id="export-empty" class="muted" style="font-size:0.85rem">Paste or add a list above first — then these buttons download it in each site's format.</p>
       <div class="export-grid" id="formats"></div>
-
-      <div id="save-block" style="display:none">
-        <h2 class="section-gap">Save these rankings</h2>
-        <p class="muted" style="font-size:0.85rem">Optional — keep this list to re-download later. (Needs the database; export works without saving.)</p>
-        <div class="row">
-          <input type="text" id="set-name" class="inline" placeholder="Name (e.g. My Top 200 — June)" style="flex:2;min-width:180px">
-          <input type="text" id="set-source" class="inline" placeholder="Source note (optional)" style="flex:1;min-width:140px">
-          <button id="save-set">Save</button>
-        </div>
-      </div>
     </div>
 
     <!-- UNDERDOG IDS -->
@@ -138,6 +142,8 @@
     var playersState = [];
     var unparsedState = [];
     var screenshotCount = 0;
+    var currentSetId = null;   // the saved ranking set currently loaded for editing
+    var currentSetName = '';
     function $(id) { return document.getElementById(id); }
     // Lightweight client-side matching key (mirrors lib/players.js key() closely
     // enough to catch obvious duplicates when screenshots overlap). Server still
@@ -179,11 +185,12 @@
     // and the Save box hidden until there's a list to export.
     function syncExportState() {
       var has = playersState.length > 0;
-      var hint = $('export-empty'), save = $('save-block');
+      var hint = $('export-empty');
       if (hint) hint.style.display = has ? 'none' : 'block';
-      if (save) save.style.display = has ? 'block' : 'none';
       var btns = $('formats').querySelectorAll('button[data-fmt]');
       for (var i = 0; i < btns.length; i++) btns[i].disabled = !has;
+      var sb = $('save-set'); if (sb) sb.disabled = !has;
+      var ub = $('update-set'); if (ub) ub.disabled = !has;
     }
 
     // ---- Rendering ----
@@ -290,12 +297,15 @@
       playersState = [];
       unparsedState = [];
       screenshotCount = 0;
+      currentSetId = null; currentSetName = '';
+      $('set-name').value = ''; $('set-source').value = '';
       $('preview-img').style.display = 'none';
       $('preview-img').removeAttribute('src');
       setStatus('');
       showNotice('');
       renderUnparsed();
       render();
+      syncLoadedState();
     }
     $('clear-all').addEventListener('click', clearAll);
 
@@ -505,20 +515,126 @@
       } catch (err) { showError('Could not download the file.'); }
     });
 
-    // ---- Save ----
+    // ---- Saved rankings (library) ----
+    function fmtDate(s) {
+      if (!s) return '';
+      try { return new Date(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
+      catch (e) { return ''; }
+    }
+
+    // Reflect which saved set (if any) is loaded: the Update button + indicator.
+    function syncLoadedState() {
+      var upd = $('update-set'), ind = $('loaded-indicator');
+      if (currentSetId) {
+        upd.style.display = '';
+        upd.textContent = 'Update "' + currentSetName + '"';
+        ind.style.display = 'block';
+        ind.textContent = 'Editing "' + currentSetName + '" — press Update to replace it, or Save as new to keep a separate copy.';
+      } else {
+        upd.style.display = 'none';
+        ind.style.display = 'none';
+      }
+    }
+
+    // List the saved sets with Load / Delete.
+    async function loadSets() {
+      try {
+        var list = await apiFetch('/api/convert/sets');
+        var wrap = $('sets-list'); wrap.innerHTML = '';
+        if (!list.length) {
+          wrap.innerHTML = '<p class="muted" style="font-size:0.85rem">No saved rankings yet — paste a list above, name it, then Save as new.</p>';
+          return;
+        }
+        list.forEach(function (s) {
+          var row = document.createElement('div');
+          row.className = 'row';
+          row.style.cssText = 'justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);padding:8px 0';
+          var current = String(s.id) === String(currentSetId);
+          row.innerHTML =
+            '<div><strong>' + esc(s.name) + '</strong>' + (current ? ' <span class="pill">editing</span>' : '') +
+            '<br><span class="muted" style="font-size:0.8rem">' + s.count + ' player' + (s.count === 1 ? '' : 's') +
+            ' · saved ' + esc(fmtDate(s.updated_at || s.created_at)) +
+            (s.source ? ' · ' + esc(s.source) : '') + '</span></div>' +
+            '<div class="row" style="gap:12px">' +
+            '<button class="link" data-load="' + esc(s.id) + '" style="color:var(--accent)">Load</button>' +
+            '<button class="linkbtn" title="Delete" data-setdel="' + esc(s.id) + '">×</button>' +
+            '</div>';
+          wrap.appendChild(row);
+        });
+      } catch (err) { /* shown */ }
+    }
+
+    // Load a saved set into the editor.
+    async function loadSet(id) {
+      clearError();
+      try {
+        var data = await apiFetch('/api/convert/sets/' + id);
+        playersState = (data.players || []).map(function (p) {
+          return { name: p.name || '', position: p.position || '', team: p.team || '', rank: p.rank };
+        });
+        unparsedState = [];
+        currentSetId = data.id; currentSetName = data.name;
+        $('set-name').value = data.name || '';
+        $('set-source').value = data.source || '';
+        renderUnparsed();
+        render();
+        loadSets();
+        syncLoadedState();
+        showNotice('Loaded "' + data.name + '" — ' + playersState.length + ' players. Edit, then Update to replace it.');
+        $('preview-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (err) { /* shown */ }
+    }
+
+    $('sets-list').addEventListener('click', async function (e) {
+      var loadId = e.target.getAttribute('data-load');
+      if (loadId) { loadSet(loadId); return; }
+      var delId = e.target.getAttribute('data-setdel');
+      if (delId) {
+        if (!confirm('Delete this saved ranking set? This cannot be undone.')) return;
+        try {
+          await apiFetch('/api/convert/sets/' + delId, { method: 'DELETE' });
+          if (String(delId) === String(currentSetId)) { currentSetId = null; currentSetName = ''; syncLoadedState(); }
+          showNotice('Deleted that saved ranking set.');
+          loadSets();
+        } catch (err) { /* shown */ }
+      }
+    });
+
+    // Save the current list as a NEW set (always creates a new one).
     $('save-set').addEventListener('click', async function () {
       clearError();
-      if (!playersState.length) { showError('Nothing to save yet.'); return; }
+      if (!playersState.length) { showError('Nothing to save yet — paste or load a list first.'); return; }
       var name = $('set-name').value.trim();
       if (!name) { showError('Give this ranking set a name.'); return; }
-      var btn = $('save-set'); btn.disabled = true;
+      var btn = this; btn.disabled = true;
       try {
-        await apiFetch('/api/convert/save', {
+        var data = await apiFetch('/api/convert/save', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: name, source: $('set-source').value, players: playersState })
         });
-        showNotice('Saved "' + name + '".');
-        $('set-name').value = ''; $('set-source').value = '';
+        currentSetId = data.id; currentSetName = data.name;
+        showNotice('Saved "' + data.name + '" — ' + playersState.length + ' players. It will be here when you come back.');
+        loadSets();
+        syncLoadedState();
+      } catch (err) { /* shown */ }
+      finally { btn.disabled = false; }
+    });
+
+    // Replace the loaded set in place (Update).
+    $('update-set').addEventListener('click', async function () {
+      clearError();
+      if (!currentSetId) { showError('Load a saved set first, or use Save as new.'); return; }
+      if (!playersState.length) { showError('Nothing to save yet.'); return; }
+      var btn = this; btn.disabled = true;
+      try {
+        var data = await apiFetch('/api/convert/sets/' + currentSetId, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: $('set-name').value, source: $('set-source').value, players: playersState })
+        });
+        currentSetName = data.name;
+        showNotice('Updated "' + data.name + '" — ' + playersState.length + ' players.');
+        loadSets();
+        syncLoadedState();
       } catch (err) { /* shown */ }
       finally { btn.disabled = false; }
     });
@@ -688,6 +804,7 @@
     loadFormats();
     loadFixes();
     loadUdSets();
+    loadSets();
   </script>
 </body>
 </html>

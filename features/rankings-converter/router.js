@@ -170,7 +170,7 @@ router.get('/sets', async (req, res) => {
   try {
     if (!hasDb()) return res.json({ ok: true, data: [] });
     const { rows } = await pool.query(
-      'SELECT id, name, source, created_at, jsonb_array_length(players) AS count FROM ranking_sets ORDER BY created_at DESC'
+      'SELECT id, name, source, created_at, updated_at, jsonb_array_length(players) AS count FROM ranking_sets ORDER BY updated_at DESC'
     );
     res.json({ ok: true, data: rows });
   } catch (err) {
@@ -184,12 +184,61 @@ router.get('/sets/:id', async (req, res) => {
     if (!hasDb()) {
       return res.status(400).json({ ok: false, error: 'Saved sets need a database.' });
     }
-    const { rows } = await pool.query('SELECT id, name, source, players, created_at FROM ranking_sets WHERE id = $1', [req.params.id]);
+    const { rows } = await pool.query('SELECT id, name, source, players, created_at, updated_at FROM ranking_sets WHERE id = $1', [req.params.id]);
     if (!rows.length) return res.status(404).json({ ok: false, error: 'Ranking set not found.' });
     res.json({ ok: true, data: rows[0] });
   } catch (err) {
     console.error(`GET /api/convert/sets/:id: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not load that ranking set.' });
+  }
+});
+
+// Replace an existing ranking set in place ("Update" — the saved list the owner
+// loaded, edited, and re-saved). Body: { name?, source?, players }. Players are
+// always replaced; name/source update only when provided.
+router.put('/sets/:id', async (req, res) => {
+  try {
+    if (!hasDb()) {
+      return res.status(400).json({ ok: false, error: 'Saving needs a database (DATABASE_URL is not set).' });
+    }
+    const { name, source, players: list } = req.body || {};
+    const normalized = normalizeList(list);
+    if (!normalized.length) {
+      return res.status(400).json({ ok: false, error: 'There are no players to save.' });
+    }
+    const sets = ['players = $2', 'updated_at = now()'];
+    const params = [req.params.id, JSON.stringify(normalized)];
+    if (name && String(name).trim()) {
+      params.push(String(name).trim());
+      sets.push(`name = $${params.length}`);
+    }
+    if (source !== undefined) {
+      params.push(source ? String(source).trim() : null);
+      sets.push(`source = $${params.length}`);
+    }
+    const { rows } = await pool.query(
+      `UPDATE ranking_sets SET ${sets.join(', ')} WHERE id = $1 RETURNING id, name, source, created_at, updated_at`,
+      params
+    );
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'That ranking set was not found — it may have been deleted.' });
+    res.json({ ok: true, data: rows[0] });
+  } catch (err) {
+    console.error(`PUT /api/convert/sets/:id: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not update that ranking set.' });
+  }
+});
+
+// Forget a saved ranking set.
+router.delete('/sets/:id', async (req, res) => {
+  try {
+    if (!hasDb()) {
+      return res.status(400).json({ ok: false, error: 'Saved sets need a database.' });
+    }
+    await pool.query('DELETE FROM ranking_sets WHERE id = $1', [req.params.id]);
+    res.json({ ok: true, data: { deleted: true } });
+  } catch (err) {
+    console.error(`DELETE /api/convert/sets/:id: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not delete that ranking set.' });
   }
 });
 
