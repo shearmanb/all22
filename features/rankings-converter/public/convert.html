@@ -75,16 +75,22 @@
     </div>
 
     <!-- STEP 3: EXPORT -->
-    <div class="card section-gap" id="export-panel" style="display:none">
+    <!-- Always visible so the supported sites (Underdog, Yahoo, …) are
+         discoverable. The download buttons stay disabled and the Save box
+         hidden until there's actually a list to export (see syncExportState). -->
+    <div class="card section-gap" id="export-panel">
       <h2>3. Download for a site</h2>
+      <p id="export-empty" class="muted" style="font-size:0.85rem">Paste or add a list above first — then these buttons download it in each site's format.</p>
       <div class="export-grid" id="formats"></div>
 
-      <h2 class="section-gap">Save these rankings</h2>
-      <p class="muted" style="font-size:0.85rem">Optional — keep this list to re-download later. (Needs the database; export works without saving.)</p>
-      <div class="row">
-        <input type="text" id="set-name" class="inline" placeholder="Name (e.g. My Top 200 — June)" style="flex:2;min-width:180px">
-        <input type="text" id="set-source" class="inline" placeholder="Source note (optional)" style="flex:1;min-width:140px">
-        <button id="save-set">Save</button>
+      <div id="save-block" style="display:none">
+        <h2 class="section-gap">Save these rankings</h2>
+        <p class="muted" style="font-size:0.85rem">Optional — keep this list to re-download later. (Needs the database; export works without saving.)</p>
+        <div class="row">
+          <input type="text" id="set-name" class="inline" placeholder="Name (e.g. My Top 200 — June)" style="flex:2;min-width:180px">
+          <input type="text" id="set-source" class="inline" placeholder="Source note (optional)" style="flex:1;min-width:140px">
+          <button id="save-set">Save</button>
+        </div>
       </div>
     </div>
 
@@ -141,6 +147,18 @@
       return labels;
     }
 
+    // Keep the export section honest: the format cards (Underdog, Yahoo, …) are
+    // always shown so they're discoverable, but the Download buttons are inert
+    // and the Save box hidden until there's a list to export.
+    function syncExportState() {
+      var has = playersState.length > 0;
+      var hint = $('export-empty'), save = $('save-block');
+      if (hint) hint.style.display = has ? 'none' : 'block';
+      if (save) save.style.display = has ? 'block' : 'none';
+      var btns = $('formats').querySelectorAll('button[data-fmt]');
+      for (var i = 0; i < btns.length; i++) btns[i].disabled = !has;
+    }
+
     // ---- Rendering ----
     function render() {
       var tbody = $('rows');
@@ -160,7 +178,7 @@
       $('count').textContent = playersState.length ? '(' + playersState.length + ')' : '';
       var has = playersState.length > 0;
       $('preview-panel').style.display = has ? 'block' : 'none';
-      $('export-panel').style.display = has ? 'block' : 'none';
+      syncExportState();
     }
 
     // Live-update state on every keystroke (keeps focus — no re-render here).
@@ -430,6 +448,7 @@
             '<div class="row"><button data-fmt="' + esc(f.id) + '">Download CSV</button></div>';
           grid.appendChild(card);
         });
+        syncExportState();
       } catch (err) { /* shown */ }
     }
 
