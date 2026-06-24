@@ -8,6 +8,7 @@ const ocr = require('./lib/ocr');
 const rankingsParser = require('./lib/rankings');
 const roster = require('./lib/roster');
 const converters = require('./lib/converters');
+const underdogIds = require('./lib/underdog-ids');
 const players = require('../../lib/players');
 const pool = require('../../db/pool');
 
@@ -257,6 +258,111 @@ router.delete('/corrections/:id', async (req, res) => {
   } catch (err) {
     console.error(`DELETE /api/convert/corrections/:id: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not delete that fix.' });
+  }
+});
+
+// --- Underdog "rankings with IDs" (requires DATABASE_URL) -----------------
+// Underdog's player IDs change every contest/season, so the owner uploads the
+// CSV they download from Underdog (one per contest, kept as a named list). On
+// export we reorder that exact file to match the ranked list and hand back an
+// upload-ready file with Underdog's real IDs. See lib/underdog-ids.js.
+
+// List saved Underdog files (the contest list).
+router.get('/underdog/sets', async (req, res) => {
+  try {
+    if (!hasDb()) return res.json({ ok: true, data: [] });
+    const { rows } = await pool.query(
+      'SELECT id, name, player_count, created_at FROM underdog_id_sets ORDER BY created_at DESC'
+    );
+    res.json({ ok: true, data: rows });
+  } catch (err) {
+    console.error(`GET /api/convert/underdog/sets: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not load your saved Underdog files.' });
+  }
+});
+
+// Save a downloaded Underdog CSV under a name. Body: { name, csv }.
+router.post('/underdog/sets', async (req, res) => {
+  try {
+    if (!hasDb()) {
+      return res.status(400).json({ ok: false, error: 'Saving an Underdog file needs a database (DATABASE_URL is not set).' });
+    }
+    const { name, csv } = req.body || {};
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ ok: false, error: 'Give this Underdog file a name (e.g. the contest or season) before saving.' });
+    }
+    if (!csv || !String(csv).trim()) {
+      return res.status(400).json({ ok: false, error: 'Paste or choose the CSV you downloaded from Underdog first.' });
+    }
+    let count;
+    try {
+      ({ count } = underdogIds.summarize(String(csv)));
+    } catch (e) {
+      return res.status(400).json({ ok: false, error: e.message });
+    }
+    const { rows } = await pool.query(
+      'INSERT INTO underdog_id_sets (name, csv, player_count) VALUES ($1, $2, $3) RETURNING id, name, player_count, created_at',
+      [String(name).trim(), String(csv), count]
+    );
+    res.json({ ok: true, data: rows[0] });
+  } catch (err) {
+    console.error(`POST /api/convert/underdog/sets: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not save that Underdog file.' });
+  }
+});
+
+// Forget a saved Underdog file.
+router.delete('/underdog/sets/:id', async (req, res) => {
+  try {
+    if (!hasDb()) return res.status(400).json({ ok: false, error: 'Saved Underdog files need a database.' });
+    await pool.query('DELETE FROM underdog_id_sets WHERE id = $1', [req.params.id]);
+    res.json({ ok: true, data: { deleted: true } });
+  } catch (err) {
+    console.error(`DELETE /api/convert/underdog/sets/:id: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not delete that Underdog file.' });
+  }
+});
+
+// Build the upload-ready Underdog file: reorder a stored file to match the
+// ranked list. Body: { players: [{name,...}], setId }. Returns the CSV text plus
+// a match report so the UI can download it and show what didn't match.
+router.post('/underdog/export', async (req, res) => {
+  try {
+    if (!hasDb()) {
+      return res.status(400).json({ ok: false, error: 'This needs a database to load your saved Underdog file.' });
+    }
+    const { players: list, setId } = req.body || {};
+    const normalized = normalizeList(list);
+    if (!normalized.length) {
+      return res.status(400).json({ ok: false, error: 'There are no players in your list to rank.' });
+    }
+    if (!setId) {
+      return res.status(400).json({ ok: false, error: 'Choose which Underdog file to use first.' });
+    }
+    const { rows } = await pool.query('SELECT name, csv FROM underdog_id_sets WHERE id = $1', [setId]);
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'That Underdog file was not found — it may have been deleted.' });
+
+    let result;
+    try {
+      result = underdogIds.buildExport(rows[0].csv, normalized);
+    } catch (e) {
+      return res.status(400).json({ ok: false, error: e.message });
+    }
+    const slug = String(rows[0].name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'underdog';
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.json({
+      ok: true,
+      data: {
+        filename: `underdog-${slug}-${stamp}.csv`,
+        csv: result.csv,
+        total: result.total,
+        matched: result.matched,
+        unmatched: result.unmatched,
+      },
+    });
+  } catch (err) {
+    console.error(`POST /api/convert/underdog/export: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not build the Underdog upload file.' });
   }
 });
 

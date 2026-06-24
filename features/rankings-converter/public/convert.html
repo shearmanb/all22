@@ -94,6 +94,33 @@
       </div>
     </div>
 
+    <!-- UNDERDOG IDS -->
+    <div class="card section-gap" id="underdog-panel">
+      <h2>Underdog upload (with player IDs)</h2>
+      <p class="muted" style="font-size:0.85rem">Underdog's player IDs change every contest/season. Download the CSV from Underdog's <strong>Rankings → "CSV UPLOAD/DOWNLOAD"</strong>, save it here once per contest, and I'll reorder that exact file to match your list above — then upload it straight back to Underdog. Your ranked players go on top in your order; everyone else keeps Underdog's order, and nothing is dropped.</p>
+
+      <div class="row section-gap">
+        <label class="muted" style="margin:0">Underdog file:</label>
+        <select id="ud-set" class="inline" style="min-width:220px;flex:1"></select>
+        <button id="ud-download">Download Underdog file (with IDs)</button>
+        <button class="link" id="ud-delete" style="color:var(--text-dim)">Remove</button>
+      </div>
+      <div id="ud-report" class="section-gap"></div>
+
+      <details class="section-gap" id="ud-add">
+        <summary style="cursor:pointer;color:var(--accent)">+ Add or replace an Underdog file</summary>
+        <p class="muted" style="font-size:0.82rem;margin:8px 0">Download a fresh CSV from Underdog (it already contains their IDs), then choose that file — or paste its contents — and give it a name.</p>
+        <div class="row">
+          <input type="text" id="ud-name" class="inline" placeholder="Name (e.g. Best Ball — preseason)" style="flex:2;min-width:200px">
+          <input type="file" id="ud-file" accept=".csv,text/csv" class="inline">
+        </div>
+        <textarea id="ud-csv" rows="3" class="section-gap" placeholder="…or paste the downloaded CSV contents here"></textarea>
+        <div class="row">
+          <button id="ud-save">Save this Underdog file</button>
+        </div>
+      </details>
+    </div>
+
     <!-- FIX QUEUE -->
     <div class="card section-gap" id="fixes-panel">
       <h2>Fix queue</h2>
@@ -555,8 +582,112 @@
       } catch (err) { /* shown */ }
     });
 
+    // ---- Underdog IDs ----
+    // Load the saved Underdog files into the dropdown; keep `selectId` selected.
+    async function loadUdSets(selectId) {
+      try {
+        var list = await apiFetch('/api/convert/underdog/sets');
+        var sel = $('ud-set'); sel.innerHTML = '';
+        if (!list.length) {
+          var o = document.createElement('option');
+          o.value = ''; o.textContent = '— no Underdog file saved yet —';
+          sel.appendChild(o);
+        } else {
+          list.forEach(function (s) {
+            var o = document.createElement('option');
+            o.value = s.id;
+            o.textContent = s.name + ' (' + s.player_count + ' players)';
+            sel.appendChild(o);
+          });
+          if (selectId) sel.value = selectId;
+        }
+      } catch (err) { /* shown */ }
+    }
+
+    // Read the Underdog CSV from the file picker if chosen, else the textarea.
+    function readUdCsv() {
+      return new Promise(function (resolve, reject) {
+        var f = $('ud-file').files && $('ud-file').files[0];
+        if (f) {
+          var r = new FileReader();
+          r.onload = function () { resolve(r.result); };
+          r.onerror = reject;
+          r.readAsText(f);
+        } else {
+          resolve($('ud-csv').value);
+        }
+      });
+    }
+
+    $('ud-save').addEventListener('click', async function () {
+      clearError();
+      var name = $('ud-name').value.trim();
+      if (!name) { showError('Name this Underdog file first (e.g. the contest or season).'); return; }
+      var csv;
+      try { csv = await readUdCsv(); } catch (e) { showError('Could not read that file.'); return; }
+      if (!csv || !csv.trim()) { showError('Choose the downloaded CSV or paste its contents.'); return; }
+      var btn = this; btn.disabled = true;
+      try {
+        var data = await apiFetch('/api/convert/underdog/sets', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name, csv: csv })
+        });
+        showNotice('Saved "' + data.name + '" — ' + data.player_count + ' Underdog players.');
+        $('ud-name').value = ''; $('ud-csv').value = ''; $('ud-file').value = '';
+        $('ud-add').open = false;
+        loadUdSets(data.id);
+      } catch (err) { /* shown */ }
+      finally { btn.disabled = false; }
+    });
+
+    $('ud-delete').addEventListener('click', async function () {
+      var id = $('ud-set').value;
+      if (!id) { showError('No Underdog file selected.'); return; }
+      if (!confirm('Remove this saved Underdog file?')) return;
+      try {
+        await apiFetch('/api/convert/underdog/sets/' + id, { method: 'DELETE' });
+        $('ud-report').innerHTML = '';
+        showNotice('Removed that Underdog file.');
+        loadUdSets();
+      } catch (err) { /* shown */ }
+    });
+
+    function renderUdReport(data) {
+      var wrap = $('ud-report');
+      var html = '<p class="muted" style="font-size:0.85rem">Matched <strong>' + data.matched + '</strong> of your ' +
+        playersState.length + ' players to Underdog IDs and moved them to the top. The file has ' + data.total + ' players in all.</p>';
+      if (data.unmatched && data.unmatched.length) {
+        html += '<span class="pill warn">Couldn\'t match ' + data.unmatched.length +
+          ' — fix the spelling in the table above and download again</span>' +
+          '<ul class="unparsed">' + data.unmatched.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul>';
+      }
+      wrap.innerHTML = html;
+    }
+
+    $('ud-download').addEventListener('click', async function () {
+      clearError();
+      if (!playersState.length) { showError('Add a list above first, then download.'); return; }
+      var id = $('ud-set').value;
+      if (!id) { showError('Save an Underdog file first ("+ Add an Underdog file"), then pick it here.'); return; }
+      var btn = this; btn.disabled = true;
+      try {
+        var data = await apiFetch('/api/convert/underdog/export', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ players: playersState, setId: id })
+        });
+        var blob = new Blob([data.csv], { type: 'text/csv;charset=utf-8' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = data.filename || 'underdog.csv';
+        document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+        renderUdReport(data);
+      } catch (err) { /* shown */ }
+      finally { btn.disabled = false; }
+    });
+
     loadFormats();
     loadFixes();
+    loadUdSets();
   </script>
 </body>
 </html>
