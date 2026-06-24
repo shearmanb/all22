@@ -117,7 +117,7 @@ function parseLine(rawLine) {
   if (!name || !/[a-z]/i.test(name) || players.key(name).length < 2) {
     return null;
   }
-  return { name, position, team, srcRank };
+  return { name, position, team };
 }
 
 function parse(rawText) {
