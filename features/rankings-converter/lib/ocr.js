@@ -74,4 +74,12 @@ async function imageToText(image) {
   return data.text || '';
 }
 
-module.exports = { imageToText };
+// Pre-initialize the (slow, ~20-30s) Tesseract worker so the first real
+// screenshot isn't the one that pays for it. Safe to call repeatedly — the
+// worker promise is cached. Never throws.
+async function warmup() {
+  try { await getWorker(); return true; }
+  catch (e) { return false; }
+}
+
+module.exports = { imageToText, warmup };

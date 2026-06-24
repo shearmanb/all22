@@ -140,4 +140,39 @@ function buildExport(csvText, rankedList) {
   return { csv, total: rows.length, matched, unmatched };
 }
 
-module.exports = { parse, summarize, buildExport, parseCsvLine };
+// Live match report for a ranked list against a stored Underdog file, WITHOUT
+// building the export. Used to show inline match status while editing. Returns
+//   { total, matched, unmatched: [{ name, suggestion }] }
+// where suggestion is the closest Underdog name for a miss (or null), so the UI
+// can offer a one-click "did you mean?" fix.
+function matchReport(csvText, rankedList) {
+  const { rows } = parse(csvText);
+  const index = players.buildNameIndex(rows.map((r, i) => ({ name: r.name, idx: i })));
+  const compacts = rows.map((r) => ({ name: r.name, compact: players.compactKey(r.name) }));
+
+  const used = new Set();
+  const unmatched = [];
+  let matched = 0;
+
+  for (const p of (rankedList || [])) {
+    const name = players.display((p && p.name) || '');
+    if (!name) continue;
+    const hit = players.findName(name, index);
+    if (hit && !used.has(hit.idx)) { used.add(hit.idx); matched++; continue; }
+    if (hit) continue; // duplicate of an already-matched player — ignore
+
+    // No match: suggest the nearest Underdog name by compact-key edit distance.
+    const mc = players.compactKey(name);
+    let best = null, bestD = Infinity;
+    for (const c of compacts) {
+      if (Math.abs(c.compact.length - mc.length) > 3) continue;
+      const d = players.editDistance(mc, c.compact);
+      if (d < bestD) { bestD = d; best = c.name; }
+    }
+    const thresh = Math.max(2, Math.floor(mc.length / 4));
+    unmatched.push({ name, suggestion: (best && bestD <= thresh) ? best : null });
+  }
+  return { total: rows.length, matched, unmatched };
+}
+
+module.exports = { parse, summarize, buildExport, matchReport, parseCsvLine };

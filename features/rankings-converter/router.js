@@ -77,6 +77,14 @@ router.get('/formats', (req, res) => {
   res.json({ ok: true, data: converters.list() });
 });
 
+// Pre-warm the OCR worker + roster cache so the first screenshot is fast.
+// Fire-and-forget: kick both off and return immediately (never blocks).
+router.post('/warmup', (req, res) => {
+  try { ocr.warmup(); } catch (e) { /* best-effort */ }
+  try { roster.getMap(); } catch (e) { /* best-effort */ }
+  res.json({ ok: true, data: { warming: true } });
+});
+
 // OCR a pasted/uploaded screenshot, then parse it into a ranking list.
 router.post('/ocr', async (req, res) => {
   try {
@@ -369,6 +377,32 @@ router.delete('/underdog/sets/:id', async (req, res) => {
   } catch (err) {
     console.error(`DELETE /api/convert/underdog/sets/:id: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not delete that Underdog file.' });
+  }
+});
+
+// Live match report: how many of the ranked names match a stored Underdog file,
+// with a nearest-name suggestion per miss. Body: { players, setId }. Used to
+// show inline status while editing (no download). Always 200 with availability.
+router.post('/underdog/match', async (req, res) => {
+  try {
+    if (!hasDb()) return res.json({ ok: true, data: { available: false } });
+    const { players: list, setId } = req.body || {};
+    const normalized = normalizeList(list);
+    if (!setId || !normalized.length) {
+      return res.json({ ok: true, data: { available: true, total: 0, matched: 0, unmatched: [] } });
+    }
+    const { rows } = await pool.query('SELECT csv FROM underdog_id_sets WHERE id = $1', [setId]);
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'That Underdog file was not found — it may have been deleted.' });
+    let report;
+    try {
+      report = underdogIds.matchReport(rows[0].csv, normalized);
+    } catch (e) {
+      return res.status(400).json({ ok: false, error: e.message });
+    }
+    res.json({ ok: true, data: Object.assign({ available: true }, report) });
+  } catch (err) {
+    console.error(`POST /api/convert/underdog/match: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not check matches against the Underdog file.' });
   }
 });
 

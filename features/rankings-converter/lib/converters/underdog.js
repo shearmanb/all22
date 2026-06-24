@@ -14,8 +14,8 @@ const { toCsv, splitName } = require('./util');
 
 module.exports = {
   id: 'underdog',
-  label: 'Underdog',
-  description: 'Name-matched ranking list for Underdog\'s CSV uploader. Verify against a CSV downloaded from Underdog\'s rankings page first — their columns drift each season.',
+  label: 'Underdog (names only)',
+  description: 'Legacy name-only list. For a file Underdog accepts with the correct player IDs, use the "Underdog upload (with player IDs)" section above instead.',
   filenameBase: 'underdog-rankings',
   verified: false,
   build(players) {

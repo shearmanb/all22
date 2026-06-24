@@ -88,32 +88,24 @@
       </div>
     </div>
 
-    <!-- STEP 3: EXPORT -->
-    <!-- Always visible so the supported sites (Underdog, Yahoo, …) are
-         discoverable. The download buttons stay disabled and the Save box
-         hidden until there's actually a list to export (see syncExportState). -->
-    <div class="card section-gap" id="export-panel">
-      <h2>3. Download for a site</h2>
-      <p id="export-empty" class="muted" style="font-size:0.85rem">Paste or add a list above first — then these buttons download it in each site's format.</p>
-      <div class="export-grid" id="formats"></div>
-    </div>
-
-    <!-- UNDERDOG IDS -->
+    <!-- STEP 3 (PRIMARY): UNDERDOG UPLOAD with player IDs -->
     <div class="card section-gap" id="underdog-panel">
-      <h2>Underdog upload (with player IDs)</h2>
-      <p class="muted" style="font-size:0.85rem">Underdog's player IDs change every contest/season. Download the CSV from Underdog's <strong>Rankings → "CSV UPLOAD/DOWNLOAD"</strong>, save it here once per contest, and I'll reorder that exact file to match your list above — then upload it straight back to Underdog. Your ranked players go on top in your order; everyone else keeps Underdog's order, and nothing is dropped.</p>
+      <h2>3. Download your Underdog file</h2>
+      <p class="muted" style="font-size:0.85rem">Matches your list above to Underdog's real player IDs and gives you a file to upload straight back. Only the player <strong>name</strong> has to match here — position and team don't matter. Underdog's IDs change each contest, so pick the file you downloaded from Underdog for this one.</p>
 
       <div class="row section-gap">
         <label class="muted" style="margin:0">Underdog file:</label>
-        <select id="ud-set" class="inline" style="min-width:220px;flex:1"></select>
-        <button id="ud-download">Download Underdog file (with IDs)</button>
+        <select id="ud-set" class="inline" style="min-width:200px;flex:1"></select>
+        <button id="ud-download">⬇ Download Underdog file (with IDs)</button>
         <button class="link" id="ud-delete" style="color:var(--text-dim)">Remove</button>
       </div>
+
+      <div id="ud-match" class="section-gap"></div>
       <div id="ud-report" class="section-gap"></div>
 
       <details class="section-gap" id="ud-add">
-        <summary style="cursor:pointer;color:var(--accent)">+ Add or replace an Underdog file</summary>
-        <p class="muted" style="font-size:0.82rem;margin:8px 0">Download a fresh CSV from Underdog (it already contains their IDs), then choose that file — or paste its contents — and give it a name.</p>
+        <summary style="cursor:pointer;color:var(--accent)">+ Add or replace an Underdog file (once per contest)</summary>
+        <p class="muted" style="font-size:0.82rem;margin:8px 0">Download a fresh CSV from Underdog's <strong>Rankings → "CSV UPLOAD/DOWNLOAD"</strong> (it already contains their IDs), then choose that file — or paste its contents — and give it a name.</p>
         <div class="row">
           <input type="text" id="ud-name" class="inline" placeholder="Name (e.g. Best Ball — preseason)" style="flex:2;min-width:200px">
           <input type="file" id="ud-file" accept=".csv,text/csv" class="inline">
@@ -123,6 +115,15 @@
           <button id="ud-save">Save this Underdog file</button>
         </div>
       </details>
+    </div>
+
+    <!-- SECONDARY: OTHER SITE FORMATS -->
+    <!-- Always visible so the other sites (Yahoo, FantasyPros, …) are
+         discoverable. Buttons stay disabled until there's a list (syncExportState). -->
+    <div class="card section-gap" id="export-panel">
+      <h2>Other formats</h2>
+      <p id="export-empty" class="muted" style="font-size:0.85rem">Paste or add a list above first — then these buttons download it in each site's format.</p>
+      <div class="export-grid" id="formats"></div>
     </div>
 
     <!-- FIX QUEUE -->
@@ -223,13 +224,16 @@
     });
     // On blur of a position cell, re-render so Pos Rank recalculates.
     $('rows').addEventListener('change', function (e) {
-      if (e.target.getAttribute('data-f') === 'position') render();
+      var f = e.target.getAttribute('data-f');
+      if (f === 'position') render();
+      else if (f === 'name') scheduleUdMatch();
     });
     $('rows').addEventListener('click', function (e) {
       var del = e.target.getAttribute('data-del');
       if (del === null) return;
       playersState.splice(+del, 1);
       render();
+      scheduleUdMatch();
     });
     $('add-row').addEventListener('click', function () {
       playersState.push({ name: '', position: '', team: '', rank: '' });
@@ -276,6 +280,7 @@
       }
       renderUnparsed();
       render();
+      scheduleUdMatch();
       return { added: added, dupes: dupes };
     }
 
@@ -303,6 +308,7 @@
       $('preview-img').removeAttribute('src');
       setStatus('');
       showNotice('');
+      var um = $('ud-match'); if (um) { um.innerHTML = ''; um._miss = null; }
       renderUnparsed();
       render();
       syncLoadedState();
@@ -580,6 +586,7 @@
         render();
         loadSets();
         syncLoadedState();
+        runUdMatch();
         showNotice('Loaded "' + data.name + '" — ' + playersState.length + ' players. Edit, then Update to replace it.');
         $('preview-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
       } catch (err) { /* shown */ }
@@ -751,7 +758,8 @@
         showNotice('Saved "' + data.name + '" — ' + data.player_count + ' Underdog players.');
         $('ud-name').value = ''; $('ud-csv').value = ''; $('ud-file').value = '';
         $('ud-add').open = false;
-        loadUdSets(data.id);
+        await loadUdSets(data.id);
+        runUdMatch();
       } catch (err) { /* shown */ }
       finally { btn.disabled = false; }
     });
@@ -800,6 +808,70 @@
       } catch (err) { /* shown */ }
       finally { btn.disabled = false; }
     });
+
+    // ---- Live Underdog match (inline status + one-click "did you mean?") ----
+    var udMatchTimer = null;
+    function scheduleUdMatch() { clearTimeout(udMatchTimer); udMatchTimer = setTimeout(runUdMatch, 500); }
+
+    async function runUdMatch() {
+      var wrap = $('ud-match');
+      var id = $('ud-set').value;
+      if (!playersState.length || !id) { wrap.innerHTML = ''; wrap._miss = null; return; }
+      try {
+        // Quiet fetch (not apiFetch) so a transient hiccup doesn't flash the banner.
+        var res = await fetch('/api/convert/underdog/match', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ players: playersState, setId: id })
+        });
+        var body = await res.json();
+        if (body && body.ok) renderUdMatch(body.data);
+      } catch (e) { /* leave the previous status in place */ }
+    }
+
+    function renderUdMatch(data) {
+      var wrap = $('ud-match');
+      if (!data || !data.available || !data.total) { wrap.innerHTML = ''; wrap._miss = null; return; }
+      var miss = data.unmatched || [];
+      var attempted = data.matched + miss.length;
+      var html = '<p style="font-size:0.9rem;margin:0">' + (miss.length ? '⚠️ ' : '✅ ') +
+        '<strong>' + data.matched + '</strong> of ' + attempted + ' matched to this Underdog file' +
+        (miss.length ? ' — these need a look before you download:' : '. Ready to download.') + '</p>';
+      if (miss.length) {
+        html += '<ul class="unparsed" style="margin-top:6px">';
+        miss.forEach(function (m, i) {
+          html += '<li>' + esc(m.name);
+          if (m.suggestion) html += ' → <button class="link" data-sugg="' + i + '" style="color:var(--accent)">Use "' + esc(m.suggestion) + '"</button>';
+          else html += ' <span class="muted">(no close match — check the spelling, or it may not be on Underdog)</span>';
+          html += '</li>';
+        });
+        html += '</ul>';
+      }
+      wrap.innerHTML = html;
+      wrap._miss = miss;
+    }
+
+    // Apply a "did you mean?" suggestion to the first matching row.
+    $('ud-match').addEventListener('click', function (e) {
+      var idx = e.target.getAttribute('data-sugg');
+      if (idx === null) return;
+      var wrap = $('ud-match');
+      var m = wrap._miss && wrap._miss[+idx];
+      if (!m || !m.suggestion) return;
+      var target = normKey(m.name);
+      for (var i = 0; i < playersState.length; i++) {
+        if (normKey(playersState[i].name) === target) { playersState[i].name = m.suggestion; break; }
+      }
+      render();
+      runUdMatch();
+      showNotice('Renamed to "' + m.suggestion + '".');
+    });
+
+    // Re-check matches when the chosen Underdog file changes.
+    $('ud-set').addEventListener('change', runUdMatch);
+
+    // Warm up the OCR worker + roster cache now, so the first screenshot is
+    // fast instead of paying the ~20-30s init. Fire-and-forget.
+    fetch('/api/convert/warmup', { method: 'POST' }).catch(function () {});
 
     loadFormats();
     loadFixes();
