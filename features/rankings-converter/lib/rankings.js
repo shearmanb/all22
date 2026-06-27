@@ -142,7 +142,12 @@ function parse(rawText) {
       continue;
     }
 
-    const k = players.key(parsed.name);
+    // Dedupe on name + team, not name alone: two genuinely different players can
+    // normalize to the same name key (there have been two "Michael Carter"s), and
+    // they're distinguished by team. Same name with the same team (or both blank,
+    // e.g. overlapping screenshots of one list) is a real duplicate; same name on
+    // a different team is kept. Team is included only when known on both rows.
+    const k = players.key(parsed.name) + (parsed.team ? '|' + parsed.team : '');
     if (seen.has(k)) {
       unparsed.push({ line: rawLine.trim(), reason: `duplicate of "${parsed.name}"` });
       continue;

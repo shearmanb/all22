@@ -16,6 +16,7 @@
 // column formatting are preserved byte-for-byte — the file can't be rejected for
 // missing players or altered columns.
 const players = require('../../../lib/players');
+const aliases = require('../../../lib/aliases');
 
 // Minimal RFC-4180 field parser for a single CSV record (no embedded newlines —
 // Underdog writes one player per line). Handles quoted fields and "" escapes.
@@ -107,7 +108,7 @@ function buildExport(csvText, rankedList) {
   const { headerLine, rows } = parse(csvText);
 
   // Canonical name index over Underdog's players (tolerant matching).
-  const index = players.buildNameIndex(rows.map((r, i) => ({ name: r.name, idx: i })));
+  const index = players.buildNameIndex(rows.map((r, i) => ({ name: r.name, idx: i })), { aliases: aliases.MAP });
 
   const used = new Set();
   const orderedTop = [];
@@ -147,7 +148,7 @@ function buildExport(csvText, rankedList) {
 // can offer a one-click "did you mean?" fix.
 function matchReport(csvText, rankedList) {
   const { rows } = parse(csvText);
-  const index = players.buildNameIndex(rows.map((r, i) => ({ name: r.name, idx: i })));
+  const index = players.buildNameIndex(rows.map((r, i) => ({ name: r.name, idx: i })), { aliases: aliases.MAP });
   const compacts = rows.map((r) => ({ name: r.name, compact: players.compactKey(r.name) }));
 
   const used = new Set();

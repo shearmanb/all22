@@ -10,6 +10,7 @@ const roster = require('./lib/roster');
 const converters = require('./lib/converters');
 const underdogIds = require('./lib/underdog-ids');
 const players = require('../../lib/players');
+const aliases = require('../../lib/aliases');
 const pool = require('../../db/pool');
 
 const hasDb = () => Boolean(process.env.DATABASE_URL);
@@ -44,11 +45,17 @@ function normalizeList(list) {
   return addPositionRank(out);
 }
 
-// Load the fix queue as a Map keyed by canonical name key. Returns an empty map
-// when there's no database (the converter still works, just without saved fixes).
+// Load the fix queue as a Map keyed by canonical name key. Cached in memory for a
+// short TTL so we don't hit the DB on every parse; invalidated when a fix is
+// written. Returns an empty map when there's no database (the converter still
+// works, just without saved fixes).
+const CACHE_TTL_MS = 60 * 1000;
+let corrCache = null;
+let corrCacheAt = 0;
 async function loadCorrections() {
+  if (corrCache && Date.now() - corrCacheAt < CACHE_TTL_MS) return corrCache;
   const map = new Map();
-  if (!hasDb()) return map;
+  if (!hasDb()) { corrCache = map; corrCacheAt = Date.now(); return map; }
   try {
     const { rows } = await pool.query('SELECT name_key, team, position FROM converter_corrections');
     for (const r of rows) map.set(r.name_key, { team: r.team, position: r.position });
@@ -56,8 +63,28 @@ async function loadCorrections() {
     // Never let the fix queue break core parsing — just skip it this time.
     console.error(`convert: loadCorrections failed: ${err.message}`);
   }
+  corrCache = map;
+  corrCacheAt = Date.now();
   return map;
 }
+function invalidateCorrections() { corrCache = null; }
+
+// Merge the owner's saved aliases (converter_aliases) into the shared alias map
+// used by the matcher. Cached with the same short TTL; invalidated on write.
+let aliasesLoadedAt = 0;
+async function ensureAliasesLoaded() {
+  if (!hasDb()) return;
+  if (aliasesLoadedAt && Date.now() - aliasesLoadedAt < CACHE_TTL_MS) return;
+  try {
+    const { rows } = await pool.query('SELECT alias, canonical FROM converter_aliases');
+    // Rebuild from the seed + current DB rows so a deleted alias stops applying.
+    aliases.reload(rows);
+    aliasesLoadedAt = Date.now();
+  } catch (err) {
+    console.error(`convert: loadAliases failed: ${err.message}`);
+  }
+}
+function invalidateAliases() { aliasesLoadedAt = 0; }
 
 // Apply saved fixes to freshly parsed players: a stored team/position overrides
 // what OCR produced (that's the whole point — "enter once, fix going forward").
@@ -70,6 +97,25 @@ function applyCorrections(parsed, corrections) {
     if (fix.position) p.position = fix.position;
   }
   return parsed;
+}
+
+// The shared post-parse pipeline, used by BOTH /ocr and /parse so they behave
+// identically. Order of precedence (highest last): roster fill < saved alias <
+// saved fix. Mutates `parsed` and returns a consistent summary the routes spread
+// into their response:
+//   { players, enriched, lowConfidence }
+// where lowConfidence counts rows the matcher resolved but isn't sure about
+// (so the UI can ask the owner to confirm them).
+async function enrichAndCorrect(parsed) {
+  await ensureAliasesLoaded();                          // learned aliases inform the match
+  const enriched = await roster.enrich(parsed);         // fill blanks, canonicalize, tag p.match
+  applyCorrections(parsed, await loadCorrections());    // saved fixes always win
+  let lowConfidence = 0;
+  for (const p of parsed) {
+    const c = p.match && p.match.confidence;
+    if (c === 'low' || c === 'medium') lowConfidence++;
+  }
+  return { players: parsed, enriched, lowConfidence };
 }
 
 // List available output formats (for building the UI).
@@ -94,13 +140,13 @@ router.post('/ocr', async (req, res) => {
     }
     const text = await ocr.imageToText(image);
     const { players: parsed, unparsed } = rankingsParser.parse(text);
-    // Fill team/position from the NFL roster (by name), then let saved fixes win.
-    const enriched = await roster.enrich(parsed);
-    applyCorrections(parsed, await loadCorrections());
-    const note = parsed.length
+    // Fill team/position from the NFL roster, apply saved aliases/fixes, and flag
+    // any low-confidence matches — all via the one shared pipeline.
+    const { players: out, enriched, lowConfidence } = await enrichAndCorrect(parsed);
+    const note = out.length
       ? ''
       : 'No players were detected in that screenshot. Try a sharper, higher-contrast image, or paste the rankings as text.';
-    res.json({ ok: true, data: { players: parsed, unparsed, text, note, enriched } });
+    res.json({ ok: true, data: { players: out, unparsed, text, note, enriched, lowConfidence } });
   } catch (err) {
     console.error(`POST /api/convert/ocr: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not read that screenshot. Try a clearer image or paste the rankings as text.' });
@@ -115,9 +161,8 @@ router.post('/parse', async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Paste some rankings text first.' });
     }
     const { players: parsed, unparsed } = rankingsParser.parse(text);
-    const enriched = await roster.enrich(parsed);
-    applyCorrections(parsed, await loadCorrections());
-    res.json({ ok: true, data: { players: parsed, unparsed, enriched, note: parsed.length ? '' : 'No players found in that text.' } });
+    const { players: out, enriched, lowConfidence } = await enrichAndCorrect(parsed);
+    res.json({ ok: true, data: { players: out, unparsed, enriched, lowConfidence, note: out.length ? '' : 'No players found in that text.' } });
   } catch (err) {
     console.error(`POST /api/convert/parse: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not parse that text.' });
@@ -297,6 +342,7 @@ router.post('/corrections', async (req, res) => {
       );
       saved += 1;
     }
+    invalidateCorrections();
     res.json({ ok: true, data: { saved } });
   } catch (err) {
     console.error(`POST /api/convert/corrections: ${err.message}`);
@@ -311,10 +357,80 @@ router.delete('/corrections/:id', async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Saved fixes need a database.' });
     }
     await pool.query('DELETE FROM converter_corrections WHERE id = $1', [req.params.id]);
+    invalidateCorrections();
     res.json({ ok: true, data: { deleted: true } });
   } catch (err) {
     console.error(`DELETE /api/convert/corrections/:id: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not delete that fix.' });
+  }
+});
+
+// --- Learned name aliases (corrections) ------------------------------------
+// "Remember this player": a variant/nickname -> canonical name mapping the owner
+// teaches the matcher when a name resolves wrong. Auto-applied to every future
+// import (merged into lib/aliases). Requires DATABASE_URL.
+
+// List saved aliases (for the manage view).
+router.get('/aliases', async (req, res) => {
+  try {
+    if (!hasDb()) return res.json({ ok: true, data: [] });
+    const { rows } = await pool.query(
+      'SELECT id, alias, canonical, source, updated_at FROM converter_aliases ORDER BY alias'
+    );
+    res.json({ ok: true, data: rows });
+  } catch (err) {
+    console.error(`GET /api/convert/aliases: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not load saved aliases.' });
+  }
+});
+
+// Upsert one or more aliases. Body: { aliases: [{ alias, canonical, source? }] }.
+router.post('/aliases', async (req, res) => {
+  try {
+    if (!hasDb()) {
+      return res.status(400).json({ ok: false, error: 'Remembering aliases needs a database (DATABASE_URL is not set).' });
+    }
+    const incoming = Array.isArray(req.body && req.body.aliases) ? req.body.aliases : [];
+    let saved = 0;
+    for (const a of incoming) {
+      const alias = players.display((a && a.alias) || '');
+      const canonical = players.display((a && a.canonical) || '');
+      if (!alias || !canonical) continue;
+      const aliasKey = players.key(alias);
+      if (!aliasKey) continue;
+      // A self-referential alias (variant == canonical) teaches nothing.
+      if (players.key(canonical) === aliasKey) continue;
+      const source = (a.source ? String(a.source).trim() : '') || null;
+      await pool.query(
+        `INSERT INTO converter_aliases (alias_key, alias, canonical, source, updated_at)
+           VALUES ($1, $2, $3, $4, now())
+         ON CONFLICT (alias_key) DO UPDATE
+           SET alias = EXCLUDED.alias,
+               canonical = EXCLUDED.canonical,
+               source = COALESCE(EXCLUDED.source, converter_aliases.source),
+               updated_at = now()`,
+        [aliasKey, alias, canonical, source]
+      );
+      saved += 1;
+    }
+    invalidateAliases();
+    res.json({ ok: true, data: { saved } });
+  } catch (err) {
+    console.error(`POST /api/convert/aliases: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not save those aliases.' });
+  }
+});
+
+// Forget a saved alias.
+router.delete('/aliases/:id', async (req, res) => {
+  try {
+    if (!hasDb()) return res.status(400).json({ ok: false, error: 'Saved aliases need a database.' });
+    await pool.query('DELETE FROM converter_aliases WHERE id = $1', [req.params.id]);
+    invalidateAliases();
+    res.json({ ok: true, data: { deleted: true } });
+  } catch (err) {
+    console.error(`DELETE /api/convert/aliases/:id: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not delete that alias.' });
   }
 });
 
