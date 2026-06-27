@@ -119,6 +119,35 @@
       </details>
     </div>
 
+    <!-- SEND TO YAHOO (bookmarklet) -->
+    <div class="card section-gap" id="yahoo-panel">
+      <h2>Send to Yahoo</h2>
+      <p class="muted" style="font-size:0.85rem">Yahoo has no rankings upload, so this builds a one-click <strong>bookmarklet</strong> from your list above. Drag it to your bookmarks bar once, then open Yahoo's <strong>Edit Pre-Draft Player Rankings</strong> page and click it — it matches your players to Yahoo's list and moves them into <strong>Preferred Players</strong> in your order. You review and press Yahoo's <em>Save Changes</em>.</p>
+      <div class="row section-gap">
+        <button id="yahoo-build">Build my Yahoo bookmarklet</button>
+        <span class="muted" id="yahoo-meta" style="font-size:0.85rem"></span>
+      </div>
+      <div id="yahoo-result" style="display:none" class="section-gap">
+        <p class="muted" style="font-size:0.85rem;margin:0 0 8px"><strong>Drag this button to your bookmarks bar</strong> (or right-click → Bookmark this link):</p>
+        <p style="margin:0 0 10px">
+          <!-- href is set in JS via property assignment so the full javascript: URL is preserved -->
+          <a id="yahoo-link" href="#" draggable="true"
+             style="display:inline-block;padding:9px 14px;border-radius:8px;background:var(--accent,#1f7ae0);color:#fff;text-decoration:none;font-weight:600;cursor:grab">★ All22 → Yahoo</a>
+        </p>
+        <div class="row">
+          <button id="yahoo-copy" class="link" style="color:var(--accent)">Copy bookmarklet code</button>
+          <span class="muted" id="yahoo-copied" style="font-size:0.85rem"></span>
+        </div>
+        <ol class="muted" style="font-size:0.82rem;margin:10px 0 0;padding-left:20px">
+          <li>Drag the <strong>★ All22 → Yahoo</strong> button above onto your browser's bookmarks bar.</li>
+          <li>On Yahoo Fantasy: <strong>Draft → Pre-Draft Rankings → Edit My Pre-Draft Player Rankings</strong>.</li>
+          <li>Click the bookmark. A small All22 panel appears — press <strong>Set my rankings</strong>.</li>
+          <li>Check the order in <em>Preferred Players</em>, then press Yahoo's <strong>Save Changes</strong>.</li>
+        </ol>
+        <p class="muted" style="font-size:0.8rem;margin:10px 0 0">If players don't move automatically (Yahoo changes this page often), use the panel's <strong>Teach the ▶ button</strong>, or <strong>Copy diagnostics</strong> and send them back here so this can be tuned. The panel always lets you copy your list in order as a fallback.</p>
+      </div>
+    </div>
+
     <!-- SECONDARY: OTHER SITE FORMATS -->
     <!-- Always visible so the other sites (Yahoo, FantasyPros, …) are
          discoverable. Buttons stay disabled until there's a list (syncExportState). -->
@@ -194,6 +223,10 @@
       for (var i = 0; i < btns.length; i++) btns[i].disabled = !has;
       var sb = $('save-set'); if (sb) sb.disabled = !has;
       var ub = $('update-set'); if (ub) ub.disabled = !has;
+      var yb = $('yahoo-build'); if (yb) yb.disabled = !has;
+      // The bookmarklet bakes in the list, so any edit makes a built one stale:
+      // hide it so the owner rebuilds from the current list.
+      var yr = $('yahoo-result'); if (yr) yr.style.display = 'none';
     }
 
     // ---- Rendering ----
@@ -874,6 +907,53 @@
     // Warm up the OCR worker + roster cache now, so the first screenshot is
     // fast instead of paying the ~20-30s init. Fire-and-forget.
     fetch('/api/convert/warmup', { method: 'POST' }).catch(function () {});
+
+    // ---- Send to Yahoo (bookmarklet) ----
+    // Build the bookmarklet for the current list and render a draggable link.
+    $('yahoo-build').addEventListener('click', async function () {
+      clearError();
+      if (!playersState.length) { showError('Add a list above first, then build the bookmarklet.'); return; }
+      var btn = this; btn.disabled = true;
+      $('yahoo-meta').textContent = 'Building…';
+      try {
+        var data = await apiFetch('/api/convert/yahoo-bookmarklet', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ players: playersState })
+        });
+        var link = $('yahoo-link');
+        link.href = data.href;  // property assignment preserves the full javascript: URL
+        link.setAttribute('title', 'All22 → Yahoo (' + data.count + ' players) — drag me to your bookmarks bar');
+        $('yahoo-result').style.display = 'block';
+        $('yahoo-meta').textContent = data.count + ' players · ' + Math.max(1, Math.round(data.bytes / 1024)) + ' KB';
+        $('yahoo-copied').textContent = '';
+      } catch (err) { $('yahoo-meta').textContent = ''; /* apiFetch already showed it */ }
+      finally { btn.disabled = false; }
+    });
+
+    // Clicking the link on THIS page would run the engine here; nudge to drag instead.
+    $('yahoo-link').addEventListener('click', function (e) {
+      e.preventDefault();
+      $('yahoo-copied').textContent = 'Drag this button to your bookmarks bar — don’t click it here.';
+    });
+
+    // Copy the bookmarklet code as a fallback to dragging.
+    $('yahoo-copy').addEventListener('click', function () {
+      var code = $('yahoo-link').href;  // the full javascript: URL
+      function done() { $('yahoo-copied').textContent = 'Copied — make a new bookmark and paste this as its URL.'; }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(done, function () {
+          var ta = document.createElement('textarea');
+          ta.value = code; document.body.appendChild(ta); ta.select();
+          try { document.execCommand('copy'); } catch (e) {}
+          ta.remove(); done();
+        });
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = code; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        ta.remove(); done();
+      }
+    });
 
     loadFormats();
     loadFixes();

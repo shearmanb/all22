@@ -9,6 +9,7 @@ const rankingsParser = require('./lib/rankings');
 const roster = require('./lib/roster');
 const converters = require('./lib/converters');
 const underdogIds = require('./lib/underdog-ids');
+const yahooBookmarklet = require('./lib/yahoo-bookmarklet');
 const players = require('../../lib/players');
 const pool = require('../../db/pool');
 
@@ -145,6 +146,26 @@ router.post('/export', (req, res) => {
   } catch (err) {
     console.error(`POST /api/convert/export: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not build the export file.' });
+  }
+});
+
+// Build the "All22 → Yahoo" bookmarklet for the current list. Yahoo has no
+// rankings upload, so the owner drags this to his bookmarks bar and clicks it on
+// Yahoo's pre-draft editor; it moves his players into Preferred order in place.
+// The names are baked into the bookmarklet, so it carries no secrets and needs
+// no callback to this server (which is why it works inside Yahoo's page).
+router.post('/yahoo-bookmarklet', (req, res) => {
+  try {
+    const { players: list } = req.body || {};
+    const normalized = normalizeList(list);
+    if (!normalized.length) {
+      return res.status(400).json({ ok: false, error: 'There are no players to send to Yahoo.' });
+    }
+    const built = yahooBookmarklet.build(normalized);
+    res.json({ ok: true, data: built });
+  } catch (err) {
+    console.error(`POST /api/convert/yahoo-bookmarklet: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not build the Yahoo bookmarklet.' });
   }
 });
 
