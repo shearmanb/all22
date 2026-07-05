@@ -1,0 +1,44 @@
+// Golden tests for the vision-response parser: the model is told to return a
+// bare JSON array, but the extractor must survive fences, prose and junk rows.
+const test = require('node:test');
+const assert = require('node:assert');
+const { extractRows, splitDataUrl } = require('./vision');
+
+test('extractRows parses a clean JSON array', () => {
+  const rows = extractRows('[{"rank":1,"name":"Ja\'Marr Chase","position":"WR","team":"CIN"}]');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].name, "Ja'Marr Chase");
+  assert.equal(rows[0].position, 'WR');
+  assert.equal(rows[0].team, 'CIN');
+  assert.equal(rows[0].rank, 1);
+});
+
+test('extractRows survives markdown fences and surrounding prose', () => {
+  const text = 'Here are the rows:\n```json\n[{"rank":1,"name":"Bijan Robinson","position":"rb","team":"atl"}]\n```\nDone!';
+  const rows = extractRows(text);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].position, 'RB');    // upper-cased
+  assert.equal(rows[0].team, 'ATL');
+});
+
+test('extractRows keeps brackets inside player names intact', () => {
+  const rows = extractRows('[{"rank":null,"name":"Odell Beckham [IR]","position":"WR","team":""}]');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].rank, null);
+  assert.equal(rows[0].name, 'Odell Beckham [IR]');
+});
+
+test('extractRows drops nameless rows and rejects non-arrays', () => {
+  const rows = extractRows('[{"rank":2,"name":""},{"rank":3,"name":"Saquon Barkley"}]');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].name, 'Saquon Barkley');
+  assert.throws(() => extractRows('{"name":"not an array"}'));
+  assert.throws(() => extractRows('no json here'));
+});
+
+test('splitDataUrl handles data URLs and rejects garbage', () => {
+  const { mediaType, base64 } = splitDataUrl('data:image/jpeg;base64,aGVsbG8=');
+  assert.equal(mediaType, 'image/jpeg');
+  assert.equal(base64, 'aGVsbG8=');
+  assert.throws(() => splitDataUrl('not-an-image'));
+});

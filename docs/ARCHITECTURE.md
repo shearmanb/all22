@@ -1,54 +1,87 @@
-# All22 architecture — multi-applet portal
+# All22 architecture — the rebuilt portal
 
-All22 is a **modular monolith**: one GitHub repo, one Railway project, one login.
-A splash page launches several self-contained **applets**, each isolated in its
-own folder so adding or changing one never breaks another.
+All22 is a **modular monolith**: one GitHub repo, one Railway project, one
+Postgres, one login. The hub launches self-contained **sub-apps** (the PRD's
+Combine / Playbook / Notes today; War Room and Edge Rush later), each isolated
+in its own folder so adding or changing one never breaks another.
+
+> The product spec is `docs/PRD.md` (gospel) and the build brief is
+> `docs/KICKOFF.md`. One deliberate deviation from those documents: they chose
+> Supabase + GitHub Pages because the owner had no terminal at the time. This
+> rebuild keeps the already-proven Railway + Express + Postgres backbone
+> instead — same schema, same features, but API keys stay server-side and the
+> Phase-4 ADP scraper already has a home. Everything else in the PRD applies
+> unchanged.
 
 ```
-server.js                 boot, session, password gate, mounts features
-routes/auth.js            core: login / logout
-routes/health.js          core: /health
-db/pool.js, db/migrate.js shared Postgres pool + boot-time migration runner
-db/migrations/            shared migration history (one DB); feature-prefixed files
-lib/players.js            shared canonical player-name logic (used by all applets)
-public/                   splash (index.html), login.html, app.css, app.js (shared)
+server.js                    boot: session gate, migrations, players_master
+                             seed, mounts core routers + the feature registry
+routes/auth.js               core: login/logout          (pre-auth)
+routes/health.js             core: /health               (pre-auth)
+routes/news.js               core: /api/news             (behind gate)
+routes/settings.js           core: /api/settings         (behind gate)
+routes/datahealth.js         core: /api/datahealth       (behind gate)
+db/pool.js, db/migrate.js    shared pg pool + idempotent boot-time migrations
+db/migrations/               numbered shared history; 012_all22_core.sql is the
+                             rebuild's schema (players_master, rankings_*, …)
+lib/players.js               canonical name cleanup + fuzzy matcher (pure)
+lib/aliases.js               curated nickname/variant seed map
+lib/players-master.js        the players_master service: Sleeper sync, match,
+                             search, add-manual, learn-alias, status
+lib/settings.js              settings table accessor (all dials live there)
+lib/news/                    hub news aggregator (RSS)
+public/                      hub (index.html), login.html, app.css, app.js
 features/
-  index.js                the feature registry — the ONLY place applets are listed
-  draft-tracker/
-    router.js             /api/drafts
-    lib/                  strategy.js, draft-board parsers
-    public/               drafts.html, drafts-new.html, draft-detail.html
-  rankings-converter/
-    router.js             /api/convert
-    lib/                  rankings parser, converters/, ocr.js
-    public/               convert.html
-    tessdata/             bundled offline OCR model
+  index.js                   the feature registry — the ONLY list of applets
+  combine/                   RANKINGS HUB (PRD #1 job)
+    router.js                /api/combine
+    lib/vision.js            screenshot -> rows via Claude vision (fetch, no SDK)
+    lib/ocr.js + tessdata/   offline Tesseract fallback
+    lib/rankings.js          pasted-text -> rows parser
+    lib/ingest.js            rows -> matched rows (pure; the ONE match pipeline)
+    lib/store.js             ranking_sets / rankings_raw / rankings_normalized
+    lib/converters/          CSV export writers (plain, Underdog, Yahoo, FP)
+    lib/underdog-ids.js      reorder a real Underdog CSV to carry their IDs
+    public/combine.html      ingest | sets | review | compare | settings
+  playbook/                  DRAFT LOG (seed of the PRD's Playbook)
+    router.js                /api/drafts (pre-rebuild draft tracker, reused)
+    lib/parsers/             Underdog + FantasyPros paste parsers
+    public/                  drafts.html, drafts-new.html, draft-detail.html
+  notes/                     SCRATCHPAD
+    router.js                /api/notes
+    public/notes.html
 ```
 
-## How a request is served
-`server.js` mounts the core routers (health, auth) and the password gate, then
-loops `features/index.js`. For each feature it does:
-`app.use(feature.apiMount, feature.router)` and
-`app.use(express.static(feature.publicDir))`. Feature pages are served at the
-site root, so `/drafts.html` and `/convert.html` resolve directly (page
-filenames are unique across features).
+## The one-click ingest pipeline (Combine)
 
-## Adding a new applet (no existing feature is touched)
-1. Create `features/<name>/` with a `router.js` (exports an Express `Router`) and
-   a `public/` folder with its page(s).
-2. Put any feature-only code in `features/<name>/lib/`; reuse `lib/players.js`
-   for name normalization — never duplicate it.
-3. If it needs storage, add a feature-prefixed migration, e.g.
-   `db/migrations/00N_<name>_*.sql` (one shared database; never edit an applied
-   migration).
-4. Add one entry to `features/index.js`:
-   `{ name, label, apiMount: '/api/<name>', router, publicDir }`.
-5. Add a tile to `public/index.html` and a nav link.
+```
+screenshot(s) and/or pasted text
+  -> vision.js (Claude, ANTHROPIC_API_KEY on the server)     — best path
+     or ocr.js -> rankings.js                                — fallback path
+  -> ingest.matchRows(rows, players_master index)            — never guesses
+  -> store.createSet: ranking_sets + rankings_raw (+ rankings_normalized
+     for confident matches)
+  -> anything unmatched / uncertain appears in the Review queue
+```
 
-That's it — the splash, gate, database, and other applets are untouched.
+Identity rules:
+- Rank = list order (printed rank digits are the least reliable thing OCR reads).
+- A raw row with no `rankings_normalized` row IS the review queue; resolving it
+  writes the normalized row (`confirmed = true`, `via = 'owner'`) and can teach
+  a per-site alias stored on `players_master.aliases`.
+- Re-match (`POST /api/combine/sets/:id/rematch`) re-runs matching for
+  unconfirmed rows after a roster sync or new alias — also how sets migrated
+  from the pre-rebuild converter get resolved.
 
-## Shared vs isolated
-- **Shared:** one password gate (`APP_PASSWORD`), one Postgres pool, the
-  player-name module, the dark theme + `app.js` helpers, the splash launcher.
-- **Isolated per applet:** its routes, pages, feature-only libs, and its own
-  database tables (added via its own migration files).
+## players_master lifecycle
+- Seeded at first boot from Sleeper's free player list; refreshed daily and on
+  demand (Combine -> Settings -> Sync). The 32 team defenses are always upserted.
+- Owner-added players (`source = 'manual'`) are never deleted by a sync.
+- The in-memory match index rebuilds at most every 10 minutes and immediately
+  after any write.
+
+## Auth & security
+- One password (`APP_PASSWORD`), cookie session. `/health` and `/login` are the
+  only unauthenticated routes.
+- `ANTHROPIC_API_KEY` is server-only; the browser never sees it. Without it the
+  app still works (Tesseract fallback + pasted text).

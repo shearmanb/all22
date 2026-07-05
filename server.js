@@ -8,6 +8,9 @@ const { runMigrations } = require('./db/migrate');
 const healthRouter = require('./routes/health');
 const authRouter = require('./routes/auth');
 const newsRouter = require('./routes/news');
+const settingsRouter = require('./routes/settings');
+const dataHealthRouter = require('./routes/datahealth');
+const playersMaster = require('./lib/players-master');
 const features = require('./features');
 
 const app = express();
@@ -43,13 +46,14 @@ app.use((req, res, next) => {
   res.redirect('/login');
 });
 
-// Homepage news aggregator — a core part of the splash page (not an applet),
-// so it's mounted here rather than in the feature registry.
+// Core (shared) APIs — hub news, global settings, data-health freshness.
 app.use('/api/news', newsRouter);
+app.use('/api/settings', settingsRouter);
+app.use('/api/datahealth', dataHealthRouter);
 
 // Mount each applet from the registry: its API router + its static pages.
-// Feature pages are served at the site root, so links like /drafts.html and
-// /convert.html resolve directly (filenames are distinct across features).
+// Feature pages are served at the site root, so links like /combine.html and
+// /drafts.html resolve directly (filenames are distinct across features).
 for (const feature of features) {
   app.use(feature.apiMount, feature.router);
   app.use(express.static(feature.publicDir));
@@ -85,6 +89,10 @@ async function start() {
     // app just crash-looping on Railway.
     console.error(`startup: migrations failed: ${err.message}`);
   }
+  // Seed/refresh players_master from Sleeper in the background (never blocks
+  // boot; a failure just means matching runs on the previous roster).
+  playersMaster.ensureSeeded();
+  setInterval(() => playersMaster.ensureSeeded(), 24 * 60 * 60 * 1000).unref();
   app.listen(port, () => console.log(`all22 listening on port ${port}`));
 }
 

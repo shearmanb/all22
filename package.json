@@ -1,7 +1,7 @@
 {
   "name": "all22",
   "version": "1.0.0",
-  "description": "Fantasy football portal — draft tracking, analyst rankings, converters, Yahoo integration",
+  "description": "All22 \u2014 single-user fantasy football nerve center: rankings ingestion (Combine), draft log (Playbook), notes, hub with data health",
   "private": true,
   "main": "server.js",
   "scripts": {

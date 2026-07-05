@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notes — All22</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">All<em>22</em></span>
+    <a href="/">Hub</a>
+    <a href="/combine.html">Combine</a>
+    <a href="/drafts.html">Playbook</a>
+    <a href="/notes.html" class="active">Notes</a>
+    <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
+  </nav>
+  <div id="error-banner"></div>
+
+  <main>
+    <h1>Notes <span class="muted small">jot now, research later</span></h1>
+    <div class="card">
+      <div class="row">
+        <input id="note-input" class="grow" placeholder="“Rd 7 — that TE looked interesting…”" autofocus>
+        <button id="note-add">Save</button>
+      </div>
+    </div>
+    <div id="notes-list" class="section-gap"></div>
+    <p id="notes-empty" class="muted" hidden>No notes yet.</p>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    function el(tag, className, text) {
+      var n = document.createElement(tag);
+      if (className) n.className = className;
+      if (text != null) n.textContent = text;
+      return n;
+    }
+
+    async function load() {
+      var notes = await apiFetch('/api/notes');
+      var wrap = $('notes-list');
+      wrap.textContent = '';
+      $('notes-empty').hidden = notes.length > 0;
+      notes.forEach(function (n) {
+        var card = el('div', 'card');
+        if (n.done) card.style.opacity = '0.55';
+        var row = el('div', 'row');
+        var check = document.createElement('input');
+        check.type = 'checkbox';
+        check.checked = !!n.done;
+        check.style.width = 'auto';
+        check.title = 'Done / researched';
+        check.addEventListener('change', async function () {
+          await apiPost('/api/notes/' + n.id, { done: check.checked }, 'PATCH');
+          load();
+        });
+        row.appendChild(check);
+        var body = el('span', 'grow', n.body);
+        if (n.done) body.style.textDecoration = 'line-through';
+        row.appendChild(body);
+        row.appendChild(el('span', 'muted small', timeAgo(n.created_at)));
+        var del = el('button', 'danger', '×');
+        del.style.padding = '2px 10px';
+        del.addEventListener('click', async function () {
+          await apiPost('/api/notes/' + n.id, {}, 'DELETE');
+          load();
+        });
+        row.appendChild(del);
+        card.appendChild(row);
+        wrap.appendChild(card);
+      });
+    }
+
+    async function add() {
+      var input = $('note-input');
+      var body = input.value.trim();
+      if (!body) return;
+      await apiPost('/api/notes', { body: body });
+      input.value = '';
+      input.focus();
+      load();
+    }
+    $('note-add').addEventListener('click', add);
+    $('note-input').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') add();
+    });
+
+    load();
+  })();
+  </script>
+</body>
+</html>

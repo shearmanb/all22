@@ -3,69 +3,204 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>All22</title>
+  <title>All22 — Hub</title>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
   <nav>
-    <span class="brand">All22</span>
-    <a href="/" class="active">Home</a>
-    <a href="/drafts.html">Draft Tracker</a>
-    <a href="/convert.html">Rankings Converter</a>
+    <span class="brand">All<em>22</em></span>
+    <a href="/" class="active">Hub</a>
+    <a href="/combine.html">Combine</a>
+    <a href="/drafts.html">Playbook</a>
+    <a href="/notes.html">Notes</a>
     <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
   </nav>
   <div id="error-banner"></div>
+
   <main>
-    <h1>Your fantasy football portal</h1>
-    <p class="muted">Pick an app to get started.</p>
+    <h1>Your fantasy football nerve center</h1>
+    <p class="muted">Ingest rankings, blend them into yours, track drafts, watch ADP — decide, don't copy-paste.</p>
 
     <div class="tiles">
-      <a class="tile" href="/drafts.html">
-        <h2>Draft Tracker</h2>
-        <p class="muted">Log drafts, track exposure, and review your strategy across mocks and leagues.</p>
+      <a class="tile" href="/combine.html">
+        <h2>Combine</h2>
+        <p class="muted">Rankings hub — screenshot or paste any ranker's list, one click to ingest, normalize and store. Compare rankers, export to Underdog / Yahoo / FantasyPros.</p>
         <span class="tile-go">Open &rarr;</span>
+        <span class="tile-stat" id="stat-combine"></span>
       </a>
 
-      <a class="tile" href="/convert.html">
-        <h2>Rankings Converter</h2>
-        <p class="muted">Paste a screenshot or text of rankings and download it in the format each site wants — Underdog, Yahoo, FantasyPros, or plain CSV.</p>
+      <a class="tile" href="/drafts.html">
+        <h2>Playbook</h2>
+        <p class="muted">Draft log &amp; analysis — capture mock and Best Ball drafts from Underdog and FantasyPros, review strategy and exposure.</p>
         <span class="tile-go">Open &rarr;</span>
+        <span class="tile-stat" id="stat-playbook"></span>
+      </a>
+
+      <a class="tile" href="/notes.html">
+        <h2>Notes</h2>
+        <p class="muted">The scratchpad — "that's interesting," jotted in two seconds, researched later.</p>
+        <span class="tile-go">Open &rarr;</span>
+        <span class="tile-stat" id="stat-notes"></span>
       </a>
 
       <div class="tile disabled">
-        <h2>Analyst Compare</h2>
-        <p class="muted">Compare multiple analysts' rankings side by side.</p>
-        <span class="tile-soon">Coming soon</span>
+        <h2>War Room</h2>
+        <p class="muted">Draft &amp; auction strategy — who to take and when, with % chance a player makes it back to your pick. Built on your rankings + ADP.</p>
+        <span class="tile-soon">Phase 5</span>
       </div>
 
       <div class="tile disabled">
-        <h2>Yahoo Fantasy</h2>
-        <p class="muted">Connect your Yahoo account to pull leagues and drafts.</p>
-        <span class="tile-soon">Coming soon</span>
+        <h2>Edge Rush</h2>
+        <p class="muted">ADP intelligence — daily snapshots from Yahoo, Underdog and ESPN; risers, fallers and freshness.</p>
+        <span class="tile-soon">Phase 4</span>
+      </div>
+
+      <div class="tile disabled">
+        <h2>My Rankings</h2>
+        <p class="muted">The custom model — per-ranker weights, outlier tamping, your league's scoring as the target. Lives inside Combine once the modeling decisions are settled.</p>
+        <span class="tile-soon">Phase 2</span>
       </div>
     </div>
+
+    <section class="section-gap">
+      <h2>Data health</h2>
+      <p class="muted small">Freshness per dataset — you should never wonder whether something is stale.</p>
+      <div id="health" class="health-grid"><div class="muted">Loading…</div></div>
+    </section>
+
+    <section class="section-gap">
+      <details class="card">
+        <summary style="cursor:pointer"><strong>Global settings</strong> <span class="muted small">— your league's profile (feeds the Phase-2 model's target-scoring dial)</span></summary>
+        <div class="row section-gap">
+          <label>
+            <span class="field-label">League scoring</span>
+            <select id="lg-scoring" class="inline">
+              <option value="ppr">PPR</option>
+              <option value="half">Half-PPR</option>
+              <option value="standard">Standard</option>
+            </select>
+          </label>
+          <label>
+            <span class="field-label">Teams</span>
+            <input id="lg-teams" type="number" min="4" max="20" class="inline" style="width:80px">
+          </label>
+          <label class="row" style="align-self:end; gap:6px">
+            <input id="lg-superflex" type="checkbox" style="width:auto"> Superflex
+          </label>
+          <label class="row" style="align-self:end; gap:6px">
+            <input id="lg-tep" type="checkbox" style="width:auto"> TE premium
+          </label>
+        </div>
+        <div class="row section-gap">
+          <button id="lg-save">Save league profile</button>
+          <span id="lg-status" class="muted small"></span>
+        </div>
+      </details>
+    </section>
 
     <section class="news-head">
       <h2>What's New</h2>
       <span id="news-updated" class="muted"></span>
-      <button id="news-refresh" class="news-refresh" type="button">Refresh</button>
+      <button id="news-refresh" class="news-refresh secondary" type="button">Refresh</button>
     </section>
     <p class="muted">Latest from the sites you follow — skim here, click through only if it's worth your time.</p>
     <div id="news" class="news-loading">Loading…</div>
   </main>
+
   <script src="/app.js"></script>
   <script>
   (function () {
-    var newsEl = document.getElementById('news');
-    var updatedEl = document.getElementById('news-updated');
-    var refreshBtn = document.getElementById('news-refresh');
-
+    'use strict';
     function el(tag, className, text) {
       var n = document.createElement(tag);
       if (className) n.className = className;
       if (text != null) n.textContent = text; // textContent, never innerHTML: feed data is untrusted
       return n;
     }
+
+    // ---------------- Data health + tile stats ----------------
+    var DAY = 24 * 60 * 60 * 1000;
+
+    function healthItem(name, dotClass, info) {
+      var item = el('div', 'health-item');
+      var dot = el('span', 'dot ' + dotClass);
+      item.appendChild(dot);
+      item.appendChild(el('span', 'h-name', name));
+      item.appendChild(el('span', 'h-info', info));
+      return item;
+    }
+
+    function ageDot(ts, staleAfterDays) {
+      if (!ts) return 'dot-missing';
+      var age = Date.now() - new Date(ts).getTime();
+      return age > staleAfterDays * DAY ? 'dot-stale' : 'dot-ok';
+    }
+
+    function renderHealth(d) {
+      var wrap = document.getElementById('health');
+      wrap.textContent = '';
+      if (!d.db) {
+        wrap.appendChild(healthItem('Database', 'dot-bad', 'not connected'));
+        return;
+      }
+      var pm = d.players_master || {};
+      wrap.appendChild(healthItem('Player list', pm.count ? ageDot(pm.synced_at, 3) : 'dot-bad',
+        pm.count ? pm.count.toLocaleString() + ' players · synced ' + (pm.synced_at ? timeAgo(pm.synced_at) : 'never') : 'empty — open Combine → Settings → Sync'));
+      var rk = d.rankings || {};
+      wrap.appendChild(healthItem('Rankings', rk.sets ? ageDot(rk.latest, 7) : 'dot-missing',
+        rk.sets ? rk.sets + ' sets · newest ' + timeAgo(rk.latest) : 'none yet'));
+      wrap.appendChild(healthItem('Review queue', rk.review_open ? 'dot-stale' : 'dot-ok',
+        rk.review_open ? rk.review_open + ' rows need your eyes' : 'clear'));
+      var my = d.my_rankings || {};
+      wrap.appendChild(healthItem('My model', my.runs ? ageDot(my.latest, 7) : 'dot-missing',
+        my.runs ? my.runs + ' runs · newest ' + timeAgo(my.latest) : 'Phase 2 — not built yet'));
+      var adp = d.adp || {};
+      wrap.appendChild(healthItem('ADP', adp.latest ? ageDot(adp.latest, 2) : 'dot-missing',
+        adp.latest ? adp.sites + ' sites · ' + timeAgo(adp.latest) : 'Phase 4 — not built yet'));
+      var dr = d.drafts || {};
+      wrap.appendChild(healthItem('Drafts', dr.count ? 'dot-ok' : 'dot-missing',
+        dr.count ? dr.count + ' logged · newest ' + timeAgo(dr.latest) : 'none logged'));
+
+      // Tile stats
+      document.getElementById('stat-combine').textContent =
+        (rk.sets ? rk.sets + ' sets' : 'no sets yet') + (rk.review_open ? ' · ' + rk.review_open + ' to review' : '');
+      document.getElementById('stat-playbook').textContent = dr.count ? dr.count + ' drafts logged' : 'no drafts yet';
+      var nt = d.notes || {};
+      document.getElementById('stat-notes').textContent = nt.open ? nt.open + ' open notes' : '';
+    }
+
+    apiFetch('/api/datahealth').then(renderHealth).catch(function () {
+      document.getElementById('health').textContent = '';
+    });
+
+    // ---------------- Global settings (league profile) ----------------
+    var settingsCache = {};
+    apiFetch('/api/settings').then(function (s) {
+      settingsCache = s || {};
+      var p = settingsCache['league.profile'] || {};
+      if (p.scoring) document.getElementById('lg-scoring').value = p.scoring;
+      document.getElementById('lg-teams').value = p.teams || 12;
+      document.getElementById('lg-superflex').checked = !!p.superflex;
+      document.getElementById('lg-tep').checked = !!p.te_premium;
+    }).catch(function () { /* banner shown */ });
+
+    document.getElementById('lg-save').addEventListener('click', function () {
+      var profile = {
+        scoring: document.getElementById('lg-scoring').value,
+        teams: parseInt(document.getElementById('lg-teams').value, 10) || 12,
+        superflex: document.getElementById('lg-superflex').checked,
+        te_premium: document.getElementById('lg-tep').checked,
+      };
+      apiPost('/api/settings', { entries: { 'league.profile': profile } }, 'PUT').then(function () {
+        document.getElementById('lg-status').textContent = 'Saved.';
+        toast('League profile saved');
+      }).catch(function () { /* banner shown */ });
+    });
+
+    // ---------------- News ----------------
+    var newsEl = document.getElementById('news');
+    var updatedEl = document.getElementById('news-updated');
+    var refreshBtn = document.getElementById('news-refresh');
 
     function extLink(node, href) {
       node.href = href;
@@ -74,39 +209,21 @@
       return node;
     }
 
-    function timeAgo(value) {
-      if (!value) return '';
-      var then = new Date(value).getTime();
-      if (isNaN(then)) return '';
-      var secs = Math.round((Date.now() - then) / 1000);
-      if (secs < 60) return 'just now';
-      var mins = Math.round(secs / 60);
-      if (mins < 60) return mins + 'm ago';
-      var hrs = Math.round(mins / 60);
-      if (hrs < 24) return hrs + 'h ago';
-      var days = Math.round(hrs / 24);
-      if (days < 30) return days + 'd ago';
-      return new Date(value).toLocaleDateString();
-    }
-
     function renderItem(item) {
       var wrap = el('div', 'news-item');
       var title = el(item.url ? 'a' : 'span', 'news-title', item.title || '(untitled)');
       if (item.url) extLink(title, item.url);
       wrap.appendChild(title);
-
       var meta = [];
       if (item.publishedAt) meta.push(timeAgo(item.publishedAt));
       if (item.author) meta.push(item.author);
       if (meta.length) wrap.appendChild(el('div', 'news-meta', meta.join(' · ')));
-
       if (item.summary) wrap.appendChild(el('div', 'news-summary', item.summary));
       return wrap;
     }
 
     function renderSource(src) {
       var card = el('div', 'card news-source');
-
       var head = el('div', 'news-source-head');
       var h2 = el('h2');
       h2.appendChild(extLink(el('a', null, src.name), src.siteUrl));
@@ -115,11 +232,9 @@
         head.appendChild(el('span', 'news-source-note', 'updated ' + timeAgo(src.lastFetchedAt)));
       }
       card.appendChild(head);
-
       if (src.lastError) {
         card.appendChild(el('div', 'news-source-error', "Couldn't refresh: " + src.lastError));
       }
-
       if (src.kind === 'link') {
         var tile = el('div', 'news-link-tile');
         tile.appendChild(extLink(el('a', null, 'Open ' + src.name + ' →'), src.siteUrl));
@@ -135,7 +250,7 @@
       return card;
     }
 
-    function render(sources) {
+    function renderNews(sources) {
       newsEl.className = '';
       newsEl.textContent = '';
       if (!sources || !sources.length) {
@@ -154,21 +269,17 @@
       updatedEl.textContent = newest ? 'updated ' + timeAgo(newest) : '';
     }
 
-    function setBusy(busy, label) {
-      refreshBtn.disabled = busy;
-      refreshBtn.textContent = label;
-    }
-
     refreshBtn.addEventListener('click', function () {
-      setBusy(true, 'Refreshing…');
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = 'Refreshing…';
       apiFetch('/api/news/refresh', { method: 'POST' })
-        .then(render)
+        .then(renderNews)
         .catch(function () { /* apiFetch already surfaced the error banner */ })
-        .finally(function () { setBusy(false, 'Refresh'); });
+        .finally(function () { refreshBtn.disabled = false; refreshBtn.textContent = 'Refresh'; });
     });
 
     apiFetch('/api/news')
-      .then(render)
+      .then(renderNews)
       .catch(function () {
         newsEl.className = '';
         newsEl.textContent = '';

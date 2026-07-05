@@ -1,43 +1,67 @@
-# All22 Session Plan
+# All22 Session Plan — post-rebuild phasing (PRD §16)
 
-One phase per Claude Code session (or two short ones). After each phase, run the checkpoint in your browser before saying "continue".
+One phase per session (or two short ones). After each phase, run the checkpoint
+in the browser (phone!) before continuing.
 
-## Phase 1 — Scaffold + deploy pipeline
-Express app, password gate, Postgres connection, migration runner, `/health`, base layout (nav, dark theme, error banner), empty home page. Deploy to Railway.
-**Checkpoint:** Open the Railway production URL on your phone → password prompt → home page renders dark. Visit `/health` → shows app + DB ok. Enter a wrong password → clear error message.
-**Model:** Sonnet-class is fine.
+## ✅ Phase 0 — Foundation (DONE, this rebuild)
+Schema (`012_all22_core.sql`: players_master, ranking_sets metadata,
+rankings_raw/normalized, my_rankings, adp_history, notes, settings), the
+players_master service with daily Sleeper sync, hub shell with launcher cards +
+data-health panel + global league settings, docs.
 
-## Phase 2 — Draft Tracker core
-Drafts/picks schema, `lib/players.js` normalization, Underdog paste-parser with preview + manual correction, save flow, drafts list + detail pages, edit/delete, strategy tag with auto-suggestion.
-**Checkpoint:** Paste a REAL Underdog draft you copied. Verify: every pick appears in the preview with correct round/player/position; unparsed lines (if any) are listed, not dropped; after saving, the detail page highlights your picks; the suggested strategy is sane. Edit one pick, delete a test draft.
-**Model:** Maximum reasoning (parser + name normalization is the project's hardest logic). Do this phase before June 22 while Fable is available.
+## ✅ Phase 1 — Combine: one-click rankings ingestion (DONE, this rebuild)
+Screenshot(s)/paste → Claude vision (Tesseract fallback) → matched against
+players_master → saved with source + date + native scoring format → review
+queue for anything uncertain → set view, compare, exports (CSV / Underdog /
+Yahoo / FantasyPros / Underdog-with-IDs).
+**Checkpoint:** on your phone, ingest a REAL ranking screenshot end-to-end in
+one click; fix any flagged rows in Review; export the Underdog file and upload
+it; confirm the hub's data-health panel shows the new set as fresh.
 
-## Phase 3 — Draft analytics
-Exposure report (most-drafted players + % of drafts), top trends summary (most-drafted player, most-used strategy, average draft slot), strategy breakdown with avg rating. Shared filters across all views.
-**Checkpoint:** Log 3+ drafts (mix sites/strategies). Exposure %s match hand-count; the same player pasted with slightly different name spellings appears as ONE row; filters change all reports consistently.
-**Model:** Sonnet-class fine.
+## Phase 2 — Custom model + dials  ⚠ deep session FIRST
+The blender: per-ranker weights, outlier tamping, target-scoring dial, output
+to `my_rankings` versioned per run; risers/fallers between sets.
+**Before building, settle the open decisions below in a dedicated session with
+the most capable model available — a plausible-but-wrong default here quietly
+corrupts every ranking.**
 
-## Phase 4 — Analyst Compare
-Analyst + ranking-set ingestion, comparison table (avg rank, disagreement, consensus flag), Claude prompt generator.
-**Checkpoint:** Paste rankings from 3 real analysts. Spot-check 5 players' ranks against sources; a player missing from one set shows "—"; "Copy Claude Prompt" produces a prompt that, pasted into Claude, yields a useful comparison.
-**Model:** Maximum reasoning for ingestion/matching; UI polish can be a faster model.
+## Phase 3 — Playbook grows up
+Draft ingestion beyond paste (decide the Yahoo/Underdog extraction path),
+Draft-Wizard-style analysis: value vs. ADP, reaches/steals, positional balance.
+Picks should resolve to `player_id` via players_master (the current pre-rebuild
+pages store raw names).
 
-## Phase 5 — Converters
-FantasyPros → Underdog CSV converter with preview and visible failure list.
-**Checkpoint:** Convert a real FantasyPros export and upload the resulting CSV to Underdog — it must be accepted by Underdog's uploader. (Grab Underdog's current expected format/sample first; formats drift season to season.)
-**Model:** Mid — but verify Underdog's current CSV column spec manually, don't trust memory.
+## Phase 4 — Edge Rush
+Daily ADP scrape (Yahoo, Underdog, ESPN) into `adp_history` — a scheduled job
+in this same Railway service; freshness feeds the hub + risers/fallers.
 
-## Phase 6 — Yahoo Fantasy API
-OAuth 2.0 handshake (Railway env vars `YAHOO_CLIENT_ID` / `YAHOO_CLIENT_SECRET`), token storage + silent refresh in DB, settings page showing connected Yahoo account. Pull league list, roster, and draft results; feed pulled drafts through the existing `lib/parsers/` + `lib/players.js` pipeline so they land in the same drafts table.
-**Checkpoint:** Connect Yahoo account from the settings page → see "Connected as [username]". Pull one of your live leagues → draft data appears in the Draft Tracker list with `source = yahoo_api`. Disconnect and reconnect.
-**Pre-work you must do first:** Create a Yahoo Developer app at developer.yahoo.com and paste the Client ID + Secret into Railway env vars before this phase begins.
-**Model:** Maximum reasoning — OAuth flows have fiddly edge cases (token expiry, scope errors, redirect URIs).
+## Phase 5 — War Room
+Draft/auction strategy simulator: % chance a player is available at your next
+pick (needs an ADP *distribution*, not just the mean — see open decision 4).
 
-## Later (not scheduled)
-More site parsers, in-app AI analysis via API key.
+## Throughout
+Hub data-health, Notes, and the natural-language Q&A surface (PRD §9 — read-only
+questions over the stored tables via the Anthropic API; the server-side key is
+already in place once OCR uses it).
 
-## Top risks & early-warning signs
-1. **Paste-parser brittleness** — draft sites change their copy format. *Sign:* a real paste yields many "couldn't parse" lines. *Mitigation already in spec:* preview + manual correction means a broken parser degrades to manual entry, never data loss.
-2. **Player-name matching** — suffixes (Jr./II), punctuation, team tags, same-name players. *Sign:* duplicate rows in the exposure report or wrong matches in Analyst Compare. *Response:* fix in `lib/players.js` only, add the failing pair to `test-fixtures/`.
-3. **Works locally, fails on Railway** — env vars, port binding, migration order. *Sign:* green local, crashed deploy. *Response:* check Railway logs for `DATABASE_URL`/`PORT`/migration errors; `/health` isolates app vs DB.
-4. **Yahoo OAuth redirect mismatch** — Yahoo requires the callback URL registered in your developer app to exactly match the one the server sends. *Sign:* OAuth returns an error page after the Yahoo consent screen. *Response:* add your Railway URL (e.g. `https://all22.up.railway.app/auth/yahoo/callback`) to the Yahoo app's allowed redirect URIs BEFORE Phase 6 starts.
+---
+
+# Open decisions — flagged, NOT silently picked (PRD §17)
+
+1. **Cross-format blending.** Averaging a standard list with a PPR list is
+   wrong. Pragmatic v1 per the PRD: pull each source at the format closest to
+   your league and let per-ranker weighting close the gap; exact adjustment
+   needs projection-level points-per-stat data. *Schema is ready either way
+   (native format is stored per set; target format per run).*
+2. **Model aggregation method.** Trimmed mean vs. weighted median vs.
+   normalize-then-blend — different rankers have different scales. Deep-session
+   candidate.
+3. **"Unranked" semantics.** Does a ranker omitting a player mean "no opinion"
+   (exclude from that ranker's vote) or "ranked last"? Materially changes the
+   blend. Deep-session candidate.
+4. **% availability math** (War Room). Needs an ADP distribution; decide how to
+   estimate spread from the sites we can actually scrape.
+5. **Tiers vs. ordinals.** How tier-based rankings fold into a numeric blend.
+6. **Getting draft data out of Yahoo/Underdog** (Playbook). Bookmarklet on the
+   rendered board vs. screenshot→OCR vs. manual export — pick per platform.
+7. **Same-tab vs. new-tab** hub launching (currently same-tab).

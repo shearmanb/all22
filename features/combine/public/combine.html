@@ -1,0 +1,949 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Combine — All22</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">All<em>22</em></span>
+    <a href="/">Hub</a>
+    <a href="/combine.html" class="active">Combine</a>
+    <a href="/drafts.html">Playbook</a>
+    <a href="/notes.html">Notes</a>
+    <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
+  </nav>
+  <div id="error-banner"></div>
+
+  <main>
+    <h1>Combine <span class="muted small">rankings hub</span></h1>
+    <p class="muted">Screenshot or paste anyone's rankings → one click → matched to the master player list and saved. Anything uncertain lands in Review, never silently guessed.</p>
+
+    <div class="tabs">
+      <button data-tab="ingest" class="active">Ingest</button>
+      <button data-tab="sets">Sets</button>
+      <button data-tab="review">Review <span id="review-badge" class="tab-badge zero">0</span></button>
+      <button data-tab="compare">Compare</button>
+      <button data-tab="settings">Settings</button>
+    </div>
+
+    <!-- ============================== INGEST ============================== -->
+    <section id="tab-ingest">
+      <div class="card">
+        <h2>New ranking set</h2>
+        <div class="row">
+          <label class="grow">
+            <span class="field-label">Source (who made these rankings)</span>
+            <input id="in-source" list="source-options" placeholder="e.g. FantasyPros ECR, Sean Koerner">
+            <datalist id="source-options"></datalist>
+          </label>
+          <label>
+            <span class="field-label">Native scoring format</span>
+            <select id="in-format" class="inline">
+              <option value="ppr">PPR</option>
+              <option value="half">Half-PPR</option>
+              <option value="standard">Standard</option>
+              <option value="best_ball">Best Ball</option>
+              <option value="superflex">Superflex</option>
+              <option value="unknown">Not sure</option>
+            </select>
+          </label>
+          <label>
+            <span class="field-label">List date</span>
+            <input id="in-date" type="date" class="inline">
+          </label>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <label class="grow">
+            <span class="field-label">Set name (optional — auto-named from source + date)</span>
+            <input id="in-name" placeholder="auto">
+          </label>
+        </div>
+
+        <div id="dropzone" class="dropzone section-gap">
+          <strong>Drop, paste, or tap to add screenshots</strong><br>
+          <span class="small">Multiple screenshots of one long list are fine — they're read in order.</span>
+          <input id="file-input" type="file" accept="image/*" multiple hidden>
+        </div>
+        <div id="thumbs" class="thumbs"></div>
+
+        <details class="section-gap">
+          <summary class="muted">…or paste rankings as text</summary>
+          <textarea id="in-text" rows="8" placeholder="1. Ja'Marr Chase, CIN&#10;2. Bijan Robinson, ATL&#10;…" style="margin-top:8px"></textarea>
+        </details>
+
+        <div id="engine-note" class="notice-banner"></div>
+        <div class="row section-gap">
+          <button id="ingest-btn" class="big">Ingest &amp; Save</button>
+          <span id="ingest-status" class="muted small"></span>
+        </div>
+        <ul id="ingest-unparsed" class="unparsed"></ul>
+      </div>
+    </section>
+
+    <!-- ============================== SETS ============================== -->
+    <section id="tab-sets" hidden>
+      <div id="sets-list-view">
+        <div class="card">
+          <h2>Saved ranking sets</h2>
+          <div class="table-wrap">
+            <table class="data" id="sets-table">
+              <thead><tr><th>Name</th><th>Source</th><th>Format</th><th>List date</th><th>Players</th><th>Needs review</th><th>Updated</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p id="sets-empty" class="muted" hidden>No sets yet — ingest your first one from the Ingest tab.</p>
+        </div>
+      </div>
+
+      <div id="set-detail-view" hidden>
+        <p><a href="#sets" id="back-to-sets">&larr; All sets</a></p>
+        <div class="card">
+          <div class="row">
+            <label class="grow"><span class="field-label">Name</span><input id="set-name"></label>
+            <label><span class="field-label">Source</span><input id="set-source" class="inline"></label>
+            <label>
+              <span class="field-label">Format</span>
+              <select id="set-format" class="inline">
+                <option value="ppr">PPR</option>
+                <option value="half">Half-PPR</option>
+                <option value="standard">Standard</option>
+                <option value="best_ball">Best Ball</option>
+                <option value="superflex">Superflex</option>
+                <option value="unknown">Unknown</option>
+              </select>
+            </label>
+            <label><span class="field-label">List date</span><input id="set-date" type="date" class="inline"></label>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <label class="grow"><span class="field-label">Notes</span><input id="set-notes" placeholder=""></label>
+          </div>
+          <div class="row section-gap">
+            <button id="set-save-meta" class="secondary">Save details</button>
+            <button id="set-rematch" class="secondary">Re-match names</button>
+            <button id="set-add-shots" class="secondary">Add screenshots…</button>
+            <button id="set-delete" class="danger">Delete set</button>
+            <span id="set-status" class="muted small"></span>
+          </div>
+          <div id="set-review-note" class="notice-banner"></div>
+        </div>
+
+        <div class="card">
+          <h3>Export</h3>
+          <div id="export-buttons" class="row"></div>
+          <div class="section-gap">
+            <h3>Underdog upload (with player IDs)</h3>
+            <p class="muted small">Underdog's uploader wants its own per-contest player IDs. Save the CSV you download from Underdog's rankings page once per contest; exports reorder that exact file to match this set.</p>
+            <div class="row">
+              <select id="ud-select" class="inline"></select>
+              <button id="ud-export" class="secondary">Build Underdog file</button>
+              <button id="ud-manage" class="link">Manage files…</button>
+            </div>
+            <div id="ud-result" class="muted small section-gap"></div>
+            <div id="ud-manage-panel" hidden>
+              <div class="row section-gap">
+                <input id="ud-new-name" class="inline grow" placeholder="File name (e.g. BBM VI)">
+                <input id="ud-new-file" type="file" accept=".csv,text/csv" class="inline">
+                <button id="ud-save" class="secondary">Save Underdog CSV</button>
+              </div>
+              <div id="ud-list" class="section-gap"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Players <span id="set-count" class="muted small"></span></h3>
+          <div class="table-wrap">
+            <table class="data" id="set-rows-table">
+              <thead><tr><th></th><th>#</th><th>Player</th><th>Pos</th><th>Team</th><th>Match</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================== REVIEW ============================== -->
+    <section id="tab-review" hidden>
+      <div class="card">
+        <h2>Review queue</h2>
+        <p class="muted">Rows the matcher wasn't sure about. Confirm, correct, add a new player, or ignore — fixes can be remembered as aliases so they never come back.</p>
+        <div id="review-list"></div>
+        <p id="review-empty" class="muted" hidden>Nothing to review — everything matched cleanly. 🎉</p>
+      </div>
+    </section>
+
+    <!-- ============================== COMPARE ============================== -->
+    <section id="tab-compare" hidden>
+      <div class="card">
+        <h2>Compare two sets</h2>
+        <div class="row">
+          <select id="cmp-a" class="inline"></select>
+          <span class="muted">vs</span>
+          <select id="cmp-b" class="inline"></select>
+          <button id="cmp-go" class="secondary">Compare</button>
+        </div>
+        <p class="muted small section-gap">Delta = set A's rank minus set B's. <span class="delta-up">▲</span> = A is higher on the player, <span class="delta-down">▼</span> = A is lower. Different native formats? The deltas still show, but remember they're apples-to-oranges (see Settings → open decisions).</p>
+        <div id="cmp-note" class="notice-banner"></div>
+        <div class="table-wrap section-gap">
+          <table class="data" id="cmp-table" hidden>
+            <thead><tr><th>Player</th><th>Pos</th><th>Team</th><th id="cmp-head-a">A</th><th id="cmp-head-b">B</th><th>Δ</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="cmp-only" class="section-gap"></div>
+      </div>
+    </section>
+
+    <!-- ============================== SETTINGS ============================== -->
+    <section id="tab-settings" hidden>
+      <div class="card">
+        <h2>Combine settings</h2>
+        <div class="row">
+          <label class="grow">
+            <span class="field-label">Your ranker list (comma-separated — powers the Source dropdown)</span>
+            <input id="cfg-sources" placeholder="FantasyPros ECR, Sean Koerner, Underdog, Yahoo">
+          </label>
+        </div>
+        <div class="row section-gap">
+          <label>
+            <span class="field-label">Default scoring format for new sets</span>
+            <select id="cfg-format" class="inline">
+              <option value="ppr">PPR</option>
+              <option value="half">Half-PPR</option>
+              <option value="standard">Standard</option>
+              <option value="best_ball">Best Ball</option>
+              <option value="superflex">Superflex</option>
+            </select>
+          </label>
+          <label>
+            <span class="field-label">OCR model (Claude vision)</span>
+            <input id="cfg-model" class="inline" placeholder="claude-sonnet-5">
+          </label>
+        </div>
+        <div class="row section-gap">
+          <button id="cfg-save">Save settings</button>
+          <span id="cfg-status" class="muted small"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Screenshot reader</h3>
+        <p id="engine-status" class="muted">Checking…</p>
+      </div>
+
+      <div class="card">
+        <h3>Master player list</h3>
+        <p class="muted">Every ranking joins to this canonical list (synced daily from Sleeper's free NFL roster). Players you add in Review live here too.</p>
+        <p id="master-status" class="muted">Checking…</p>
+        <button id="master-sync" class="secondary">Sync roster now</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+  (function () {
+    'use strict';
+
+    var FORMAT_LABELS = { ppr: 'PPR', half: 'Half-PPR', standard: 'Standard', best_ball: 'Best Ball', superflex: 'Superflex', unknown: '—' };
+    var state = {
+      images: [],            // [{dataUrl, name}]
+      settings: {},
+      formats: [],           // export formats
+      sets: [],
+      currentSet: null,      // {set, rows}
+      appendMode: false,     // "Add screenshots…" reuses the ingest tab for a set
+      reviewCount: 0,
+    };
+
+    // ---------- tiny DOM helpers ----------
+    function el(tag, className, text) {
+      var n = document.createElement(tag);
+      if (className) n.className = className;
+      if (text != null) n.textContent = text;
+      return n;
+    }
+    function posBadge(pos) {
+      var span = el('span', 'pos-badge', pos || '—');
+      if (pos) span.classList.add('pos-' + pos);
+      return span;
+    }
+    function confDot(confidence, via) {
+      var d = el('span', 'conf conf-' + (confidence || 'none'));
+      d.title = confidence === 'none' ? 'no match' : (confidence + ' confidence (' + (via || '?') + ')');
+      return d;
+    }
+
+    // ---------- tabs ----------
+    var tabs = document.querySelectorAll('.tabs button');
+    function showTab(name) {
+      tabs.forEach(function (b) { b.classList.toggle('active', b.dataset.tab === name); });
+      ['ingest', 'sets', 'review', 'compare', 'settings'].forEach(function (t) {
+        $('tab-' + t).hidden = (t !== name);
+      });
+      if (name === 'sets') loadSets();
+      if (name === 'review') loadReview();
+      if (name === 'compare') fillCompareSelects();
+      if (name === 'settings') { renderSettingsForm(); loadMasterStatus(); }
+    }
+    tabs.forEach(function (b) {
+      b.addEventListener('click', function () {
+        if (b.dataset.tab === 'sets') { showSetsList(); }
+        location.hash = b.dataset.tab;
+      });
+    });
+    function route() {
+      var h = (location.hash || '#ingest').slice(1);
+      var m = /^set-(\d+)$/.exec(h);
+      if (m) { showTab('sets'); openSet(m[1]); return; }
+      if (['ingest', 'sets', 'review', 'compare', 'settings'].indexOf(h) === -1) h = 'ingest';
+      showTab(h);
+    }
+    window.addEventListener('hashchange', route);
+
+    // ---------- ingest ----------
+    var dropzone = $('dropzone'), fileInput = $('file-input');
+
+    dropzone.addEventListener('click', function () { fileInput.click(); });
+    fileInput.addEventListener('change', function () { addFiles(fileInput.files); fileInput.value = ''; });
+    dropzone.addEventListener('dragover', function (e) { e.preventDefault(); dropzone.classList.add('drag'); });
+    dropzone.addEventListener('dragleave', function () { dropzone.classList.remove('drag'); });
+    dropzone.addEventListener('drop', function (e) {
+      e.preventDefault(); dropzone.classList.remove('drag');
+      if (e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files);
+    });
+    document.addEventListener('paste', function (e) {
+      if ($('tab-ingest').hidden) return;
+      var items = (e.clipboardData || {}).items || [];
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].type && items[i].type.indexOf('image/') === 0) {
+          addFiles([items[i].getAsFile()]);
+          e.preventDefault();
+        }
+      }
+    });
+
+    function addFiles(files) {
+      Array.prototype.forEach.call(files, function (f) {
+        if (!f || !f.type || f.type.indexOf('image/') !== 0) return;
+        downscale(f).then(function (dataUrl) {
+          state.images.push({ dataUrl: dataUrl, name: f.name || 'pasted image' });
+          renderThumbs();
+        }).catch(function () { showError('Could not read that image file.'); });
+      });
+    }
+
+    // Resize client-side: vision reads ≤1568px just as well, uploads are far
+    // smaller, and the API's 5MB image cap can never bite.
+    function downscale(file) {
+      return new Promise(function (resolve, reject) {
+        var img = new Image();
+        var url = URL.createObjectURL(file);
+        img.onload = function () {
+          var MAX = 1568;
+          var scale = Math.min(1, MAX / Math.max(img.width, img.height));
+          if (scale === 1 && file.size < 1.5 * 1024 * 1024) {
+            var r = new FileReader();
+            r.onload = function () { URL.revokeObjectURL(url); resolve(r.result); };
+            r.onerror = reject;
+            r.readAsDataURL(file);
+            return;
+          }
+          var canvas = document.createElement('canvas');
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          URL.revokeObjectURL(url);
+          resolve(canvas.toDataURL('image/jpeg', 0.92));
+        };
+        img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('bad image')); };
+        img.src = url;
+      });
+    }
+
+    function renderThumbs() {
+      var wrap = $('thumbs');
+      wrap.textContent = '';
+      state.images.forEach(function (im, i) {
+        var t = el('div', 'thumb');
+        var img = document.createElement('img');
+        img.src = im.dataUrl;
+        img.alt = im.name;
+        var x = el('button', null, '×');
+        x.title = 'Remove';
+        x.addEventListener('click', function () { state.images.splice(i, 1); renderThumbs(); });
+        t.appendChild(img); t.appendChild(x);
+        wrap.appendChild(t);
+      });
+    }
+
+    function setIngestStatus(html, busy) {
+      var s = $('ingest-status');
+      s.innerHTML = (busy ? '<span class="spinner"></span>' : '') + esc(html);
+    }
+
+    $('ingest-btn').addEventListener('click', function () {
+      runIngest().catch(function () { /* error already surfaced */ })
+        .finally(function () { $('ingest-btn').disabled = false; });
+    });
+
+    async function runIngest() {
+      var btn = $('ingest-btn');
+      var source = $('in-source').value.trim();
+      var text = $('in-text').value.trim();
+      $('ingest-unparsed').textContent = '';
+      if (!state.appendMode && !source) { showError('Tag the set with its source (who made these rankings) first.'); return; }
+      if (!state.images.length && !text) { showError('Add at least one screenshot or paste some text first.'); return; }
+      btn.disabled = true;
+
+      var rows = [], unparsed = [], warning = '';
+      for (var i = 0; i < state.images.length; i++) {
+        setIngestStatus('Reading screenshot ' + (i + 1) + ' of ' + state.images.length + '…', true);
+        var data = await apiPost('/api/combine/ocr', { image: state.images[i].dataUrl });
+        rows = rows.concat(data.rows);
+        unparsed = unparsed.concat(data.unparsed || []);
+        if (data.warning) warning = data.warning;
+        setIngestStatus(rows.length + ' players read so far…', true);
+      }
+      if (text) {
+        setIngestStatus('Parsing pasted text…', true);
+        var pdata = await apiPost('/api/combine/parse', { text: text });
+        rows = rows.concat(pdata.rows);
+        unparsed = unparsed.concat(pdata.unparsed || []);
+      }
+      if (!rows.length) {
+        setIngestStatus('', false);
+        showError('No players were detected. Try a sharper screenshot, or paste the rankings as text.');
+        return;
+      }
+
+      var payloadRows = rows.map(function (r) {
+        return { raw_name: r.raw_name, raw_position: r.raw_position, raw_team: r.raw_team };
+      });
+
+      var result;
+      if (state.appendMode && state.currentSet) {
+        setIngestStatus('Adding ' + payloadRows.length + ' players to “' + state.currentSet.set.name + '”…', true);
+        result = await apiPost('/api/combine/sets/' + state.currentSet.set.id + '/rows', { rows: payloadRows });
+        toast('Added ' + result.added + ' players');
+        finishIngest(unparsed, warning);
+        loadReviewCount();
+        location.hash = 'set-' + state.currentSet.set.id;
+        return;
+      }
+
+      setIngestStatus('Saving ' + payloadRows.length + ' players…', true);
+      result = await apiPost('/api/combine/sets', {
+        name: $('in-name').value.trim(),
+        source: source,
+        native_scoring_format: $('in-format').value,
+        captured_on: $('in-date').value || null,
+        rows: payloadRows,
+      });
+      var review = result.review || {};
+      var needsEyes = (review.unmatched || 0) + (review.uncertain || 0);
+      toast('Saved “' + result.set.name + '” — ' + review.total + ' players' + (needsEyes ? ', ' + needsEyes + ' to review' : ''));
+      rememberSource(source);
+      finishIngest(unparsed, warning);
+      loadReviewCount();
+      location.hash = 'set-' + result.set.id;
+    }
+
+    function finishIngest(unparsed, warning) {
+      state.images = [];
+      renderThumbs();
+      $('in-text').value = '';
+      $('in-name').value = '';
+      setIngestStatus('', false);
+      state.appendMode = false;
+      var ul = $('ingest-unparsed');
+      ul.textContent = '';
+      (unparsed || []).slice(0, 12).forEach(function (u) {
+        ul.appendChild(el('li', null, u.line + ' — ' + u.reason));
+      });
+      var note = $('engine-note');
+      if (warning) { note.textContent = warning; note.classList.add('visible'); }
+    }
+
+    function rememberSource(source) {
+      if (!source) return;
+      var list = (state.settings['combine.sources'] || []).slice();
+      if (list.some(function (s) { return s.toLowerCase() === source.toLowerCase(); })) return;
+      list.push(source);
+      state.settings['combine.sources'] = list;
+      apiPost('/api/settings', { entries: { 'combine.sources': list } }, 'PUT').then(fillSourceOptions)
+        .catch(function () { /* non-fatal */ });
+    }
+
+    function fillSourceOptions() {
+      var dl = $('source-options');
+      dl.textContent = '';
+      (state.settings['combine.sources'] || []).forEach(function (s) {
+        var o = document.createElement('option');
+        o.value = s;
+        dl.appendChild(o);
+      });
+    }
+
+    // ---------- sets ----------
+    function showSetsList() {
+      $('sets-list-view').hidden = false;
+      $('set-detail-view').hidden = true;
+    }
+    $('back-to-sets').addEventListener('click', function (e) {
+      e.preventDefault();
+      location.hash = 'sets';
+      showSetsList();
+      loadSets();
+    });
+
+    async function loadSets() {
+      var sets = await apiFetch('/api/combine/sets');
+      state.sets = sets;
+      var tbody = $('sets-table').querySelector('tbody');
+      tbody.textContent = '';
+      $('sets-empty').hidden = sets.length > 0;
+      sets.forEach(function (s) {
+        var tr = document.createElement('tr');
+        tr.style.cursor = 'pointer';
+        var needs = (s.unmatched || 0) + (s.uncertain || 0);
+        var name = el('td'); name.appendChild(el('strong', null, s.name));
+        tr.appendChild(name);
+        tr.appendChild(el('td', 'muted', s.source || '—'));
+        var fmt = el('td'); fmt.appendChild(el('span', 'pill accent', FORMAT_LABELS[s.native_scoring_format] || s.native_scoring_format));
+        tr.appendChild(fmt);
+        tr.appendChild(el('td', 'muted', s.captured_on ? String(s.captured_on).slice(0, 10) : '—'));
+        tr.appendChild(el('td', null, String(s.row_count)));
+        var rev = el('td');
+        rev.appendChild(el('span', 'pill ' + (needs ? 'warn' : 'ok'), needs ? String(needs) : 'clean'));
+        tr.appendChild(rev);
+        tr.appendChild(el('td', 'muted', timeAgo(s.updated_at || s.created_at)));
+        tr.addEventListener('click', function () { location.hash = 'set-' + s.id; });
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function openSet(id) {
+      var data = await apiFetch('/api/combine/sets/' + id);
+      state.currentSet = data;
+      $('sets-list-view').hidden = true;
+      $('set-detail-view').hidden = false;
+      renderSetDetail();
+      loadUnderdogSets();
+    }
+
+    function renderSetDetail() {
+      var set = state.currentSet.set, rows = state.currentSet.rows;
+      $('set-name').value = set.name || '';
+      $('set-source').value = set.source || '';
+      $('set-format').value = set.native_scoring_format || 'unknown';
+      $('set-date').value = set.captured_on ? String(set.captured_on).slice(0, 10) : '';
+      $('set-notes').value = set.notes || '';
+      $('set-count').textContent = rows.length + ' players';
+
+      var unmatched = rows.filter(function (r) { return !r.player_id; }).length;
+      var uncertain = rows.filter(function (r) { return r.player_id && r.confidence !== 'high' && !r.confirmed; }).length;
+      var note = $('set-review-note');
+      if (unmatched + uncertain) {
+        note.textContent = (unmatched ? unmatched + ' unmatched' : '') +
+          (unmatched && uncertain ? ', ' : '') +
+          (uncertain ? uncertain + ' uncertain' : '') +
+          ' — fix them below or in the Review tab.';
+        note.classList.add('visible');
+      } else {
+        note.classList.remove('visible');
+      }
+
+      renderExportButtons();
+
+      var tbody = $('set-rows-table').querySelector('tbody');
+      tbody.textContent = '';
+      rows.forEach(function (r) {
+        var tr = document.createElement('tr');
+        var dot = el('td'); dot.appendChild(confDot(r.confidence, r.matched_via)); tr.appendChild(dot);
+        tr.appendChild(el('td', 'num', String(r.rank)));
+        var nameTd = el('td');
+        nameTd.appendChild(el('strong', null, r.name));
+        if (r.player_id && r.raw_name && r.raw_name !== r.name) {
+          nameTd.appendChild(el('div', 'raw-note', 'read as “' + r.raw_name + '”'));
+        }
+        tr.appendChild(nameTd);
+        var posTd = el('td'); posTd.appendChild(posBadge(r.position)); tr.appendChild(posTd);
+        tr.appendChild(el('td', null, r.team || '—'));
+        tr.appendChild(el('td', 'muted small', r.player_id ? (r.confirmed ? 'confirmed' : r.confidence) : 'no match'));
+        var act = el('td');
+        if (!r.player_id || (r.confidence !== 'high' && !r.confirmed)) {
+          var fixBtn = el('button', 'secondary', 'Fix');
+          fixBtn.style.padding = '4px 10px';
+          fixBtn.addEventListener('click', function () { location.hash = 'review'; });
+          act.appendChild(fixBtn);
+        }
+        tr.appendChild(act);
+        tbody.appendChild(tr);
+      });
+    }
+
+    $('set-save-meta').addEventListener('click', async function () {
+      var id = state.currentSet.set.id;
+      var set = await apiPost('/api/combine/sets/' + id, {
+        name: $('set-name').value,
+        source: $('set-source').value,
+        native_scoring_format: $('set-format').value,
+        captured_on: $('set-date').value || null,
+        notes: $('set-notes').value,
+      }, 'PATCH');
+      state.currentSet.set = set;
+      toast('Details saved');
+    });
+
+    $('set-rematch').addEventListener('click', async function () {
+      var id = state.currentSet.set.id;
+      $('set-status').textContent = 'Re-matching…';
+      var data = await apiPost('/api/combine/sets/' + id + '/rematch', {});
+      state.currentSet.rows = data.rows;
+      $('set-status').textContent = data.resolved + ' rows newly matched';
+      renderSetDetail();
+      loadReviewCount();
+    });
+
+    $('set-add-shots').addEventListener('click', function () {
+      state.appendMode = true;
+      location.hash = 'ingest';
+      toast('Add screenshots — they will append to “' + state.currentSet.set.name + '”');
+    });
+
+    $('set-delete').addEventListener('click', async function () {
+      var set = state.currentSet.set;
+      if (!confirm('Delete “' + set.name + '” and all its rows?')) return;
+      await apiPost('/api/combine/sets/' + set.id, {}, 'DELETE');
+      toast('Deleted');
+      location.hash = 'sets';
+      showSetsList();
+      loadSets();
+      loadReviewCount();
+    });
+
+    function renderExportButtons() {
+      var wrap = $('export-buttons');
+      wrap.textContent = '';
+      state.formats.forEach(function (f) {
+        var b = el('button', 'secondary', f.label);
+        b.title = f.description || '';
+        b.addEventListener('click', function () {
+          apiDownload('/api/combine/sets/' + state.currentSet.set.id + '/export/' + f.id);
+        });
+        wrap.appendChild(b);
+      });
+    }
+
+    // ---------- Underdog IDs ----------
+    async function loadUnderdogSets() {
+      var sets = await apiFetch('/api/combine/underdog/sets').catch(function () { return []; });
+      var sel = $('ud-select');
+      sel.textContent = '';
+      if (!sets.length) {
+        var o = document.createElement('option');
+        o.value = ''; o.textContent = 'No Underdog files saved yet';
+        sel.appendChild(o);
+      }
+      sets.forEach(function (s) {
+        var o = document.createElement('option');
+        o.value = s.id;
+        o.textContent = s.name + ' (' + s.player_count + ' players)';
+        sel.appendChild(o);
+      });
+      var list = $('ud-list');
+      list.textContent = '';
+      sets.forEach(function (s) {
+        var row = el('div', 'row');
+        row.appendChild(el('span', null, s.name + ' — ' + s.player_count + ' players'));
+        var del = el('button', 'danger', 'Delete');
+        del.style.padding = '4px 10px';
+        del.addEventListener('click', async function () {
+          await apiPost('/api/combine/underdog/sets/' + s.id, {}, 'DELETE');
+          loadUnderdogSets();
+        });
+        row.appendChild(del);
+        list.appendChild(row);
+      });
+    }
+    $('ud-manage').addEventListener('click', function () {
+      $('ud-manage-panel').hidden = !$('ud-manage-panel').hidden;
+    });
+    $('ud-save').addEventListener('click', function () {
+      var name = $('ud-new-name').value.trim();
+      var file = $('ud-new-file').files[0];
+      if (!name) { showError('Give this Underdog file a name first.'); return; }
+      if (!file) { showError('Choose the CSV you downloaded from Underdog.'); return; }
+      var reader = new FileReader();
+      reader.onload = async function () {
+        await apiPost('/api/combine/underdog/sets', { name: name, csv: reader.result });
+        $('ud-new-name').value = '';
+        $('ud-new-file').value = '';
+        toast('Underdog file saved');
+        loadUnderdogSets();
+      };
+      reader.readAsText(file);
+    });
+    $('ud-export').addEventListener('click', async function () {
+      var udId = $('ud-select').value;
+      if (!udId) { showError('Save an Underdog CSV first (Manage files…).'); return; }
+      var data = await apiPost('/api/combine/underdog/export', {
+        set_id: state.currentSet.set.id, underdog_set_id: udId,
+      });
+      triggerDownload(new Blob([data.csv], { type: 'text/csv' }), data.filename);
+      var r = $('ud-result');
+      r.textContent = 'Matched ' + data.matched + ' of ' + data.total + ' ranked players.' +
+        (data.unmatched && data.unmatched.length
+          ? ' Not in the Underdog file: ' + data.unmatched.map(function (u) { return u.name || u; }).slice(0, 10).join(', ')
+          : '');
+    });
+
+    // ---------- review ----------
+    async function loadReviewCount() {
+      try {
+        var items = await apiFetch('/api/combine/review');
+        state.reviewCount = items.length;
+        var b = $('review-badge');
+        b.textContent = String(items.length);
+        b.classList.toggle('zero', !items.length);
+      } catch (e) { /* banner already shown */ }
+    }
+
+    async function loadReview() {
+      var items = await apiFetch('/api/combine/review');
+      state.reviewCount = items.length;
+      var b = $('review-badge');
+      b.textContent = String(items.length);
+      b.classList.toggle('zero', !items.length);
+      var wrap = $('review-list');
+      wrap.textContent = '';
+      $('review-empty').hidden = items.length > 0;
+      items.forEach(function (item) { wrap.appendChild(reviewItem(item)); });
+    }
+
+    function reviewItem(item) {
+      var box = el('div', 'review-item' + (item.player_id ? '' : ' unmatched'));
+      var head = el('div', 'row');
+      var title = el('span', 'review-raw', '“' + item.raw_name + '”');
+      head.appendChild(title);
+      if (item.raw_position) head.appendChild(posBadge(item.raw_position));
+      if (item.raw_team) head.appendChild(el('span', 'muted small', item.raw_team));
+      head.appendChild(el('span', 'muted small', '#' + item.rank + ' in ' + item.set_name));
+      box.appendChild(head);
+
+      var actions = el('div', 'row section-gap');
+
+      if (item.player_id) {
+        var sugg = el('span', 'muted small');
+        sugg.textContent = 'Best guess: ' + item.suggested_name +
+          (item.suggested_position ? ' (' + item.suggested_position + (item.suggested_team ? ', ' + item.suggested_team : '') + ')' : '') +
+          ' — ' + item.confidence + ' confidence';
+        box.appendChild(sugg);
+        var okBtn = el('button', null, '✓ Yes, that’s right');
+        okBtn.addEventListener('click', function () {
+          resolveRow(item.raw_id, { confirm: true }, box);
+        });
+        actions.appendChild(okBtn);
+      }
+
+      // player search picker
+      var searchWrap = el('div', 'suggest-box grow');
+      var input = document.createElement('input');
+      input.placeholder = item.player_id ? 'No — search the right player…' : 'Search the master list…';
+      var listBox = el('div', 'suggest-list');
+      listBox.hidden = true;
+      searchWrap.appendChild(input);
+      searchWrap.appendChild(listBox);
+      var searchTimer = null;
+      input.addEventListener('input', function () {
+        clearTimeout(searchTimer);
+        var q = input.value.trim();
+        if (q.length < 2) { listBox.hidden = true; return; }
+        searchTimer = setTimeout(async function () {
+          var hits = await apiFetch('/api/combine/players?q=' + encodeURIComponent(q)).catch(function () { return []; });
+          listBox.textContent = '';
+          hits.forEach(function (p) {
+            var opt = el('div', null, p.name + '  ·  ' + (p.position || '?') + (p.team ? ' ' + p.team : ''));
+            opt.addEventListener('click', function () {
+              resolveRow(item.raw_id, { player_id: p.player_id, learn_alias: learn.checked }, box);
+            });
+            listBox.appendChild(opt);
+          });
+          listBox.hidden = !hits.length;
+        }, 220);
+      });
+      actions.appendChild(searchWrap);
+
+      var addBtn = el('button', 'secondary', '+ New player');
+      addBtn.title = 'Add this exact name to the master list (rookie / missing player)';
+      addBtn.addEventListener('click', function () {
+        resolveRow(item.raw_id, {
+          new_player: { name: item.raw_name, position: item.raw_position, team: item.raw_team },
+        }, box);
+      });
+      actions.appendChild(addBtn);
+
+      var ignoreBtn = el('button', 'danger', 'Not a player');
+      ignoreBtn.addEventListener('click', function () {
+        resolveRow(item.raw_id, { ignore: true }, box);
+      });
+      actions.appendChild(ignoreBtn);
+      box.appendChild(actions);
+
+      var learnRow = el('label', 'row small muted');
+      var learn = document.createElement('input');
+      learn.type = 'checkbox';
+      learn.checked = true;
+      learn.style.width = 'auto';
+      learnRow.appendChild(learn);
+      learnRow.appendChild(document.createTextNode('Remember “' + item.raw_name + '” as an alias for whoever I pick (source: ' + (item.source || 'any') + ')'));
+      box.appendChild(learnRow);
+
+      return box;
+    }
+
+    async function resolveRow(rawId, payload, box) {
+      await apiPost('/api/combine/rows/' + rawId + '/resolve', payload);
+      box.remove();
+      state.reviewCount = Math.max(0, state.reviewCount - 1);
+      var b = $('review-badge');
+      b.textContent = String(state.reviewCount);
+      b.classList.toggle('zero', !state.reviewCount);
+      $('review-empty').hidden = state.reviewCount > 0;
+      toast(payload.ignore ? 'Row removed' : 'Resolved');
+    }
+
+    // ---------- compare ----------
+    async function fillCompareSelects() {
+      if (!state.sets.length) { try { state.sets = await apiFetch('/api/combine/sets'); } catch (e) { return; } }
+      ['cmp-a', 'cmp-b'].forEach(function (id, idx) {
+        var sel = $(id);
+        var prev = sel.value;
+        sel.textContent = '';
+        state.sets.forEach(function (s, i) {
+          var o = document.createElement('option');
+          o.value = s.id;
+          o.textContent = s.name + (s.source ? ' — ' + s.source : '');
+          sel.appendChild(o);
+        });
+        if (prev) sel.value = prev;
+        else if (state.sets[idx]) sel.value = state.sets[idx].id;
+      });
+    }
+    $('cmp-go').addEventListener('click', async function () {
+      var a = $('cmp-a').value, b = $('cmp-b').value;
+      if (!a || !b) { showError('Pick two sets to compare.'); return; }
+      if (a === b) { showError('Pick two different sets.'); return; }
+      var data = await apiFetch('/api/combine/compare?a=' + a + '&b=' + b);
+      var note = $('cmp-note');
+      if (data.a.format !== data.b.format) {
+        note.textContent = 'Heads up: “' + data.a.name + '” is ' + (FORMAT_LABELS[data.a.format] || data.a.format) +
+          ' and “' + data.b.name + '” is ' + (FORMAT_LABELS[data.b.format] || data.b.format) +
+          ' — cross-format deltas are directional, not exact.';
+        note.classList.add('visible');
+      } else note.classList.remove('visible');
+
+      $('cmp-head-a').textContent = data.a.name;
+      $('cmp-head-b').textContent = data.b.name;
+      var table = $('cmp-table');
+      table.hidden = false;
+      var tbody = table.querySelector('tbody');
+      tbody.textContent = '';
+      data.pairs.forEach(function (p) {
+        var tr = document.createElement('tr');
+        var nameTd = el('td'); nameTd.appendChild(el('strong', null, p.name)); tr.appendChild(nameTd);
+        var posTd = el('td'); posTd.appendChild(posBadge(p.position)); tr.appendChild(posTd);
+        tr.appendChild(el('td', 'muted', p.team || '—'));
+        tr.appendChild(el('td', null, String(p.rank_a)));
+        tr.appendChild(el('td', null, String(p.rank_b)));
+        var d = el('td');
+        if (p.delta < 0) d.appendChild(el('span', 'delta-up', '▲ ' + Math.abs(p.delta)));
+        else if (p.delta > 0) d.appendChild(el('span', 'delta-down', '▼ ' + p.delta));
+        else d.appendChild(el('span', 'delta-flat', '—'));
+        tr.appendChild(d);
+        tbody.appendChild(tr);
+      });
+      var only = $('cmp-only');
+      only.textContent = '';
+      function onlyList(label, arr) {
+        if (!arr.length) return;
+        var div = el('div', 'muted small');
+        div.appendChild(el('strong', null, 'Only in ' + label + ' (' + arr.length + '): '));
+        div.appendChild(document.createTextNode(arr.slice(0, 25).map(function (p) { return p.name; }).join(', ') + (arr.length > 25 ? '…' : '')));
+        only.appendChild(div);
+      }
+      onlyList(data.a.name, data.onlyA);
+      onlyList(data.b.name, data.onlyB);
+    });
+
+    // ---------- settings ----------
+    async function loadSettings() {
+      try { state.settings = await apiFetch('/api/settings'); } catch (e) { state.settings = {}; }
+      fillSourceOptions();
+      if (state.settings['combine.default_format']) $('in-format').value = state.settings['combine.default_format'];
+    }
+    function renderSettingsForm() {
+      $('cfg-sources').value = (state.settings['combine.sources'] || []).join(', ');
+      $('cfg-format').value = state.settings['combine.default_format'] || 'half';
+      $('cfg-model').value = state.settings['combine.ocr_model'] || '';
+    }
+    $('cfg-save').addEventListener('click', async function () {
+      var entries = {
+        'combine.sources': $('cfg-sources').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean),
+        'combine.default_format': $('cfg-format').value,
+      };
+      var model = $('cfg-model').value.trim();
+      if (model) entries['combine.ocr_model'] = model;
+      state.settings = await apiPost('/api/settings', { entries: entries }, 'PUT');
+      fillSourceOptions();
+      $('in-format').value = state.settings['combine.default_format'] || 'half';
+      $('cfg-status').textContent = 'Saved.';
+      toast('Settings saved');
+    });
+
+    async function loadMasterStatus() {
+      var s = await apiFetch('/api/combine/master/status').catch(function () { return null; });
+      if (!s) return;
+      $('master-status').textContent = s.count
+        ? s.count.toLocaleString() + ' players (' + s.active.toLocaleString() + ' active) · last synced ' + (s.synced_at ? timeAgo(s.synced_at) : 'never')
+        : 'Empty — sync now to seed from Sleeper.';
+      var eng = $('engine-status');
+      if (s.vision) {
+        eng.textContent = 'Claude vision is ON — screenshots are read by the Anthropic API (best quality).';
+      } else {
+        eng.textContent = 'Claude vision is OFF (no ANTHROPIC_API_KEY on the server). Screenshots fall back to the built-in offline reader, which is noticeably worse. Add the key in Railway → Variables to upgrade.';
+      }
+      var note = $('engine-note');
+      if (!s.vision) {
+        note.textContent = 'Screenshot reading is in fallback mode — add ANTHROPIC_API_KEY in Railway for much better accuracy (see Settings).';
+        note.classList.add('visible');
+      }
+    }
+    $('master-sync').addEventListener('click', async function () {
+      var btn = $('master-sync');
+      btn.disabled = true;
+      $('master-status').textContent = 'Syncing from Sleeper…';
+      try {
+        await apiPost('/api/combine/master/sync', {});
+        toast('Roster synced');
+      } finally {
+        btn.disabled = false;
+        loadMasterStatus();
+      }
+    });
+
+    // ---------- boot ----------
+    $('in-date').value = new Date().toISOString().slice(0, 10);
+    apiPost('/api/combine/warmup', {}).catch(function () { /* best-effort */ });
+    apiFetch('/api/combine/formats').then(function (f) { state.formats = f; }).catch(function () { state.formats = []; });
+    loadSettings().then(function () { loadMasterStatus(); });
+    loadReviewCount();
+    route();
+  })();
+  </script>
+</body>
+</html>

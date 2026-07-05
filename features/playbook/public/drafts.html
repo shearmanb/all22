@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Draft Tracker — All22</title>
+  <title>Playbook — All22</title>
   <link rel="stylesheet" href="/app.css">
   <style>
     .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-bottom: 16px; }
@@ -25,15 +25,16 @@
 </head>
 <body>
   <nav>
-    <span class="brand">All22</span>
-    <a href="/">Home</a>
-    <a href="/drafts.html" class="active">Draft Tracker</a>
-    <a href="/convert.html">Rankings Converter</a>
+    <span class="brand">All<em>22</em></span>
+    <a href="/">Hub</a>
+    <a href="/combine.html">Combine</a>
+    <a href="/drafts.html" class="active">Playbook</a>
+    <a href="/notes.html">Notes</a>
     <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
   </nav>
   <div id="error-banner"></div>
   <main>
-    <h1>Draft Tracker</h1>
+    <h1>Playbook <span class="muted small">draft log &amp; analysis</span></h1>
     <div class="toolbar">
       <div>
         <label>Site</label>
