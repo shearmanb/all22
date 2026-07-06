@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Big Board — All22</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .board-row {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-top: 6px;
+      touch-action: pan-y;
+    }
+    .board-row.dragging { opacity: 0.5; border-color: var(--accent); }
+    .board-row .rank { color: var(--text-dim); width: 30px; text-align: right; font-variant-numeric: tabular-nums; }
+    .board-row .grip {
+      cursor: grab; color: var(--text-dim); font-size: 1.2rem; padding: 0 4px;
+      touch-action: none; user-select: none;
+    }
+    .board-row .grip:active { cursor: grabbing; }
+    .board-row .pname { flex: 1; font-weight: 600; }
+    .board-row .pteam { color: var(--text-dim); font-size: 0.85rem; }
+    .board-row .move { background: none; border: none; color: var(--text-dim); width: auto; padding: 2px 6px; font-size: 1rem; cursor: pointer; }
+    .board-row .move:hover { color: var(--text); filter: none; }
+    .board-row .rm { background: none; border: none; color: var(--error-text); width: auto; padding: 2px 8px; font-size: 1.1rem; cursor: pointer; }
+    @media (min-width: 700px) { #board-view { display: grid; grid-template-columns: 300px 1fr; gap: 14px; align-items: start; } }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">All<em>22</em></span>
+    <a href="/">Hub</a>
+    <a href="/combine.html">Combine</a>
+    <a href="/boards.html" class="active">Big Board</a>
+    <a href="/drafts.html">Playbook</a>
+    <a href="/notes.html">Notes</a>
+    <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
+  </nav>
+  <div id="error-banner"></div>
+
+  <main>
+    <h1>Big Board <span class="muted small">hand-built player lists</span></h1>
+    <p class="muted">Drag to order, search to add. Independent of your ingested rankings — make a Zero RB target list, a sleepers list, whatever you want.</p>
+
+    <div class="card">
+      <div class="row">
+        <label class="grow">
+          <span class="field-label">Board</span>
+          <select id="board-select" class="inline" style="width:100%"></select>
+        </label>
+        <div style="align-self:end">
+          <button id="board-new-toggle" class="secondary">+ New board</button>
+        </div>
+      </div>
+      <div id="board-new-row" class="row section-gap" hidden>
+        <input id="board-new-name" class="grow" placeholder="Board name (e.g. Zero RB targets)">
+        <button id="board-create">Create</button>
+        <button id="board-new-cancel" class="link">Cancel</button>
+      </div>
+    </div>
+
+    <p id="board-empty" class="muted" hidden>No boards yet — create one above to start building.</p>
+
+    <div id="board-view" hidden>
+      <div>
+        <div class="card">
+          <label><span class="field-label">Name</span><input id="board-name"></label>
+          <label class="section-gap"><span class="field-label">Notes</span><input id="board-notes" placeholder="optional"></label>
+          <div class="row section-gap">
+            <button id="board-save" class="secondary">Save</button>
+            <button id="board-delete" class="danger">Delete</button>
+          </div>
+          <div id="board-status" class="muted small section-gap"></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <div class="suggest-box">
+            <input id="player-search" placeholder="Search a player to add…" autocomplete="off">
+            <div id="player-suggest" class="suggest-list" hidden></div>
+          </div>
+          <p class="muted small" style="margin:8px 0 0">Drag the <strong>⠿</strong> handle to reorder, or use ▲▼. <span id="board-count"></span></p>
+          <div id="board-list" class="section-gap"></div>
+          <p id="board-list-empty" class="muted" hidden>Empty board — search above to add your first player.</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var state = { boards: [], current: null, players: [] };
+
+    function el(tag, className, text) {
+      var n = document.createElement(tag);
+      if (className) n.className = className;
+      if (text != null) n.textContent = text;
+      return n;
+    }
+    function posBadge(pos) {
+      var span = el('span', 'pos-badge', pos || '—');
+      if (pos) span.classList.add('pos-' + pos);
+      return span;
+    }
+
+    // ---------- boards list ----------
+    async function loadBoards(selectId) {
+      state.boards = await apiFetch('/api/boards');
+      var sel = $('board-select');
+      sel.textContent = '';
+      state.boards.forEach(function (b) {
+        var o = document.createElement('option');
+        o.value = b.id;
+        o.textContent = b.name + ' (' + b.player_count + ')';
+        sel.appendChild(o);
+      });
+      $('board-empty').hidden = state.boards.length > 0;
+      $('board-view').hidden = state.boards.length === 0;
+      if (!state.boards.length) { state.current = null; return; }
+      var pick = selectId || (state.current && state.current.board.id) || state.boards[0].id;
+      sel.value = pick;
+      await openBoard(pick);
+    }
+
+    $('board-select').addEventListener('change', function () { openBoard($('board-select').value); });
+
+    $('board-new-toggle').addEventListener('click', function () {
+      $('board-new-row').hidden = false;
+      $('board-new-name').focus();
+    });
+    $('board-new-cancel').addEventListener('click', function () {
+      $('board-new-row').hidden = true;
+      $('board-new-name').value = '';
+    });
+    $('board-create').addEventListener('click', createBoard);
+    $('board-new-name').addEventListener('keydown', function (e) { if (e.key === 'Enter') createBoard(); });
+    async function createBoard() {
+      var name = $('board-new-name').value.trim();
+      if (!name) { showError('Give the board a name first.'); return; }
+      var board = await apiPost('/api/boards', { name: name });
+      $('board-new-name').value = '';
+      $('board-new-row').hidden = true;
+      toast('Board created');
+      await loadBoards(board.id);
+    }
+
+    // ---------- one board ----------
+    async function openBoard(id) {
+      var data = await apiFetch('/api/boards/' + id);
+      state.current = data;
+      state.players = data.players;
+      $('board-name').value = data.board.name || '';
+      $('board-notes').value = data.board.notes || '';
+      renderList();
+    }
+
+    $('board-save').addEventListener('click', async function () {
+      if (!state.current) return;
+      var b = await apiPost('/api/boards/' + state.current.board.id, {
+        name: $('board-name').value, notes: $('board-notes').value,
+      }, 'PATCH');
+      state.current.board = b;
+      $('board-status').textContent = 'Saved.';
+      toast('Saved');
+      loadBoards(b.id);
+    });
+
+    $('board-delete').addEventListener('click', async function () {
+      if (!state.current) return;
+      if (!confirm('Delete “' + state.current.board.name + '”?')) return;
+      await apiPost('/api/boards/' + state.current.board.id, {}, 'DELETE');
+      state.current = null;
+      toast('Deleted');
+      loadBoards();
+    });
+
+    function renderList() {
+      var list = $('board-list');
+      list.textContent = '';
+      $('board-count').textContent = state.players.length + ' players';
+      $('board-list-empty').hidden = state.players.length > 0;
+      state.players.forEach(function (p, i) {
+        var row = el('div', 'board-row');
+        row.dataset.pid = p.player_id;
+        row.appendChild(el('span', 'rank', String(i + 1)));
+        var grip = el('span', 'grip', '⠿');
+        grip.title = 'Drag to reorder';
+        attachDrag(grip, row);
+        row.appendChild(grip);
+        row.appendChild(posBadge(p.position));
+        row.appendChild(el('span', 'pname', p.name));
+        row.appendChild(el('span', 'pteam', p.team || ''));
+        var up = el('button', 'move', '▲'); up.title = 'Move up';
+        up.addEventListener('click', function () { nudge(i, -1); });
+        var down = el('button', 'move', '▼'); down.title = 'Move down';
+        down.addEventListener('click', function () { nudge(i, 1); });
+        row.appendChild(up); row.appendChild(down);
+        var rm = el('button', 'rm', '×'); rm.title = 'Remove';
+        rm.addEventListener('click', function () { removePlayer(p.player_id); });
+        row.appendChild(rm);
+        list.appendChild(row);
+      });
+    }
+
+    function currentOrder() {
+      return Array.prototype.map.call($('board-list').children, function (r) { return Number(r.dataset.pid); });
+    }
+    async function saveOrder() {
+      if (!state.current) return;
+      var ids = currentOrder();
+      var data = await apiPost('/api/boards/' + state.current.board.id + '/order', { player_ids: ids }, 'PUT');
+      state.players = data.players;
+      renderList();
+    }
+
+    // ▲▼ nudge — reliable everywhere, especially on a phone.
+    function nudge(index, dir) {
+      var j = index + dir;
+      if (j < 0 || j >= state.players.length) return;
+      var arr = state.players.slice();
+      var tmp = arr[index]; arr[index] = arr[j]; arr[j] = tmp;
+      state.players = arr;
+      renderList();
+      apiPost('/api/boards/' + state.current.board.id + '/order',
+        { player_ids: arr.map(function (p) { return p.player_id; }) }, 'PUT')
+        .then(function (d) { state.players = d.players; })
+        .catch(function () { openBoard(state.current.board.id); });
+    }
+
+    // Pointer-based drag: one code path for mouse and touch.
+    function attachDrag(handle, row) {
+      handle.addEventListener('pointerdown', function (e) {
+        e.preventDefault();
+        var list = $('board-list');
+        row.classList.add('dragging');
+        handle.setPointerCapture(e.pointerId);
+
+        function onMove(ev) {
+          var after = rowAfter(list, ev.clientY, row);
+          if (after == null) list.appendChild(row);
+          else list.insertBefore(row, after);
+        }
+        function onUp(ev) {
+          handle.releasePointerCapture(e.pointerId);
+          handle.removeEventListener('pointermove', onMove);
+          handle.removeEventListener('pointerup', onUp);
+          row.classList.remove('dragging');
+          // Re-number visible ranks immediately, then persist.
+          Array.prototype.forEach.call(list.children, function (r, i) {
+            r.querySelector('.rank').textContent = String(i + 1);
+          });
+          saveOrder().catch(function () { openBoard(state.current.board.id); });
+        }
+        handle.addEventListener('pointermove', onMove);
+        handle.addEventListener('pointerup', onUp);
+      });
+    }
+    function rowAfter(list, y, dragging) {
+      var rows = Array.prototype.slice.call(list.querySelectorAll('.board-row')).filter(function (r) { return r !== dragging; });
+      var closest = null, closestOffset = -Infinity;
+      rows.forEach(function (r) {
+        var box = r.getBoundingClientRect();
+        var offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closestOffset) { closestOffset = offset; closest = r; }
+      });
+      return closest;
+    }
+
+    // ---------- add player (search players_master) ----------
+    var searchTimer = null;
+    var searchEl = $('player-search'), suggestEl = $('player-suggest');
+    searchEl.addEventListener('input', function () {
+      clearTimeout(searchTimer);
+      var q = searchEl.value.trim();
+      if (q.length < 2) { suggestEl.hidden = true; return; }
+      searchTimer = setTimeout(async function () {
+        var hits = await apiFetch('/api/boards/players?q=' + encodeURIComponent(q)).catch(function () { return []; });
+        var have = {};
+        state.players.forEach(function (p) { have[p.player_id] = true; });
+        suggestEl.textContent = '';
+        hits.forEach(function (p) {
+          var label = p.name + '  ·  ' + (p.position || '?') + (p.team ? ' ' + p.team : '') + (have[p.player_id] ? '  (already on board)' : '');
+          var opt = el('div', null, label);
+          if (have[p.player_id]) { opt.style.opacity = '0.5'; }
+          else opt.addEventListener('click', function () { addPlayer(p.player_id); });
+          suggestEl.appendChild(opt);
+        });
+        suggestEl.hidden = !hits.length;
+      }, 200);
+    });
+    searchEl.addEventListener('blur', function () { setTimeout(function () { suggestEl.hidden = true; }, 150); });
+
+    async function addPlayer(playerId) {
+      if (!state.current) return;
+      var data = await apiPost('/api/boards/' + state.current.board.id + '/players', { player_id: playerId });
+      state.players = data.players;
+      renderList();
+      searchEl.value = '';
+      suggestEl.hidden = true;
+      searchEl.focus();
+    }
+    async function removePlayer(playerId) {
+      var data = await apiPost('/api/boards/' + state.current.board.id + '/players/' + playerId, {}, 'DELETE');
+      state.players = data.players;
+      renderList();
+    }
+
+    loadBoards();
+  })();
+  </script>
+</body>
+</html>

@@ -337,6 +337,10 @@ table.data td .raw-note { color: var(--text-dim); font-size: 0.78rem; }
 .delta-down { color: var(--red); font-weight: 700; }
 .delta-flat { color: var(--text-dim); }
 
+/* Optional auction ($) column — hidden unless the table opts in via .show-auction */
+#set-rows-table .auction-col { display: none; }
+#set-rows-table.show-auction .auction-col { display: table-cell; }
+
 /* ===== Dropzone ===== */
 .dropzone {
   border: 2px dashed var(--border-strong);

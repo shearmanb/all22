@@ -11,6 +11,7 @@
     <span class="brand">All<em>22</em></span>
     <a href="/">Hub</a>
     <a href="/combine.html" class="active">Combine</a>
+    <a href="/boards.html">Big Board</a>
     <a href="/drafts.html">Playbook</a>
     <a href="/notes.html">Notes</a>
     <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
@@ -157,7 +158,7 @@
           <h3>Players <span id="set-count" class="muted small"></span></h3>
           <div class="table-wrap">
             <table class="data" id="set-rows-table">
-              <thead><tr><th></th><th>#</th><th>Player</th><th>Pos</th><th>Team</th><th>Match</th><th></th></tr></thead>
+              <thead><tr><th></th><th>#</th><th>Player</th><th>Pos</th><th>Team</th><th class="auction-col">$</th><th>Match</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -559,6 +560,10 @@
 
       renderExportButtons();
 
+      // Show the auction ($) column only when this set actually carries values.
+      var hasAuction = rows.some(function (r) { return r.auction_value !== null && r.auction_value !== undefined; });
+      $('set-rows-table').classList.toggle('show-auction', hasAuction);
+
       var tbody = $('set-rows-table').querySelector('tbody');
       tbody.textContent = '';
       rows.forEach(function (r) {
@@ -573,6 +578,7 @@
         tr.appendChild(nameTd);
         var posTd = el('td'); posTd.appendChild(posBadge(r.position)); tr.appendChild(posTd);
         tr.appendChild(el('td', null, r.team || '—'));
+        tr.appendChild(el('td', 'auction-col', (r.auction_value === null || r.auction_value === undefined) ? '' : '$' + r.auction_value));
         tr.appendChild(el('td', 'muted small', r.player_id ? (r.confirmed ? 'confirmed' : r.confidence) : 'no match'));
         var act = el('td');
         if (!r.player_id || (r.confidence !== 'high' && !r.confirmed)) {

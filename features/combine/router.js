@@ -120,7 +120,7 @@ router.post('/sets', async (req, res) => {
       `${String(source).trim()} ${captured_on || new Date().toISOString().slice(0, 10)}`;
     const index = await master.getIndex();
     const matched = ingest.matchRows(
-      list.map((r) => ({ name: r.raw_name || r.name, position: r.raw_position || r.position, team: r.raw_team || r.team })),
+      list.map((r) => ({ name: r.raw_name || r.name, position: r.raw_position || r.position, team: r.raw_team || r.team, auction_value: r.auction_value })),
       index
     );
     const set = await store.createSet(
@@ -144,7 +144,7 @@ router.post('/sets/:id/rows', async (req, res) => {
     if (!list.length) return res.status(400).json({ ok: false, error: 'There are no rows to add.' });
     const index = await master.getIndex();
     const matched = ingest.matchRows(
-      list.map((r) => ({ name: r.raw_name || r.name, position: r.raw_position || r.position, team: r.raw_team || r.team })),
+      list.map((r) => ({ name: r.raw_name || r.name, position: r.raw_position || r.position, team: r.raw_team || r.team, auction_value: r.auction_value })),
       index
     );
     await store.appendRows(set.id, matched);

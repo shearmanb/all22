@@ -51,6 +51,17 @@ test('startRank continues numbering for appended screenshots', () => {
   assert.equal(rows[0].rank, 51);
 });
 
+test('optional auction value passes through the pipeline (null when absent)', () => {
+  const rows = matchRows([
+    { name: 'Bijan Robinson', auction_value: 52 },
+    { name: 'Justin Jefferson' },              // no value -> null
+    { name: 'CeeDee Lamb', auction_value: '' }, // blank -> null
+  ], index);
+  assert.equal(rows[0].auction_value, 52);
+  assert.equal(rows[1].auction_value, null);
+  assert.equal(rows[2].auction_value, null);
+});
+
 test('reviewSummary counts unmatched and uncertain rows', () => {
   const rows = matchRows([
     { name: "Ja'Marr Chase" },

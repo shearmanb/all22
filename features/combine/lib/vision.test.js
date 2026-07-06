@@ -36,6 +36,12 @@ test('extractRows drops nameless rows and rejects non-arrays', () => {
   assert.throws(() => extractRows('no json here'));
 });
 
+test('extractRows parses auction values and defaults to null', () => {
+  const rows = extractRows('[{"rank":1,"name":"Bijan Robinson","position":"RB","team":"ATL","auction_value":"$52"},{"rank":2,"name":"Saquon Barkley","position":"RB","team":"PHI"}]');
+  assert.equal(rows[0].auction_value, 52);   // "$" stripped, numeric
+  assert.equal(rows[1].auction_value, null);  // absent -> null, never the rank
+});
+
 test('splitDataUrl handles data URLs and rejects garbage', () => {
   const { mediaType, base64 } = splitDataUrl('data:image/jpeg;base64,aGVsbG8=');
   assert.equal(mediaType, 'image/jpeg');

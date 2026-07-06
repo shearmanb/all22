@@ -11,6 +11,7 @@
     <span class="brand">All<em>22</em></span>
     <a href="/" class="active">Hub</a>
     <a href="/combine.html">Combine</a>
+    <a href="/boards.html">Big Board</a>
     <a href="/drafts.html">Playbook</a>
     <a href="/notes.html">Notes</a>
     <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
@@ -34,6 +35,13 @@
         <p class="muted">Draft log &amp; analysis — capture mock and Best Ball drafts from Underdog and FantasyPros, review strategy and exposure.</p>
         <span class="tile-go">Open &rarr;</span>
         <span class="tile-stat" id="stat-playbook"></span>
+      </a>
+
+      <a class="tile" href="/boards.html">
+        <h2>Big Board</h2>
+        <p class="muted">Hand-built player lists — drag-and-drop, search to add, ordered by you. A Zero RB target list, sleepers, handcuffs; independent of your ingested rankings.</p>
+        <span class="tile-go">Open &rarr;</span>
+        <span class="tile-stat" id="stat-boards"></span>
       </a>
 
       <a class="tile" href="/notes.html">
@@ -160,11 +168,15 @@
       var dr = d.drafts || {};
       wrap.appendChild(healthItem('Drafts', dr.count ? 'dot-ok' : 'dot-missing',
         dr.count ? dr.count + ' logged · newest ' + timeAgo(dr.latest) : 'none logged'));
+      var bd = d.boards || {};
+      wrap.appendChild(healthItem('Big Board', bd.count ? 'dot-ok' : 'dot-missing',
+        bd.count ? bd.count + ' boards · newest ' + timeAgo(bd.latest) : 'none yet'));
 
       // Tile stats
       document.getElementById('stat-combine').textContent =
         (rk.sets ? rk.sets + ' sets' : 'no sets yet') + (rk.review_open ? ' · ' + rk.review_open + ' to review' : '');
       document.getElementById('stat-playbook').textContent = dr.count ? dr.count + ' drafts logged' : 'no drafts yet';
+      document.getElementById('stat-boards').textContent = bd.count ? bd.count + (bd.count === 1 ? ' board' : ' boards') : 'no boards yet';
       var nt = d.notes || {};
       document.getElementById('stat-notes').textContent = nt.open ? nt.open + ' open notes' : '';
     }

@@ -25,12 +25,16 @@ Return ONLY a JSON array — no prose, no markdown fences. One object per row:
   {"rank": <the printed rank number, or null if none is visible>,
    "name": "<player name exactly as printed>",
    "position": "<QB|RB|WR|TE|K|DST or empty string if not shown>",
-   "team": "<NFL team abbreviation as printed, or empty string>"}
+   "team": "<NFL team abbreviation as printed, or empty string>",
+   "auction_value": <the auction dollar value as a number if the list shows one, else null>}
 
 Rules:
 - Include every player visible, even partially cut-off rows you can still read.
 - A row that is just an NFL team (e.g. "Philadelphia Eagles", "Cowboys DST") is
   a team defense: use the team name as "name" and "DST" as position.
+- Only set "auction_value" when the list actually prints a dollar/auction value
+  (e.g. "$45", "42"). Use the number only (no "$"). If there is no auction
+  column, set it to null for every row — do NOT use the rank as a value.
 - Do not invent players. If a name is unreadable, skip that row.
 - Ignore headers, ads, navigation, tier labels and other non-player rows.
 - Copy names as printed (keep suffixes like Jr./III); do not "correct" them.`;
@@ -75,11 +79,17 @@ function extractRows(text) {
     if (!name) continue;
     const rank = Number.isFinite(Number(r.rank)) && r.rank !== null && r.rank !== ''
       ? Number(r.rank) : null;
+    // Auction value: keep only a real positive number; a bare "$" or blank => null.
+    const av = r.auction_value;
+    const auctionValue = (av !== null && av !== undefined && av !== '' &&
+      Number.isFinite(Number(String(av).replace(/[$,]/g, ''))))
+      ? Number(String(av).replace(/[$,]/g, '')) : null;
     rows.push({
       rank,
       name,
       position: String(r.position || '').toUpperCase().replace(/[^A-Z/]/g, '').replace('D/ST', 'DST'),
       team: String(r.team || '').toUpperCase().replace(/[^A-Z]/g, ''),
+      auction_value: auctionValue,
     });
   }
   return rows;

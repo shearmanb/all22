@@ -14,9 +14,10 @@ function cleanFormat(f) {
 // Insert one matched row's raw + (when resolved) normalized records.
 async function insertRow(client, setId, row) {
   const { rows } = await client.query(
-    `INSERT INTO rankings_raw (set_id, rank, raw_name, raw_position, raw_team)
-     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-    [setId, row.rank, row.raw_name, row.raw_position || '', row.raw_team || '']
+    `INSERT INTO rankings_raw (set_id, rank, raw_name, raw_position, raw_team, auction_value)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [setId, row.rank, row.raw_name, row.raw_position || '', row.raw_team || '',
+     (row.auction_value === undefined ? null : row.auction_value)]
   );
   const rawId = rows[0].id;
   if (row.player_id) {
@@ -109,7 +110,7 @@ async function getSet(id) {
 // query every view/export reads — canonical identity when known, raw otherwise.
 async function getSetRows(id) {
   const { rows } = await pool.query(
-    `SELECT r.id AS raw_id, r.rank, r.raw_name, r.raw_position, r.raw_team,
+    `SELECT r.id AS raw_id, r.rank, r.raw_name, r.raw_position, r.raw_team, r.auction_value,
             n.id AS norm_id, n.player_id, n.confidence, n.matched_via, n.confirmed,
             p.name AS master_name, p.position AS master_position, p.team AS master_team
      FROM rankings_raw r
@@ -124,6 +125,7 @@ async function getSetRows(id) {
     raw_name: r.raw_name,
     raw_position: r.raw_position,
     raw_team: r.raw_team,
+    auction_value: r.auction_value === null ? null : Number(r.auction_value),
     player_id: r.player_id,
     name: r.master_name || r.raw_name,
     position: r.master_position || r.raw_position || '',

@@ -21,6 +21,10 @@ function matchRow(raw, index) {
   const rawName = String(raw.name || '').trim();
   const rawPosition = String(raw.position || '').toUpperCase().replace(/\./g, '');
   const rawTeam = String(raw.team || '').toUpperCase().replace(/\./g, '');
+  // Optional captured auction value (kept verbatim; NULL when the source has none).
+  const auctionValue = (raw.auction_value === null || raw.auction_value === undefined ||
+    raw.auction_value === '' || !Number.isFinite(Number(raw.auction_value)))
+    ? null : Number(raw.auction_value);
 
   // Team-defense rows resolve by team identity, not fuzzy name matching.
   const dstAbbr = players.teamDefenseFromLine(rawName) ||
@@ -46,6 +50,7 @@ function matchRow(raw, index) {
     name: hit ? hit.name : (dstAbbr ? players.teamDefenseName(dstAbbr) : players.display(rawName)),
     position: (hit && hit.position) || (dstAbbr ? 'DST' : rawPosition),
     team: (hit && hit.team) || (dstAbbr ? dstAbbr : rawTeam),
+    auction_value: auctionValue,
     confidence: hit ? confidence : 'none',
     via: m.via,
   };
