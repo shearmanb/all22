@@ -78,6 +78,52 @@
     return { add: add, removeIds: removeIds, blocked: blocked };
   }
 
+  // The expensive-league dial: what a player is ASSUMED to cost given his
+  // published value and the auction's price heat (+10 = prices run 10% hot).
+  // Whole dollars, never below the $1 auction minimum.
+  function applyPct(value, pct) {
+    var v = money(value);
+    if (v === null) return null;
+    var p = Number(pct);
+    if (!isFinite(p)) p = 0;
+    return Math.max(1, Math.round(v * (1 + p / 100)));
+  }
+
+  // Suggest a plan $ for each open slot from published values: starters take the
+  // top values at their position, Flex takes the best RB/WR/TE left after the
+  // starters, bench is planned at the $1 auction minimum (bench players cost a
+  // buck — spending real money there is a choice, not a plan). Returns
+  // { slotId: plan } for the slots it can price; filled slots (paid set) are
+  // never touched. valuesByPos: { QB: [58, 41, ...desc], RB: [...], ... }.
+  function suggestPlans(slots, valuesByPos, pct) {
+    var pool = {};
+    SLOT_ORDER.forEach(function (slot) {
+      var vals = (valuesByPos && valuesByPos[slot]) || [];
+      pool[slot] = vals.slice().sort(function (a, b) { return b - a; });
+    });
+    var out = {};
+    (slots || []).forEach(function (s) {
+      if (money(s.paid) !== null) return; // already won — nothing to plan
+      var v = null;
+      if (s.slot === 'BN') {
+        v = 1;
+      } else if (s.slot === 'FLEX') {
+        // best remaining RB/WR/TE
+        var best = null, bestPos = null;
+        ['RB', 'WR', 'TE'].forEach(function (pos) {
+          if (pool[pos].length && (best === null || pool[pos][0] > best)) {
+            best = pool[pos][0]; bestPos = pos;
+          }
+        });
+        if (bestPos) v = pool[bestPos].shift();
+      } else if (pool[s.slot] && pool[s.slot].length) {
+        v = pool[s.slot].shift();
+      }
+      if (v !== null && v !== undefined) out[s.id] = applyPct(v, pct);
+    });
+    return out;
+  }
+
   // The heart of the calculator — the spreadsheet's bottom rows.
   //   spent      = sum of paid (ACT)
   //   committed  = paid where filled, else plan (the sheet's AMOUNT column)
@@ -123,6 +169,8 @@
     SLOT_POSITIONS: SLOT_POSITIONS,
     DEFAULT_ROSTER: DEFAULT_ROSTER,
     money: money,
+    applyPct: applyPct,
+    suggestPlans: suggestPlans,
     cleanRoster: cleanRoster,
     totalSlots: totalSlots,
     expandRoster: expandRoster,

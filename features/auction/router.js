@@ -17,22 +17,50 @@ function slotSort(a, b) {
   return d !== 0 ? d : a.slot_num - b.slot_num;
 }
 
-// Latest published auction value per player, from any ingested ranking set that
-// carried auction values (rankings_raw.auction_value) — used as price hints.
-async function auctionValues(playerIds) {
+// Published auction value per player — from one pinned ranking set when the
+// auction has a value source selected, else the latest value from any set.
+async function auctionValues(playerIds, setId) {
   if (!playerIds.length) return {};
+  const params = [playerIds];
+  let setFilter = '';
+  if (setId) { params.push(setId); setFilter = 'AND rn.set_id = $2'; }
   const { rows } = await pool.query(
     `SELECT DISTINCT ON (rn.player_id) rn.player_id, rr.auction_value
      FROM rankings_normalized rn
      JOIN rankings_raw rr ON rr.id = rn.raw_id
      JOIN ranking_sets rs ON rs.id = rn.set_id
-     WHERE rn.player_id = ANY($1) AND rr.auction_value IS NOT NULL
+     WHERE rn.player_id = ANY($1) AND rr.auction_value IS NOT NULL ${setFilter}
      ORDER BY rn.player_id, rs.captured_on DESC NULLS LAST, rs.created_at DESC`,
-    [playerIds]
+    params
   );
   const map = {};
   rows.forEach((r) => { map[r.player_id] = Number(r.auction_value); });
   return map;
+}
+
+// Every player value the source knows, grouped by position — feeds plan
+// suggestions. Excludes players already sitting on this auction's board.
+async function valuesByPosition(auctionId, setId) {
+  const params = [auctionId];
+  let setFilter = '';
+  if (setId) { params.push(setId); setFilter = 'AND rn.set_id = $2'; }
+  const { rows } = await pool.query(
+    `SELECT DISTINCT ON (rn.player_id) p.position, rr.auction_value
+     FROM rankings_normalized rn
+     JOIN rankings_raw rr ON rr.id = rn.raw_id
+     JOIN ranking_sets rs ON rs.id = rn.set_id
+     JOIN players_master p ON p.player_id = rn.player_id
+     WHERE rr.auction_value IS NOT NULL ${setFilter}
+       AND rn.player_id NOT IN (SELECT player_id FROM auction_slots WHERE auction_id = $1 AND player_id IS NOT NULL)
+     ORDER BY rn.player_id, rs.captured_on DESC NULLS LAST, rs.created_at DESC`,
+    params
+  );
+  const byPos = {};
+  rows.forEach((r) => {
+    const pos = r.position === 'PK' ? 'K' : r.position;
+    (byPos[pos] = byPos[pos] || []).push(Number(r.auction_value));
+  });
+  return byPos;
 }
 
 // --- Player search (declared before /:id so "players" isn't read as an id) ---
@@ -45,12 +73,31 @@ router.get('/players', async (req, res) => {
     const allowed = math.SLOT_POSITIONS[String(req.query.slot || '').toUpperCase()];
     if (allowed) hits = hits.filter((p) => allowed.includes(p.position));
     hits = hits.slice(0, 12);
-    const values = await auctionValues(hits.map((p) => p.player_id));
+    const values = await auctionValues(hits.map((p) => p.player_id), Number(req.query.set) || null);
     hits.forEach((p) => { p.value = values[p.player_id] !== undefined ? values[p.player_id] : null; });
     res.json({ ok: true, data: hits });
   } catch (err) {
     console.error(`GET /api/auction/players: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Player search failed.' });
+  }
+});
+
+// Ranking sets that carry auction values — the selectable value sources
+// (e.g. a Yahoo AAV or FantasyPros AAV list imported through Combine).
+router.get('/value-sources', async (req, res) => {
+  try {
+    if (!hasDb()) return res.json({ ok: true, data: [] });
+    const { rows } = await pool.query(
+      `SELECT rs.id, rs.name, rs.source, rs.captured_on, COUNT(*)::int AS values_count
+       FROM ranking_sets rs
+       JOIN rankings_raw rr ON rr.set_id = rs.id AND rr.auction_value IS NOT NULL
+       GROUP BY rs.id
+       ORDER BY rs.captured_on DESC NULLS LAST, rs.created_at DESC`
+    );
+    res.json({ ok: true, data: rows });
+  } catch (err) {
+    console.error(`GET /api/auction/value-sources: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not load value sources.' });
   }
 });
 
@@ -143,6 +190,19 @@ router.patch('/:id', async (req, res) => {
     }
     if (body.notes !== undefined) {
       params.push(body.notes ? String(body.notes) : null); sets.push(`notes = $${params.length}`);
+    }
+    if (body.value_set_id !== undefined) {
+      let setId = body.value_set_id == null ? null : Number(body.value_set_id);
+      if (setId != null) {
+        const { rows } = await pool.query('SELECT 1 FROM ranking_sets WHERE id = $1', [setId]);
+        if (!rows.length) return res.status(400).json({ ok: false, error: 'That value source no longer exists.' });
+      }
+      params.push(setId); sets.push(`value_set_id = $${params.length}`);
+    }
+    if (body.price_mult_pct !== undefined) {
+      const pct = Number(body.price_mult_pct);
+      if (!isFinite(pct)) return res.status(400).json({ ok: false, error: 'The price % must be a number (e.g. 10 for +10%).' });
+      params.push(Math.min(300, Math.max(-90, Math.round(pct)))); sets.push(`price_mult_pct = $${params.length}`);
     }
     let roster = null;
     if (body.roster !== undefined) {
@@ -251,6 +311,46 @@ router.patch('/:id/slots/:slotId', async (req, res) => {
   }
 });
 
+// Fill plans from the value source: starters get the top published values at
+// their position, Flex the best leftover, bench the $1 minimum. Body:
+// { overwrite: bool } — false only fills slots with no plan yet.
+router.post('/:id/suggest-plans', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!hasDb()) return res.status(400).json({ ok: false, error: 'The auction calculator needs a database.' });
+    const current = await fullAuction(req.params.id);
+    if (!current) return res.status(404).json({ ok: false, error: 'Auction not found.' });
+    const byPos = await valuesByPosition(req.params.id, current.auction.value_set_id);
+    if (!Object.keys(byPos).length) {
+      return res.status(400).json({
+        ok: false,
+        error: 'No player values to work from — import a Yahoo or FantasyPros auction-value list in Combine first.',
+      });
+    }
+    const overwrite = !!(req.body && req.body.overwrite);
+    const plans = math.suggestPlans(current.slots, byPos, current.auction.price_mult_pct);
+    await client.query('BEGIN');
+    let filled = 0;
+    for (const s of current.slots) {
+      if (plans[s.id] === undefined) continue;
+      if (!overwrite && s.plan !== null) continue;
+      await client.query('UPDATE auction_slots SET plan = $1 WHERE id = $2', [plans[s.id], s.id]);
+      filled++;
+    }
+    await client.query('UPDATE auctions SET updated_at = now() WHERE id = $1', [req.params.id]);
+    await client.query('COMMIT');
+    const data = await fullAuction(req.params.id);
+    data.plans_filled = filled;
+    res.json({ ok: true, data });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error(`POST /api/auction/:id/suggest-plans: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not suggest plans.' });
+  } finally {
+    client.release();
+  }
+});
+
 // --- Targets (the sheet's Must Haves / Wants / watch lists) -----------------
 
 router.post('/:id/targets', async (req, res) => {
@@ -331,11 +431,16 @@ router.delete('/:id/targets/:targetId', async (req, res) => {
 // the pos badge) + targets + the computed summary.
 async function fullAuction(id) {
   const { rows: auctions } = await pool.query(
-    'SELECT id, name, teams, budget, roster, notes, created_at, updated_at FROM auctions WHERE id = $1', [id]
+    `SELECT a.id, a.name, a.teams, a.budget, a.roster, a.notes, a.value_set_id, a.price_mult_pct,
+            a.created_at, a.updated_at, rs.name AS value_source_name
+     FROM auctions a
+     LEFT JOIN ranking_sets rs ON rs.id = a.value_set_id
+     WHERE a.id = $1`, [id]
   );
   if (!auctions.length) return null;
   const auction = auctions[0];
   auction.budget = Number(auction.budget);
+  auction.price_mult_pct = Number(auction.price_mult_pct);
   const { rows: slots } = await pool.query(
     `SELECT s.id, s.slot, s.slot_num, s.plan, s.player_id, s.player_name, s.paid,
             p.position AS player_position, p.team AS player_team
@@ -344,9 +449,13 @@ async function fullAuction(id) {
      WHERE s.auction_id = $1`, [id]
   );
   slots.sort(slotSort);
+  const values = await auctionValues(
+    slots.filter((s) => s.player_id != null).map((s) => s.player_id), auction.value_set_id
+  );
   slots.forEach((s) => {
     s.plan = s.plan === null ? null : Number(s.plan);
     s.paid = s.paid === null ? null : Number(s.paid);
+    s.value = s.player_id != null && values[s.player_id] !== undefined ? values[s.player_id] : null;
   });
   const { rows: targets } = await pool.query(
     `SELECT id, tier, player_id, player_name, est, gone, sort

@@ -105,6 +105,42 @@ test('isEmptySlot: plan alone is still empty; a player or price is content', () 
   assert.ok(!math.isEmptySlot({ player_id: null, player_name: '', paid: 0 }));
 });
 
+test('applyPct: price heat scales values, whole dollars, $1 floor', () => {
+  assert.strictEqual(math.applyPct(58, 0), 58);
+  assert.strictEqual(math.applyPct(58, 10), 64);   // 63.8 rounds up
+  assert.strictEqual(math.applyPct(58, -10), 52);  // 52.2 rounds down
+  assert.strictEqual(math.applyPct(1, -50), 1);    // never below the $1 minimum
+  assert.strictEqual(math.applyPct('20', '15'), 23);
+  assert.strictEqual(math.applyPct(null, 10), null);
+  assert.strictEqual(math.applyPct('', 10), null);
+  assert.strictEqual(math.applyPct(30, 'junk'), 30); // bad pct = no heat
+});
+
+test('suggestPlans: starters take top values, flex takes best leftover, bench is $1', () => {
+  const slots = [
+    { id: 1, slot: 'QB', slot_num: 1, plan: null, paid: null },
+    { id: 2, slot: 'RB', slot_num: 1, plan: null, paid: 60 },   // already won — skip
+    { id: 3, slot: 'RB', slot_num: 2, plan: null, paid: null },
+    { id: 4, slot: 'WR', slot_num: 1, plan: null, paid: null },
+    { id: 5, slot: 'FLEX', slot_num: 1, plan: null, paid: null },
+    { id: 6, slot: 'BN', slot_num: 1, plan: null, paid: null },
+    { id: 7, slot: 'DST', slot_num: 1, plan: null, paid: null }, // no DST values — no suggestion
+  ];
+  const valuesByPos = { QB: [28], RB: [51, 38], WR: [44, 40], TE: [12] };
+  const plans = math.suggestPlans(slots, valuesByPos, 0);
+  assert.deepStrictEqual(plans, {
+    1: 28,  // QB1 = top QB
+    3: 51,  // RB2 = top remaining RB (RB1 is already won, consumes nothing)
+    4: 44,  // WR1 = top WR
+    5: 40,  // FLEX = best leftover across RB(38)/WR(40)/TE(12)
+    6: 1,   // bench = the $1 minimum
+  });
+  // +10% heat scales everything (bench floor holds at $1).
+  const hot = math.suggestPlans(slots, valuesByPos, 10);
+  assert.strictEqual(hot[3], 56);
+  assert.strictEqual(hot[6], 1);
+});
+
 test('reconcileSlots: grows, fills numbering gaps, shrinks only empty slots', () => {
   const existing = [
     { id: 1, slot: 'RB', slot_num: 1, player_name: 'CMC', player_id: 5, paid: 60 },

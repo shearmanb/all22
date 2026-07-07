@@ -23,6 +23,32 @@
     .kpi.hero .kpi-value { font-size: 1.9rem; color: var(--accent-strong); }
     .kpi-value.good { color: var(--green); }
     .kpi-value.bad { color: var(--red); }
+    .kpi-value.pct-wrap { display: flex; align-items: baseline; gap: 4px; }
+    .kpi-value.pct-wrap input {
+      width: 74px; padding: 4px 8px; text-align: right;
+      font-size: 1.15rem; font-weight: 600;
+    }
+
+    /* Compact sticky totals — pinned to the bottom whenever the KPI strip is
+       scrolled out of view, so the running numbers never leave the screen. */
+    #stickybar {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+      display: flex; justify-content: space-evenly; align-items: baseline;
+      gap: 6px; flex-wrap: wrap;
+      background: var(--surface); border-top: 1px solid var(--border-strong);
+      padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+      font-size: 0.82rem; color: var(--text-dim);
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    #stickybar b { color: var(--text); font-size: 1rem; margin-left: 3px; }
+    #stickybar .sb-max b { color: var(--accent-strong); }
+    #stickybar b.bad { color: var(--red); }
+
+    /* Values toolbar above the budget board */
+    .values-bar select { width: 100%; }
+
+    /* Room for the fixed bottom bar so it never covers the last board rows. */
+    main { padding-bottom: 64px; }
 
     /* Budget meter: solid = cash actually spent, translucent = plan-committed. */
     .meter {
@@ -175,6 +201,11 @@
           <span class="kpi-value" id="k-committed"></span>
           <span class="kpi-sub" id="k-slack"></span>
         </div>
+        <div class="kpi">
+          <span class="kpi-label">Expensive mode</span>
+          <span class="kpi-value pct-wrap"><input id="k-pct" type="number" step="5" min="-90" max="300" inputmode="numeric"><span>%</span></span>
+          <span class="kpi-sub" id="k-pct-sub">assume prices run this far over values</span>
+        </div>
       </div>
       <div class="meter" id="meter">
         <div class="meter-committed" id="meter-committed"></div>
@@ -186,6 +217,16 @@
         <div class="card">
           <h2>Budget board</h2>
           <p class="muted small">Plan = what you've budgeted for the slot. Paid = what he actually cost (fill it in when you win a player — or to try one on). × clears the player and price, keeps your plan.</p>
+          <div class="row values-bar section-gap">
+            <label class="grow">
+              <span class="field-label">Player values</span>
+              <select id="value-source"></select>
+            </label>
+            <div style="align-self:end">
+              <button id="suggest-plans" class="secondary" title="Fill Plan $ from the values: top players at each position for starters, best leftover for Flex, $1 for bench">Suggest plans</button>
+            </div>
+          </div>
+          <p class="muted small" id="values-hint" style="margin:8px 0 0"></p>
           <div class="board-wrap">
             <table class="board">
               <thead>
@@ -226,6 +267,13 @@
     </div>
   </main>
 
+  <div id="stickybar" hidden>
+    <span class="sb-max">Max bid<b id="sb-maxbid"></b></span>
+    <span>Left<b id="sb-remaining"></b></span>
+    <span>Spent<b id="sb-spent"></b></span>
+    <span>Open<b id="sb-open"></b></span>
+  </div>
+
   <script src="/app.js"></script>
   <script src="/auction-math.js"></script>
   <script>
@@ -237,7 +285,10 @@
       { key: 'want', label: 'Wants' },
       { key: 'watch', label: 'Watch list' },
     ];
-    var state = { list: [], auction: null, slots: [], targets: [] };
+    var state = { list: [], auction: null, slots: [], targets: [], sources: [] };
+    function pct() { return state.auction ? Number(state.auction.price_mult_pct) || 0 : 0; }
+    // What a player is ASSUMED to cost: published value × expensive-mode heat.
+    function assumed(value) { return M.applyPct(value, pct()); }
     // Live references into the board DOM so numbers update in place —
     // re-rendering the table would steal focus while the owner is typing.
     var rowEls = {}, groupEls = {};
@@ -272,7 +323,7 @@
       });
       $('auction-empty').hidden = state.list.length > 0;
       $('auction-view').hidden = state.list.length === 0;
-      if (!state.list.length) { state.auction = null; $('auction-new-row').hidden = false; return; }
+      if (!state.list.length) { state.auction = null; $('auction-new-row').hidden = false; $('stickybar').hidden = true; return; }
       var pick = selectId || aid() || state.list[0].id;
       sel.value = pick;
       await openAuction(pick);
@@ -310,11 +361,77 @@
       state.auction = data.auction;
       state.slots = data.slots;
       state.targets = data.targets;
+      $('k-pct').value = pct();
+      renderValuesBar();
       renderBoard();
       renderTargets();
       renderSetup();
       updateComputed();
     }
+
+    // ---------------- value source + suggest plans ----------------
+    async function loadSources() {
+      state.sources = await api('/value-sources').catch(function () { return []; });
+      renderValuesBar();
+    }
+
+    function renderValuesBar() {
+      var sel = $('value-source');
+      sel.textContent = '';
+      var any = document.createElement('option');
+      any.value = '';
+      any.textContent = state.sources.length
+        ? 'Latest value from any set (' + state.sources.length + ' available)'
+        : 'No values imported yet';
+      sel.appendChild(any);
+      state.sources.forEach(function (s) {
+        var o = document.createElement('option');
+        o.value = s.id;
+        o.textContent = s.name + ' — ' + s.values_count + ' players' + (s.captured_on ? ' · ' + s.captured_on.slice(0, 10) : '');
+        sel.appendChild(o);
+      });
+      sel.disabled = !state.sources.length;
+      $('suggest-plans').disabled = !state.sources.length;
+      if (state.auction) sel.value = state.auction.value_set_id || '';
+      $('values-hint').textContent = state.sources.length
+        ? 'Values pre-fill Plan $ when you pick a player, and drive Suggest plans. Expensive mode (above) marks them up.'
+        : 'To load values: open Combine and import an auction-value list — copy Yahoo’s or FantasyPros’ auction values table as text, or use their CSV. The $ column is picked up automatically, then choose it here.';
+    }
+
+    $('value-source').addEventListener('change', function () {
+      if (!state.auction) return;
+      var v = $('value-source').value;
+      api('/' + aid(), { value_set_id: v === '' ? null : Number(v) }, 'PATCH')
+        .then(setState).catch(function () { renderValuesBar(); });
+    });
+
+    $('suggest-plans').addEventListener('click', function () {
+      if (!state.auction) return;
+      var hasPlans = state.slots.some(function (s) { return M.money(s.plan) !== null; });
+      var overwrite = false;
+      if (hasPlans) {
+        overwrite = confirm('Replace the Plan $ you already set with suggested values?\n\nOK = replace all plans · Cancel = only fill empty ones');
+      }
+      api('/' + aid() + '/suggest-plans', { overwrite: overwrite }).then(function (data) {
+        setState(data);
+        toast(data.plans_filled + ' plan' + (data.plans_filled === 1 ? '' : 's') + ' filled from values');
+      }).catch(function () { /* banner shown */ });
+    });
+
+    $('k-pct').addEventListener('input', function () {
+      if (!state.auction) return;
+      state.auction.price_mult_pct = Number($('k-pct').value) || 0;
+      updateComputed();
+    });
+    $('k-pct').addEventListener('change', function () {
+      if (!state.auction) return;
+      api('/' + aid(), { price_mult_pct: $('k-pct').value === '' ? 0 : $('k-pct').value }, 'PATCH')
+        .then(function (data) {
+          state.auction = data.auction;
+          $('k-pct').value = pct();
+          updateComputed();
+        }).catch(function () { openAuction(aid()); });
+    });
 
     // ---------------- KPIs / meter ----------------
     function updateComputed() {
@@ -332,10 +449,20 @@
       var slackEl = $('k-slack');
       if (s.slack < 0) { slackEl.textContent = fmt(-s.slack) + ' over budget'; slackEl.style.color = 'var(--red)'; }
       else { slackEl.textContent = fmt(s.slack) + ' under budget'; slackEl.style.color = 'var(--green)'; }
+      $('k-pct-sub').textContent = pct() === 0
+        ? 'assume prices run this far over values'
+        : 'a $20 player is assumed at ' + fmt(M.applyPct(20, pct()));
 
-      var pct = function (v) { return Math.max(0, Math.min(100, s.budget ? (v / s.budget) * 100 : 0)) + '%'; };
-      $('meter-fill').style.width = pct(s.spent);
-      $('meter-committed').style.width = pct(s.committed);
+      // Sticky bottom bar mirrors the headline numbers.
+      $('sb-maxbid').textContent = fmt(s.maxBid);
+      $('sb-remaining').textContent = fmt(s.remaining);
+      $('sb-remaining').className = s.remaining < 0 ? 'bad' : '';
+      $('sb-spent').textContent = fmt(s.spent);
+      $('sb-open').textContent = String(s.openSlots);
+
+      var widthPct = function (v) { return Math.max(0, Math.min(100, s.budget ? (v / s.budget) * 100 : 0)) + '%'; };
+      $('meter-fill').style.width = widthPct(s.spent);
+      $('meter-committed').style.width = widthPct(s.committed);
       $('meter').className = 'meter' + (s.spent > s.budget ? ' bad' : (s.committed > s.budget ? ' warn' : ''));
       $('meter-caption').textContent =
         'Spent ' + fmt(s.spent) + ' of ' + fmt(s.budget) +
@@ -371,7 +498,10 @@
       var bits = [];
       if (r.player_position) bits.push(r.player_position + (r.player_team ? ' · ' + r.player_team : ''));
       else if (r.player_id == null) bits.push('not linked to the player list');
-      return bits.join('');
+      if (r.value != null) {
+        bits.push(pct() === 0 ? 'val ' + fmt(r.value) : 'val ' + fmt(r.value) + ' → ' + fmt(assumed(r.value)));
+      }
+      return bits.join(' · ');
     }
 
     // ---------------- budget board ----------------
@@ -453,13 +583,16 @@
           r.player_name = p.name;
           r.player_position = p.position;
           r.player_team = p.team;
+          r.value = p.value;
           input.value = p.name;
           var fields = { player_id: p.player_id, player_name: p.name };
-          // A known auction value pre-fills an empty plan — a starting point, not gospel.
-          if (p.value != null && M.money(r.plan) === null) {
-            r.plan = p.value;
-            planIn.value = p.value;
-            fields.plan = p.value;
+          // A known value (with expensive-mode heat applied) pre-fills an empty
+          // plan — a starting point, not gospel.
+          var cost = assumed(p.value);
+          if (cost != null && M.money(r.plan) === null) {
+            r.plan = cost;
+            planIn.value = cost;
+            fields.plan = cost;
           }
           updateComputed();
           saveSlot(r, fields);
@@ -471,13 +604,14 @@
           r.player_name = text || null;
           r.player_position = null;
           r.player_team = null;
+          r.value = null;
           updateComputed();
           saveSlot(r, { player_id: null, player_name: text });
         },
       });
 
       clearBtn.addEventListener('click', function () {
-        r.player_id = null; r.player_name = null; r.player_position = null; r.player_team = null; r.paid = null;
+        r.player_id = null; r.player_name = null; r.player_position = null; r.player_team = null; r.paid = null; r.value = null;
         input.value = ''; paidIn.value = '';
         updateComputed();
         saveSlot(r, { player_id: null, player_name: null, paid: null });
@@ -497,6 +631,7 @@
       api('/' + aid() + '/slots/' + r.id, fields, 'PATCH').then(function (row) {
         r.plan = row.plan; r.paid = row.paid;
         r.player_id = row.player_id; r.player_name = row.player_name;
+        if (row.player_id == null) r.value = null;
         updateComputed();
       }).catch(function () { openAuction(aid()); });
     }
@@ -511,13 +646,14 @@
         if (q.length < 2) { suggest.hidden = true; return; }
         timer = setTimeout(async function () {
           var url = '/players?q=' + encodeURIComponent(q) + (slotType ? '&slot=' + slotType : '');
+          if (state.auction && state.auction.value_set_id) url += '&set=' + state.auction.value_set_id;
           var hits = await api(url).catch(function () { return []; });
           suggest.textContent = '';
           hits.forEach(function (p) {
             var opt = el('div');
             opt.appendChild(el('span', null, p.name));
             opt.appendChild(el('span', 's-meta', (p.position || '?') + (p.team ? ' ' + p.team : '')));
-            if (p.value != null) opt.appendChild(el('span', 's-val', fmt(p.value)));
+            if (p.value != null) opt.appendChild(el('span', 's-val', fmt(assumed(p.value))));
             // pointerdown so the pick lands before the input's blur hides the list
             opt.addEventListener('pointerdown', function (e) {
               e.preventDefault();
@@ -579,7 +715,8 @@
           onPick: function (p) {
             picked = p;
             input.value = p.name;
-            if (p.value != null && !estIn.value) estIn.value = p.value;
+            var cost = assumed(p.value);
+            if (cost != null && !estIn.value) estIn.value = cost;
           },
           onFreetext: function () { /* target adds commit on the Add button, not blur */ },
         });
@@ -690,6 +827,26 @@
       loadList();
     });
 
+    // ---------------- sticky totals bar ----------------
+    // Show the bottom bar whenever the KPI strip is off screen (and an auction
+    // is open) — the running numbers must never scroll away.
+    (function () {
+      var kpis = document.querySelector('.kpi-row');
+      var bar = $('stickybar');
+      if ('IntersectionObserver' in window) {
+        new IntersectionObserver(function (entries) {
+          var visible = entries[0].isIntersecting;
+          bar.hidden = visible || $('auction-view').hidden || !state.auction;
+        }, { threshold: 0 }).observe(kpis);
+      } else {
+        window.addEventListener('scroll', function () {
+          var out = kpis.getBoundingClientRect().bottom < 0;
+          bar.hidden = !out || $('auction-view').hidden || !state.auction;
+        }, { passive: true });
+      }
+    })();
+
+    loadSources();
     loadList();
   })();
   </script>

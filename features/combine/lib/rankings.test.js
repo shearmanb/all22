@@ -40,3 +40,22 @@ test('a header row goes to unparsed, never to players', () => {
   assert.equal(out.length, 1);
   assert.equal(out[0].name, 'Bijan Robinson');
 });
+
+test('captures $-prefixed auction values (Yahoo/FantasyPros value tables)', () => {
+  const { players: out } = parse([
+    '1 Bijan Robinson RB ATL $58',
+    '2 Justin Jefferson, MIN, 6, $52.5',
+    'Josh Allen QB BUF $41',
+    '4 Derrick Henry RB BAL', // no value on this row
+  ].join('\n'));
+  assert.equal(out.length, 4);
+  assert.deepEqual(out.map((p) => p.auction_value), [58, 52.5, 41, null]);
+  assert.equal(out[0].name, 'Bijan Robinson'); // the $ token never bleeds into the name
+  assert.equal(out[2].position, 'QB');
+});
+
+test('junks value-table header rows like "Player Avg Cost % Drafted"', () => {
+  const { players: out, unparsed } = parse('Player Avg Pick Avg Cost % Drafted\n1 Bijan Robinson RB ATL $58');
+  assert.equal(out.length, 1);
+  assert.equal(unparsed.length, 1);
+});

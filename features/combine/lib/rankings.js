@@ -19,6 +19,7 @@ const HEADER_WORDS = new Set([
   'rank', 'ranks', 'ranking', 'rankings', 'rk', 'no', 'player', 'players',
   'pos', 'position', 'positions', 'team', 'teams', 'tier', 'tiers', 'bye', 'adp',
   'overall', 'name', 'ecr', 'avg', 'best', 'worst', 'proj', 'pts',
+  'cost', 'salary', 'price', 'value', 'values', 'pick', 'drafted', 'budget',
   'def', 'dst', 'defense', 'defenses',
 ]);
 
@@ -29,8 +30,9 @@ function looksLikeJunk(line) {
   // A line with no letters at all (e.g. a stray "12 14 9") is not a player.
   if (!/[a-z]/i.test(t)) return true;
   // A header row is a line made up ENTIRELY of header/label words (e.g.
-  // "Rank Player Pos Team"). Strip a leading separator first.
-  const words = t.replace(/^[\W\d]+/, '').split(/\s+/).filter(Boolean);
+  // "Rank Player Pos Team", "Player Avg Cost % Drafted"). Strip a leading
+  // separator first; pure-symbol tokens like "%" or "$" don't disqualify it.
+  const words = t.replace(/^[\W\d]+/, '').split(/\s+/).filter((w) => /[a-z]/i.test(w));
   if (words.length && words.every((w) => HEADER_WORDS.has(w.toLowerCase().replace(/[.):,]/g, '')))) {
     return true;
   }
@@ -67,9 +69,25 @@ function findTeamInSegments(segments) {
   return '';
 }
 
+// Pull an auction value off a line: the first "$14" / "$52.7"-style token.
+// Only a $-prefixed number counts — bare numbers are ranks/byes/ADP and stay
+// ambiguous. Returns { line: <without the token>, value: number|null }.
+function extractAuctionValue(line) {
+  const m = /\$\s?(\d{1,4}(?:\.\d+)?)\b/.exec(line);
+  if (!m) return { line, value: null };
+  return {
+    line: (line.slice(0, m.index) + ' ' + line.slice(m.index + m[0].length)).replace(/\s+/g, ' ').trim(),
+    value: Number(m[1]),
+  };
+}
+
 function parseLine(rawLine) {
   let line = rawLine.replace(/\s+/g, ' ').trim();
   if (!line || looksLikeJunk(line)) return null;
+  const money = extractAuctionValue(line);
+  line = money.line;
+  if (!line) return null;
+  const withValue = (parsed) => (parsed ? Object.assign({ auction_value: money.value }, parsed) : parsed);
 
   // --- Comma-delimited format (FantasyPros & similar): ----------------------
   //   "<rank><move> Name, TEAM, BYE [icon] | Move"
@@ -82,13 +100,13 @@ function parseLine(rawLine) {
     // A row that's just a team (no player) is a defense — e.g.
     // "1 Philadelphia Eagles, PHI, BYE" or "Cowboys DST".
     const dst = players.teamDefenseFromLine(rawName);
-    if (dst) return { name: players.teamDefenseName(dst), position: 'DST', team: dst };
+    if (dst) return withValue({ name: players.teamDefenseName(dst), position: 'DST', team: dst });
     const name = players.display(rawName);
     const team = findTeamInSegments(segments.slice(1));
     if (name && /[a-z]/i.test(name) && players.key(name).length >= 2) {
       // Position isn't present in these per-position lists; left blank here and
       // set in bulk from the UI (the screenshot is all one position).
-      return { name, position: '', team };
+      return withValue({ name, position: '', team });
     }
     return null;
   }
@@ -108,7 +126,7 @@ function parseLine(rawLine) {
   // A row that's just a team name (no player) is a defense, e.g. "49ers",
   // "Dallas Cowboys", "PHI DST".
   const dst = players.teamDefenseFromLine(line);
-  if (dst) return { name: players.teamDefenseName(dst), position: 'DST', team: dst };
+  if (dst) return withValue({ name: players.teamDefenseName(dst), position: 'DST', team: dst });
 
   const tokens = line.split(/\s+/).filter(Boolean);
   const position = players.findPosition(tokens);
@@ -117,7 +135,7 @@ function parseLine(rawLine) {
   if (!name || !/[a-z]/i.test(name) || players.key(name).length < 2) {
     return null;
   }
-  return { name, position, team };
+  return withValue({ name, position, team });
 }
 
 function parse(rawText) {
@@ -162,6 +180,9 @@ function parse(rawText) {
       name: parsed.name,
       position: parsed.position,
       team: parsed.team,
+      // Auction value when the line carried a "$14"-style token (Yahoo /
+      // FantasyPros auction-value tables pasted as text), else null.
+      auction_value: parsed.auction_value === undefined ? null : parsed.auction_value,
     });
   }
 
