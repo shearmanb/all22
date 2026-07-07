@@ -24,7 +24,7 @@ Railway (`DATABASE_URL`).
 Hub (splash) + self-contained **feature modules**. Shared core at the root; each applet in its own folder.
 - `server.js` — Express entry; mounts core routers, then loops `features/index.js` to mount each applet's API router + static pages. Boot also runs migrations and a background `players_master` seed/refresh.
 - `features/index.js` — the feature registry (the ONE place applets are listed). Add an applet = new folder + one entry here.
-- `features/combine/` — the rankings hub (#1 job): `router.js` (`/api/combine`), `lib/` (vision, ocr, rankings text parser, ingest matching pipeline, store, converters/, underdog-ids), `public/combine.html`.
+- `features/combine/` — the rankings hub (#1 job): `router.js` (`/api/combine`), `lib/` (vision, ocr, rankings text parser, csv-import, ingest matching pipeline, store, converters/, underdog-ids), `public/combine.html`. Ingest sources: screenshot→OCR, paste-as-text, and CSV/spreadsheet import (auto-detects columns; Excel via Save-As-CSV). Optional per-row `auction_value` rides on `rankings_raw`.
 - `features/playbook/` — draft log & analysis (`/api/drafts`; the old draft tracker, seed of the PRD's Playbook): parsers for Underdog/FantasyPros paste, drafts pages.
 - `features/notes/` — scratchpad (`/api/notes`, `notes.html`).
 - `routes/` — core (shared) routers: `auth.js`, `health.js` (unauthenticated), `news.js`, `settings.js`, `datahealth.js` (behind the gate).

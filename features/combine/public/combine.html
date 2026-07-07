@@ -20,7 +20,7 @@
 
   <main>
     <h1>Combine <span class="muted small">rankings hub</span></h1>
-    <p class="muted">Screenshot or paste anyone's rankings → one click → matched to the master player list and saved. Anything uncertain lands in Review, never silently guessed.</p>
+    <p class="muted">Screenshot, paste, or import a CSV of anyone's rankings → one click → matched to the master player list and saved. Anything uncertain lands in Review, never silently guessed.</p>
 
     <div class="tabs">
       <button data-tab="ingest" class="active">Ingest</button>
@@ -73,6 +73,13 @@
         <details class="section-gap">
           <summary class="muted">…or paste rankings as text</summary>
           <textarea id="in-text" rows="8" placeholder="1. Ja'Marr Chase, CIN&#10;2. Bijan Robinson, ATL&#10;…" style="margin-top:8px"></textarea>
+        </details>
+
+        <details class="section-gap">
+          <summary class="muted">…or import a CSV / spreadsheet file</summary>
+          <p class="muted small" style="margin:8px 0 6px">FantasyPros CSV export, or any spreadsheet saved as CSV (in Excel: <strong>Save As → CSV</strong>). Columns (player, position, team, auction $) are detected automatically.</p>
+          <input id="csv-input" type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values">
+          <div id="csv-chip" class="muted small section-gap" hidden></div>
         </details>
 
         <div id="engine-note" class="notice-banner"></div>
@@ -252,6 +259,7 @@
     var FORMAT_LABELS = { ppr: 'PPR', half: 'Half-PPR', standard: 'Standard', best_ball: 'Best Ball', superflex: 'Superflex', unknown: '—' };
     var state = {
       images: [],            // [{dataUrl, name}]
+      csv: null,             // { name, text } of a chosen CSV/spreadsheet file
       settings: {},
       formats: [],           // export formats
       sets: [],
@@ -307,6 +315,20 @@
 
     // ---------- ingest ----------
     var dropzone = $('dropzone'), fileInput = $('file-input');
+
+    // CSV / spreadsheet import: read the file text now, ingest it on "Ingest & Save".
+    $('csv-input').addEventListener('change', function () {
+      var f = $('csv-input').files[0];
+      if (!f) { state.csv = null; $('csv-chip').hidden = true; return; }
+      var r = new FileReader();
+      r.onload = function () {
+        state.csv = { name: f.name, text: r.result };
+        $('csv-chip').textContent = 'Ready to import: ' + f.name;
+        $('csv-chip').hidden = false;
+      };
+      r.onerror = function () { showError('Could not read that file.'); };
+      r.readAsText(f);
+    });
 
     dropzone.addEventListener('click', function () { fileInput.click(); });
     fileInput.addEventListener('change', function () { addFiles(fileInput.files); fileInput.value = ''; });
@@ -397,7 +419,7 @@
       var text = $('in-text').value.trim();
       $('ingest-unparsed').textContent = '';
       if (!state.appendMode && !source) { showError('Tag the set with its source (who made these rankings) first.'); return; }
-      if (!state.images.length && !text) { showError('Add at least one screenshot or paste some text first.'); return; }
+      if (!state.images.length && !text && !(state.csv && state.csv.text)) { showError('Add a screenshot, paste text, or choose a CSV file first.'); return; }
       btn.disabled = true;
 
       var rows = [], unparsed = [], warning = '';
@@ -415,6 +437,15 @@
         rows = rows.concat(pdata.rows);
         unparsed = unparsed.concat(pdata.unparsed || []);
       }
+      if (state.csv && state.csv.text) {
+        setIngestStatus('Importing ' + state.csv.name + '…', true);
+        var cdata = await apiPost('/api/combine/import', { csv: state.csv.text });
+        rows = rows.concat(cdata.rows);
+        unparsed = unparsed.concat(cdata.unparsed || []);
+        if (cdata.columns && cdata.columns.length) {
+          setIngestStatus('Imported ' + cdata.rows.length + ' rows (columns: ' + cdata.columns.join(', ') + ')…', true);
+        }
+      }
       if (!rows.length) {
         setIngestStatus('', false);
         showError('No players were detected. Try a sharper screenshot, or paste the rankings as text.');
@@ -422,7 +453,7 @@
       }
 
       var payloadRows = rows.map(function (r) {
-        return { raw_name: r.raw_name, raw_position: r.raw_position, raw_team: r.raw_team };
+        return { raw_name: r.raw_name, raw_position: r.raw_position, raw_team: r.raw_team, auction_value: r.auction_value };
       });
 
       var result;
@@ -456,6 +487,9 @@
     function finishIngest(unparsed, warning) {
       state.images = [];
       renderThumbs();
+      state.csv = null;
+      $('csv-input').value = '';
+      $('csv-chip').hidden = true;
       $('in-text').value = '';
       $('in-name').value = '';
       setIngestStatus('', false);

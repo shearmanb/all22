@@ -9,6 +9,7 @@ const router = express.Router();
 const vision = require('./lib/vision');
 const ocr = require('./lib/ocr');
 const textParser = require('./lib/rankings');
+const csvImport = require('./lib/csv-import');
 const ingest = require('./lib/ingest');
 const store = require('./lib/store');
 const converters = require('./lib/converters');
@@ -89,6 +90,35 @@ router.post('/ocr', async (req, res) => {
   } catch (err) {
     console.error(`POST /api/combine/ocr: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not read that screenshot. Try a clearer image or paste the rankings as text.' });
+  }
+});
+
+// Import a CSV / spreadsheet export (FantasyPros CSV, Excel "Save As CSV", or a
+// pasted spreadsheet range). Columns are auto-detected by header; rows flow
+// through the same players_master matching pipeline as OCR/paste.
+router.post('/import', async (req, res) => {
+  try {
+    const { csv } = req.body || {};
+    if (!csv || !String(csv).trim()) return res.status(400).json({ ok: false, error: 'Choose a CSV or spreadsheet file first.' });
+    const { rows: parsed, mapping } = csvImport.importCsv(String(csv));
+    if (!parsed.length) {
+      return res.status(400).json({ ok: false, error: 'No player rows found in that file. Make sure it has a player-name column.' });
+    }
+    const index = await master.getIndex();
+    const matched = ingest.matchRows(parsed, index);
+    res.json({
+      ok: true,
+      data: {
+        rows: matched,
+        engine: 'csv',
+        unparsed: [],
+        columns: csvImport.detectedFields(mapping),
+        review: ingest.reviewSummary(matched),
+      },
+    });
+  } catch (err) {
+    console.error(`POST /api/combine/import: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not read that file. Make sure it is a CSV (in Excel, use Save As → CSV).' });
   }
 });
 
