@@ -11,6 +11,31 @@ function cleanFormat(f) {
   return FORMATS.has(v) ? v : 'unknown';
 }
 
+// What kind of list the set is (migration 017): one overall list, or
+// position-by-position blocks where only rank-within-position matters.
+const SCOPES = new Set(['overall', 'positional']);
+
+function cleanScope(s) {
+  const v = String(s || '').toLowerCase().trim();
+  return SCOPES.has(v) ? v : 'overall';
+}
+
+// Rank within position, derived from list order. Correct for both kinds of
+// sets: on an overall list "WR4" means the 4th WR on the board; on a
+// positional list (blocks kept in paste order) it's the player's spot on his
+// position's list. Rows with no known position yet (unmatched, nothing
+// printed) get null until review resolves them.
+function withPositionRanks(rows) {
+  const counters = {};
+  for (const row of rows) {
+    const pos = row.position || '';
+    if (!pos) { row.position_rank = null; continue; }
+    counters[pos] = (counters[pos] || 0) + 1;
+    row.position_rank = counters[pos];
+  }
+  return rows;
+}
+
 // Insert one matched row's raw + (when resolved) normalized records.
 async function insertRow(client, setId, row) {
   const { rows } = await client.query(
@@ -31,17 +56,18 @@ async function insertRow(client, setId, row) {
 }
 
 // Create a set with its rows in one transaction. meta: { name, source,
-// native_scoring_format, captured_on, notes }. rows: matched pipeline output.
+// native_scoring_format, ranking_scope, captured_on, notes }. rows: matched
+// pipeline output.
 async function createSet(meta, rows) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const { rows: setRows } = await client.query(
-      `INSERT INTO ranking_sets (name, source, native_scoring_format, captured_on, notes, players)
-       VALUES ($1, $2, $3, $4, $5, NULL)
-       RETURNING id, name, source, native_scoring_format, captured_on, notes, created_at, updated_at`,
+      `INSERT INTO ranking_sets (name, source, native_scoring_format, ranking_scope, captured_on, notes, players)
+       VALUES ($1, $2, $3, $4, $5, $6, NULL)
+       RETURNING id, name, source, native_scoring_format, ranking_scope, captured_on, notes, created_at, updated_at`,
       [meta.name, meta.source || null, cleanFormat(meta.native_scoring_format),
-       meta.captured_on || null, meta.notes || null]
+       cleanScope(meta.ranking_scope), meta.captured_on || null, meta.notes || null]
     );
     const set = setRows[0];
     for (const row of rows) await insertRow(client, set.id, row);
@@ -84,7 +110,7 @@ async function appendRows(setId, rows) {
 // List sets with row/review counts, newest activity first.
 async function listSets() {
   const { rows } = await pool.query(
-    `SELECT s.id, s.name, s.source, s.native_scoring_format, s.captured_on, s.notes,
+    `SELECT s.id, s.name, s.source, s.native_scoring_format, s.ranking_scope, s.captured_on, s.notes,
             s.created_at, s.updated_at,
             COUNT(r.id)::int AS row_count,
             COUNT(r.id) FILTER (WHERE n.id IS NULL)::int AS unmatched,
@@ -100,7 +126,7 @@ async function listSets() {
 
 async function getSet(id) {
   const { rows } = await pool.query(
-    `SELECT id, name, source, native_scoring_format, captured_on, notes, created_at, updated_at
+    `SELECT id, name, source, native_scoring_format, ranking_scope, captured_on, notes, created_at, updated_at
      FROM ranking_sets WHERE id = $1`, [id]
   );
   return rows[0] || null;
@@ -119,7 +145,7 @@ async function getSetRows(id) {
      WHERE r.set_id = $1
      ORDER BY r.rank ASC, r.id ASC`, [id]
   );
-  return rows.map((r) => ({
+  return withPositionRanks(rows.map((r) => ({
     raw_id: r.raw_id,
     rank: r.rank,
     raw_name: r.raw_name,
@@ -133,7 +159,7 @@ async function getSetRows(id) {
     confidence: r.player_id ? r.confidence : 'none',
     matched_via: r.matched_via || '',
     confirmed: !!r.confirmed,
-  }));
+  })));
 }
 
 async function updateSetMeta(id, meta) {
@@ -143,11 +169,12 @@ async function updateSetMeta(id, meta) {
   if (meta.name !== undefined) push('name', String(meta.name).trim());
   if (meta.source !== undefined) push('source', meta.source ? String(meta.source).trim() : null);
   if (meta.native_scoring_format !== undefined) push('native_scoring_format', cleanFormat(meta.native_scoring_format));
+  if (meta.ranking_scope !== undefined) push('ranking_scope', cleanScope(meta.ranking_scope));
   if (meta.captured_on !== undefined) push('captured_on', meta.captured_on || null);
   if (meta.notes !== undefined) push('notes', meta.notes ? String(meta.notes) : null);
   const { rows } = await pool.query(
     `UPDATE ranking_sets SET ${sets.join(', ')} WHERE id = $1
-     RETURNING id, name, source, native_scoring_format, captured_on, notes, created_at, updated_at`,
+     RETURNING id, name, source, native_scoring_format, ranking_scope, captured_on, notes, created_at, updated_at`,
     params
   );
   return rows[0] || null;
@@ -194,7 +221,7 @@ async function ignoreRow(rawId) {
 async function reviewQueue() {
   const { rows } = await pool.query(
     `SELECT r.id AS raw_id, r.set_id, r.rank, r.raw_name, r.raw_position, r.raw_team,
-            s.name AS set_name, s.source,
+            s.name AS set_name, s.source, s.ranking_scope,
             n.player_id, n.confidence, n.matched_via,
             p.name AS suggested_name, p.position AS suggested_position, p.team AS suggested_team
      FROM rankings_raw r
@@ -209,6 +236,8 @@ async function reviewQueue() {
 
 module.exports = {
   cleanFormat,
+  cleanScope,
+  withPositionRanks,
   createSet,
   appendRows,
   listSets,

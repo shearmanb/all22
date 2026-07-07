@@ -36,8 +36,8 @@ Hub (splash) + self-contained **feature modules**. Shared core at the root; each
 
 ## Data model (migration 012; PRD §5)
 - `players_master` — canonical `player_id`, name, `name_key`, position, team, per-site `aliases` JSONB, `source` (`sleeper|manual`).
-- `ranking_sets` — set metadata: name, source, `native_scoring_format`, `captured_on`, notes. (Pre-rebuild converter saves were backfilled from its legacy JSONB `players` column, which is retained as a read-only archive.)
-- `rankings_raw` — every ingested row exactly as captured (`set_id`, rank, raw name/pos/team). Rank = list order, by design (printed ranks are OCR-unreliable).
+- `ranking_sets` — set metadata: name, source, `native_scoring_format`, `ranking_scope` (`overall|positional`, migration 017 — positional sets are per-position blocks pasted in any order; their stored rank is just paste order and only the derived rank-within-position matters), `captured_on`, notes. (Pre-rebuild converter saves were backfilled from its legacy JSONB `players` column, which is retained as a read-only archive.)
+- `rankings_raw` — every ingested row exactly as captured (`set_id`, rank, raw name/pos/team). Rank = list order, by design (printed ranks are OCR-unreliable). Position rank is never stored: `store.getSetRows` derives it from list order + position, so it self-heals as review resolves rows.
 - `rankings_normalized` — raw row resolved to a `player_id` + confidence/via/confirmed. Missing row here = review queue.
 - `my_ranking_runs` + `my_rankings`, `adp_history` — created for Phases 2/4, not written yet.
 - `drafts` + `picks` — Playbook's tables (pre-rebuild, reused as-is).

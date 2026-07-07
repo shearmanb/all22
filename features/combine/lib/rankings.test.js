@@ -59,3 +59,50 @@ test('junks value-table header rows like "Player Avg Cost % Drafted"', () => {
   assert.equal(out.length, 1);
   assert.equal(unparsed.length, 1);
 });
+
+test('position-block headers stamp the rows beneath them, never become players', () => {
+  const text = [
+    'QB',
+    '1. Josh Allen, BUF',
+    '2. Lamar Jackson, BAL',
+    'Wide Receivers',
+    "1. Ja'Marr Chase, CIN",
+    'RBs',
+    '1. Christian McCaffrey, SF',
+  ].join('\n');
+  const { players: out, position_blocks } = parse(text);
+  assert.deepEqual(position_blocks, ['QB', 'WR', 'RB']);
+  assert.deepEqual(
+    out.map((p) => ({ name: p.name, position: p.position })),
+    [
+      { name: 'Josh Allen', position: 'QB' },
+      { name: 'Lamar Jackson', position: 'QB' },
+      { name: "Ja'Marr Chase", position: 'WR' },
+      { name: 'Christian McCaffrey', position: 'RB' },
+    ]
+  );
+  // Rank is still overall paste order — position rank is derived downstream.
+  assert.deepEqual(out.map((p) => p.rank), [1, 2, 3, 4]);
+});
+
+test('"QB Rankings" / "Tier 1 RBs" style headers are recognized too', () => {
+  const { players: out } = parse('QB Rankings\n1 Josh Allen BUF\nTier 1 RBs\n1 Bijan Robinson ATL');
+  assert.deepEqual(out.map((p) => p.position), ['QB', 'RB']);
+});
+
+test('a row that prints its own position wins over the block header', () => {
+  const { players: out } = parse('RB\n1 Taysom Hill TE NO');
+  assert.equal(out[0].position, 'TE');
+});
+
+test('D/ST header stamps DST and defense rows still resolve by team', () => {
+  const { players: out } = parse('D/ST\n1. Philadelphia Eagles, PHI\n2. Baltimore Ravens, BAL');
+  assert.deepEqual(out.map((p) => p.position), ['DST', 'DST']);
+  assert.deepEqual(out.map((p) => p.team), ['PHI', 'BAL']);
+});
+
+test('pastes without headers keep working exactly as before', () => {
+  const { players: out, position_blocks } = parse('1 Bijan Robinson RB ATL\n2 Justin Jefferson WR MIN');
+  assert.deepEqual(out.map((p) => p.position), ['RB', 'WR']);
+  assert.deepEqual(position_blocks, []);
+});

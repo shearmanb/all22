@@ -20,17 +20,6 @@ const pool = require('../../db/pool');
 
 const hasDb = () => Boolean(process.env.DATABASE_URL);
 
-// Per-position running count ("QB5") over a rank-ordered list; exports use it.
-function addPositionRank(list) {
-  const counters = {};
-  for (const item of list) {
-    if (!item.position) { item.posRank = null; continue; }
-    counters[item.position] = (counters[item.position] || 0) + 1;
-    item.posRank = counters[item.position];
-  }
-  return list;
-}
-
 // image -> raw rows, via the best engine available. Returns
 // { rows, engine, unparsed, warning }.
 async function imageToRawRows(image) {
@@ -127,10 +116,10 @@ router.post('/parse', async (req, res) => {
   try {
     const { text } = req.body || {};
     if (!text || !String(text).trim()) return res.status(400).json({ ok: false, error: 'Paste some rankings text first.' });
-    const { players: parsed, unparsed } = textParser.parse(text);
+    const { players: parsed, unparsed, position_blocks } = textParser.parse(text);
     const index = await master.getIndex();
     const matched = ingest.matchRows(parsed, index);
-    res.json({ ok: true, data: { rows: matched, engine: 'paste', unparsed, review: ingest.reviewSummary(matched) } });
+    res.json({ ok: true, data: { rows: matched, engine: 'paste', unparsed, position_blocks, review: ingest.reviewSummary(matched) } });
   } catch (err) {
     console.error(`POST /api/combine/parse: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not parse that text.' });
@@ -138,11 +127,13 @@ router.post('/parse', async (req, res) => {
 });
 
 // Save a new set: meta + raw rows in, matching + storage in one shot.
-// Body: { name, source, native_scoring_format, captured_on?, notes?, rows }.
+// Body: { name, source, native_scoring_format, ranking_scope?, captured_on?,
+// notes?, rows }. ranking_scope: 'overall' (one list, the default) or
+// 'positional' (per-position blocks — only rank within a position matters).
 router.post('/sets', async (req, res) => {
   try {
     if (!hasDb()) return res.status(400).json({ ok: false, error: 'Saving needs a database (DATABASE_URL is not set).' });
-    const { name, source, native_scoring_format, captured_on, notes, rows } = req.body || {};
+    const { name, source, native_scoring_format, ranking_scope, captured_on, notes, rows } = req.body || {};
     const list = Array.isArray(rows) ? rows.filter((r) => r && String(r.raw_name || r.name || '').trim()) : [];
     if (!list.length) return res.status(400).json({ ok: false, error: 'There are no players to save.' });
     if (!source || !String(source).trim()) return res.status(400).json({ ok: false, error: 'Tag the set with its source (who made these rankings) first.' });
@@ -154,7 +145,7 @@ router.post('/sets', async (req, res) => {
       index
     );
     const set = await store.createSet(
-      { name: setName, source: String(source).trim(), native_scoring_format, captured_on, notes },
+      { name: setName, source: String(source).trim(), native_scoring_format, ranking_scope, captured_on, notes },
       matched
     );
     res.json({ ok: true, data: { set, review: ingest.reviewSummary(matched) } });
@@ -382,24 +373,34 @@ router.get('/compare', async (req, res) => {
       const e = byPlayer.get(r.player_id);
       if (e) e.b = r; else byPlayer.set(r.player_id, { b: r });
     }
+    // A positional set's overall rank is just paste order, so as soon as one
+    // side is positional the comparison runs on position ranks (RB3 vs RB7) —
+    // which are derived for every set and always comparable.
+    const positional = aSet.ranking_scope === 'positional' || bSet.ranking_scope === 'positional';
     const pairs = [], onlyA = [], onlyB = [];
     for (const { a, b } of byPlayer.values()) {
       if (a && b) {
         pairs.push({
           player_id: a.player_id, name: a.name, position: a.position, team: a.team,
           rank_a: a.rank, rank_b: b.rank, delta: a.rank - b.rank,
+          pos_rank_a: a.position_rank, pos_rank_b: b.position_rank,
+          pos_delta: (a.position_rank && b.position_rank) ? a.position_rank - b.position_rank : null,
         });
-      } else if (a) onlyA.push({ name: a.name, position: a.position, team: a.team, rank: a.rank });
-      else onlyB.push({ name: b.name, position: b.position, team: b.team, rank: b.rank });
+      } else if (a) onlyA.push({ name: a.name, position: a.position, team: a.team, rank: a.rank, pos_rank: a.position_rank });
+      else onlyB.push({ name: b.name, position: b.position, team: b.team, rank: b.rank, pos_rank: b.position_rank });
     }
-    pairs.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta));
+    const sortDelta = positional
+      ? (p) => (p.pos_delta === null ? -1 : Math.abs(p.pos_delta))
+      : (p) => Math.abs(p.delta);
+    pairs.sort((x, y) => sortDelta(y) - sortDelta(x));
     onlyA.sort((x, y) => x.rank - y.rank);
     onlyB.sort((x, y) => x.rank - y.rank);
     res.json({
       ok: true,
       data: {
-        a: { id: aSet.id, name: aSet.name, source: aSet.source, format: aSet.native_scoring_format, unmatched: aRows.filter((r) => !r.player_id).length },
-        b: { id: bSet.id, name: bSet.name, source: bSet.source, format: bSet.native_scoring_format, unmatched: bRows.filter((r) => !r.player_id).length },
+        positional,
+        a: { id: aSet.id, name: aSet.name, source: aSet.source, format: aSet.native_scoring_format, scope: aSet.ranking_scope, unmatched: aRows.filter((r) => !r.player_id).length },
+        b: { id: bSet.id, name: bSet.name, source: bSet.source, format: bSet.native_scoring_format, scope: bSet.ranking_scope, unmatched: bRows.filter((r) => !r.player_id).length },
         pairs, onlyA, onlyB,
       },
     });
@@ -424,7 +425,7 @@ router.get('/sets/:id/export/:format', async (req, res) => {
     if (!converter) return res.status(400).json({ ok: false, error: `Unknown export format: ${req.params.format}` });
     const set = await store.getSet(req.params.id);
     if (!set) return res.status(404).json({ ok: false, error: 'Ranking set not found.' });
-    const rows = addPositionRank(await store.getSetRows(set.id));
+    const rows = await store.getSetRows(set.id);
     if (!rows.length) return res.status(400).json({ ok: false, error: 'That set has no players to export.' });
     const csv = converter.build(rows);
     const slug = String(set.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'rankings';
@@ -491,7 +492,7 @@ router.post('/underdog/export', async (req, res) => {
     if (!hasDb()) return res.status(400).json({ ok: false, error: 'This needs a database.' });
     const { set_id, underdog_set_id } = req.body || {};
     if (!set_id || !underdog_set_id) return res.status(400).json({ ok: false, error: 'Pick a ranking set and an Underdog file first.' });
-    const rows = addPositionRank(await store.getSetRows(set_id));
+    const rows = await store.getSetRows(set_id);
     if (!rows.length) return res.status(400).json({ ok: false, error: 'That ranking set has no players.' });
     const { rows: ud } = await pool.query('SELECT name, csv FROM underdog_id_sets WHERE id = $1', [underdog_set_id]);
     if (!ud.length) return res.status(404).json({ ok: false, error: 'That Underdog file was not found — it may have been deleted.' });

@@ -18,7 +18,7 @@ module.exports = {
     if (hasAuction) headers.push('Auction $');
     const rows = players.map((p) => {
       // Position rank as the familiar "QB5" form when we have both pieces.
-      const posRank = p.position && p.posRank ? `${p.position}${p.posRank}` : '';
+      const posRank = p.position && p.position_rank ? `${p.position}${p.position_rank}` : '';
       const row = [p.rank, p.name, p.position || '', p.team || '', posRank];
       if (hasAuction) row.push(p.auction_value === null || p.auction_value === undefined ? '' : p.auction_value);
       return row;

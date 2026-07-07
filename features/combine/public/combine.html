@@ -53,6 +53,13 @@
             </select>
           </label>
           <label>
+            <span class="field-label">List type</span>
+            <select id="in-scope" class="inline">
+              <option value="overall">Overall (one list)</option>
+              <option value="positional">By position (QB list, RB list, …)</option>
+            </select>
+          </label>
+          <label>
             <span class="field-label">List date</span>
             <input id="in-date" type="date" class="inline">
           </label>
@@ -73,6 +80,7 @@
 
         <details class="section-gap">
           <summary class="muted">…or paste rankings as text</summary>
+          <p class="muted small" style="margin:8px 0 0">Position-by-position rankings? Paste the blocks in any order and keep each one under its header line (QB, Running Backs, WRs, …) — the header tags every row below it.</p>
           <textarea id="in-text" rows="8" placeholder="1. Ja'Marr Chase, CIN&#10;2. Bijan Robinson, ATL&#10;…" style="margin-top:8px"></textarea>
         </details>
 
@@ -124,6 +132,13 @@
                 <option value="unknown">Unknown</option>
               </select>
             </label>
+            <label>
+              <span class="field-label">List type</span>
+              <select id="set-scope" class="inline">
+                <option value="overall">Overall (one list)</option>
+                <option value="positional">By position</option>
+              </select>
+            </label>
             <label><span class="field-label">List date</span><input id="set-date" type="date" class="inline"></label>
           </div>
           <div class="row" style="margin-top:8px">
@@ -166,7 +181,7 @@
           <h3>Players <span id="set-count" class="muted small"></span></h3>
           <div class="table-wrap">
             <table class="data" id="set-rows-table">
-              <thead><tr><th></th><th>#</th><th>Player</th><th>Pos</th><th>Team</th><th class="auction-col">$</th><th>Match</th><th></th></tr></thead>
+              <thead><tr><th></th><th id="set-rank-head">#</th><th>Player</th><th>Pos</th><th>Team</th><th class="auction-col">$</th><th>Match</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -437,6 +452,12 @@
         var pdata = await apiPost('/api/combine/parse', { text: text });
         rows = rows.concat(pdata.rows);
         unparsed = unparsed.concat(pdata.unparsed || []);
+        // Two or more position headers (QB block, WR block, …) means this is a
+        // by-position list — flip the type so it isn't saved as overall.
+        if (!state.appendMode && (pdata.position_blocks || []).length >= 2 && $('in-scope').value === 'overall') {
+          $('in-scope').value = 'positional';
+          toast('Position headers detected — saving as a by-position list');
+        }
       }
       if (state.csv && state.csv.text) {
         setIngestStatus('Importing ' + state.csv.name + '…', true);
@@ -473,6 +494,7 @@
         name: $('in-name').value.trim(),
         source: source,
         native_scoring_format: $('in-format').value,
+        ranking_scope: $('in-scope').value,
         captured_on: $('in-date').value || null,
         rows: payloadRows,
       });
@@ -493,6 +515,10 @@
       $('csv-chip').hidden = true;
       $('in-text').value = '';
       $('in-name').value = '';
+      // Back to the safe default — position headers in the next paste flip it
+      // again automatically, and screenshots of positional lists get it set by
+      // hand per set.
+      $('in-scope').value = 'overall';
       setIngestStatus('', false);
       state.appendMode = false;
       var ul = $('ingest-unparsed');
@@ -550,6 +576,7 @@
         tr.appendChild(name);
         tr.appendChild(el('td', 'muted', s.source || '—'));
         var fmt = el('td'); fmt.appendChild(el('span', 'pill accent', FORMAT_LABELS[s.native_scoring_format] || s.native_scoring_format));
+        if (s.ranking_scope === 'positional') fmt.appendChild(el('span', 'pill', 'by position'));
         tr.appendChild(fmt);
         tr.appendChild(el('td', 'muted', s.captured_on ? String(s.captured_on).slice(0, 10) : '—'));
         tr.appendChild(el('td', null, String(s.row_count)));
@@ -573,12 +600,15 @@
 
     function renderSetDetail() {
       var set = state.currentSet.set, rows = state.currentSet.rows;
+      var positional = set.ranking_scope === 'positional';
       $('set-name').value = set.name || '';
       $('set-source').value = set.source || '';
       $('set-format').value = set.native_scoring_format || 'unknown';
+      $('set-scope').value = set.ranking_scope || 'overall';
       $('set-date').value = set.captured_on ? String(set.captured_on).slice(0, 10) : '';
       $('set-notes').value = set.notes || '';
       $('set-count').textContent = rows.length + ' players';
+      $('set-rank-head').textContent = positional ? 'Pos #' : '#';
 
       var unmatched = rows.filter(function (r) { return !r.player_id; }).length;
       var uncertain = rows.filter(function (r) { return r.player_id && r.confidence !== 'high' && !r.confirmed; }).length;
@@ -604,7 +634,18 @@
       rows.forEach(function (r) {
         var tr = document.createElement('tr');
         var dot = el('td'); dot.appendChild(confDot(r.confidence, r.matched_via)); tr.appendChild(dot);
-        tr.appendChild(el('td', 'num', String(r.rank)));
+        // Positional set: the rank that matters is the player's spot on his
+        // position's list ("RB7") — the overall number is just paste order.
+        // Overall set: overall rank, with the position rank underneath.
+        var rankTd;
+        if (positional) {
+          rankTd = el('td', 'num', r.position_rank ? (r.position + r.position_rank) : '—');
+          if (!r.position_rank) rankTd.title = 'Position rank appears once this row is matched to a player.';
+        } else {
+          rankTd = el('td', 'num', String(r.rank));
+          if (r.position_rank) rankTd.appendChild(el('div', 'raw-note', r.position + r.position_rank));
+        }
+        tr.appendChild(rankTd);
         var nameTd = el('td');
         nameTd.appendChild(el('strong', null, r.name));
         if (r.player_id && r.raw_name && r.raw_name !== r.name) {
@@ -633,10 +674,12 @@
         name: $('set-name').value,
         source: $('set-source').value,
         native_scoring_format: $('set-format').value,
+        ranking_scope: $('set-scope').value,
         captured_on: $('set-date').value || null,
         notes: $('set-notes').value,
       }, 'PATCH');
       state.currentSet.set = set;
+      renderSetDetail();
       toast('Details saved');
     });
 
@@ -773,7 +816,9 @@
       head.appendChild(title);
       if (item.raw_position) head.appendChild(posBadge(item.raw_position));
       if (item.raw_team) head.appendChild(el('span', 'muted small', item.raw_team));
-      head.appendChild(el('span', 'muted small', '#' + item.rank + ' in ' + item.set_name));
+      // In a positional set the stored rank is just paste order, so call it a row.
+      head.appendChild(el('span', 'muted small',
+        (item.ranking_scope === 'positional' ? 'row ' : '#') + item.rank + ' in ' + item.set_name));
       box.appendChild(head);
 
       var actions = el('div', 'row section-gap');
@@ -881,12 +926,17 @@
       if (a === b) { showError('Pick two different sets.'); return; }
       var data = await apiFetch('/api/combine/compare?a=' + a + '&b=' + b);
       var note = $('cmp-note');
+      var notes = [];
       if (data.a.format !== data.b.format) {
-        note.textContent = 'Heads up: “' + data.a.name + '” is ' + (FORMAT_LABELS[data.a.format] || data.a.format) +
+        notes.push('Heads up: “' + data.a.name + '” is ' + (FORMAT_LABELS[data.a.format] || data.a.format) +
           ' and “' + data.b.name + '” is ' + (FORMAT_LABELS[data.b.format] || data.b.format) +
-          ' — cross-format deltas are directional, not exact.';
-        note.classList.add('visible');
-      } else note.classList.remove('visible');
+          ' — cross-format deltas are directional, not exact.');
+      }
+      if (data.positional) {
+        notes.push('At least one of these sets is ranked by position, so the ranks and deltas below are position ranks (RB3 vs RB5).');
+      }
+      note.textContent = notes.join(' ');
+      note.classList.toggle('visible', notes.length > 0);
 
       $('cmp-head-a').textContent = data.a.name;
       $('cmp-head-b').textContent = data.b.name;
@@ -899,11 +949,16 @@
         var nameTd = el('td'); nameTd.appendChild(el('strong', null, p.name)); tr.appendChild(nameTd);
         var posTd = el('td'); posTd.appendChild(posBadge(p.position)); tr.appendChild(posTd);
         tr.appendChild(el('td', 'muted', p.team || '—'));
-        tr.appendChild(el('td', null, String(p.rank_a)));
-        tr.appendChild(el('td', null, String(p.rank_b)));
+        // Positional compare runs on position ranks; overall compare on ranks.
+        var rankA = data.positional ? (p.pos_rank_a ? p.position + p.pos_rank_a : '—') : String(p.rank_a);
+        var rankB = data.positional ? (p.pos_rank_b ? p.position + p.pos_rank_b : '—') : String(p.rank_b);
+        var delta = data.positional ? p.pos_delta : p.delta;
+        tr.appendChild(el('td', null, rankA));
+        tr.appendChild(el('td', null, rankB));
         var d = el('td');
-        if (p.delta < 0) d.appendChild(el('span', 'delta-up', '▲ ' + Math.abs(p.delta)));
-        else if (p.delta > 0) d.appendChild(el('span', 'delta-down', '▼ ' + p.delta));
+        if (delta === null || delta === undefined) d.appendChild(el('span', 'delta-flat', '—'));
+        else if (delta < 0) d.appendChild(el('span', 'delta-up', '▲ ' + Math.abs(delta)));
+        else if (delta > 0) d.appendChild(el('span', 'delta-down', '▼ ' + delta));
         else d.appendChild(el('span', 'delta-flat', '—'));
         tr.appendChild(d);
         tbody.appendChild(tr);

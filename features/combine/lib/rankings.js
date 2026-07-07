@@ -3,7 +3,8 @@
 // parser; site-specific parsers can be added as sibling files later.
 //
 // Output:
-//   { players: [{ rank, name, position, team }], unparsed: [{ line, reason }] }
+//   { players: [{ rank, name, position, team }], unparsed: [{ line, reason }],
+//     position_blocks: ['QB', 'WR', …] }   // distinct block headers, in order
 //
 // Design rules (from the spec):
 //   - The VISUAL ORDER of the list is the ranking. We assign rank = appearance
@@ -22,6 +23,34 @@ const HEADER_WORDS = new Set([
   'cost', 'salary', 'price', 'value', 'values', 'pick', 'drafted', 'budget',
   'def', 'dst', 'defense', 'defenses',
 ]);
+
+// Position-block headers. Positional sources are pasted as blocks — "QB" (or
+// "Quarterbacks", "WRs", "D/ST", "RB Rankings"…) on its own line, then that
+// position's list. The header names the position of every row beneath it
+// until the next header.
+const POSITION_HEADERS = {
+  QB: 'QB', QBS: 'QB', QUARTERBACK: 'QB', QUARTERBACKS: 'QB',
+  RB: 'RB', RBS: 'RB', RUNNINGBACK: 'RB', RUNNINGBACKS: 'RB',
+  WR: 'WR', WRS: 'WR', WIDERECEIVER: 'WR', WIDERECEIVERS: 'WR',
+  TE: 'TE', TES: 'TE', TIGHTEND: 'TE', TIGHTENDS: 'TE',
+  K: 'K', KS: 'K', PK: 'K', KICKER: 'K', KICKERS: 'K',
+  DST: 'DST', DEF: 'DST', DEFENSE: 'DST', DEFENSES: 'DST',
+  TEAMDEFENSE: 'DST', TEAMDEFENSES: 'DST',
+};
+
+// The position a header line announces, or '' when the line isn't one.
+function positionHeader(line) {
+  const t = String(line || '').trim();
+  if (!t) return '';
+  const whole = POSITION_HEADERS[t.toUpperCase().replace(/[^A-Z]/g, '')];
+  if (whole) return whole;
+  // "QB Rankings" / "Tier 1 RBs" style: drop generic label words and retry.
+  const words = t.split(/\s+/)
+    .map((w) => w.replace(/[^A-Za-z]/g, ''))
+    .filter(Boolean)
+    .filter((w) => !HEADER_WORDS.has(w.toLowerCase()));
+  return POSITION_HEADERS[words.join('').toUpperCase()] || '';
+}
 
 function looksLikeJunk(line) {
   const t = line.trim();
@@ -104,8 +133,8 @@ function parseLine(rawLine) {
     const name = players.display(rawName);
     const team = findTeamInSegments(segments.slice(1));
     if (name && /[a-z]/i.test(name) && players.key(name).length >= 2) {
-      // Position isn't present in these per-position lists; left blank here and
-      // set in bulk from the UI (the screenshot is all one position).
+      // Position isn't printed on these rows; parse() fills it from the
+      // enclosing position-block header when the paste has one.
       return withValue({ name, position: '', team });
     }
     return null;
@@ -143,9 +172,19 @@ function parse(rawText) {
   const players_out = [];
   const unparsed = [];
   const seen = new Set();
+  // Set by a position-block header; stamped on rows that don't name their own
+  // position (per-position lists rarely repeat it on every row).
+  let currentPosition = '';
+  const blockPositions = [];
 
   for (const rawLine of lines) {
     if (!rawLine.trim()) continue; // ignore blank lines silently
+    const posHeader = positionHeader(rawLine);
+    if (posHeader) {
+      currentPosition = posHeader;
+      if (!blockPositions.includes(posHeader)) blockPositions.push(posHeader);
+      continue;
+    }
     if (looksLikeJunk(rawLine)) {
       // Only report junk that actually had content worth noting.
       if (/[a-z0-9]/i.test(rawLine)) {
@@ -178,7 +217,7 @@ function parse(rawText) {
       // get misread as digits), and rankings are always listed in rank order.
       rank: players_out.length + 1,
       name: parsed.name,
-      position: parsed.position,
+      position: parsed.position || currentPosition,
       team: parsed.team,
       // Auction value when the line carried a "$14"-style token (Yahoo /
       // FantasyPros auction-value tables pasted as text), else null.
@@ -186,7 +225,7 @@ function parse(rawText) {
     });
   }
 
-  return { players: players_out, unparsed };
+  return { players: players_out, unparsed, position_blocks: blockPositions };
 }
 
 module.exports = { parse, parseLine };
