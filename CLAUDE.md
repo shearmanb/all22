@@ -25,6 +25,7 @@ Hub (splash) + self-contained **feature modules**. Shared core at the root; each
 - `server.js` — Express entry; mounts core routers, then loops `features/index.js` to mount each applet's API router + static pages. Boot also runs migrations and a background `players_master` seed/refresh.
 - `features/index.js` — the feature registry (the ONE place applets are listed). Add an applet = new folder + one entry here.
 - `features/combine/` — the rankings hub (#1 job): `router.js` (`/api/combine`), `lib/` (vision, ocr, rankings text parser, csv-import, ingest matching pipeline, store, converters/, underdog-ids), `public/combine.html`. Ingest sources: screenshot→OCR, paste-as-text, and CSV/spreadsheet import (auto-detects columns; Excel via Save-As-CSV). Optional per-row `auction_value` rides on `rankings_raw`.
+- `features/boards/` — Big Board (`/api/boards`, `boards.html`): hand-built, drag-and-drop player lists (Zero RB targets, sleepers, …), independent of any ingested rankings. Search-to-add resolves through players_master; rank = list position, rewritten on reorder.
 - `features/playbook/` — draft log & analysis (`/api/drafts`; the old draft tracker, seed of the PRD's Playbook): parsers for Underdog/FantasyPros paste, drafts pages.
 - `features/notes/` — scratchpad (`/api/notes`, `notes.html`).
 - `routes/` — core (shared) routers: `auth.js`, `health.js` (unauthenticated), `news.js`, `settings.js`, `datahealth.js` (behind the gate).
@@ -33,11 +34,12 @@ Hub (splash) + self-contained **feature modules**. Shared core at the root; each
 - `public/` — hub (`index.html` with launcher cards, data-health panel, global settings, news), `login.html`, `app.css` (the design system), `app.js` (shared helpers: `$`, `esc`, `apiFetch`, `apiPost`, `apiDownload`, `timeAgo`, `toast` — use these, never re-declare per page).
 - Tests: `*.test.js` next to the code they cover, `npm test` (Node's built-in runner, no deps). The name engine, ingest pipeline, vision parser, converters and text parser have golden tests — keep them green before pushing.
 
-## Data model (migration 012; PRD §5)
+## Data model (migrations 012–014; PRD §5)
 - `players_master` — canonical `player_id`, name, `name_key`, position, team, per-site `aliases` JSONB, `source` (`sleeper|manual`).
 - `ranking_sets` — set metadata: name, source, `native_scoring_format`, `captured_on`, notes. (Pre-rebuild converter saves were backfilled from its legacy JSONB `players` column, which is retained as a read-only archive.)
-- `rankings_raw` — every ingested row exactly as captured (`set_id`, rank, raw name/pos/team). Rank = list order, by design (printed ranks are OCR-unreliable).
+- `rankings_raw` — every ingested row exactly as captured (`set_id`, rank, raw name/pos/team, optional `auction_value` — NULL for rank-only lists, never backfilled). Rank = list order, by design (printed ranks are OCR-unreliable).
 - `rankings_normalized` — raw row resolved to a `player_id` + confidence/via/confirmed. Missing row here = review queue.
+- `boards` + `board_players` — Big Board's named hand-ordered lists (unique player per board; `board_players.note` exists in the schema but isn't surfaced in the UI yet).
 - `my_ranking_runs` + `my_rankings`, `adp_history` — created for Phases 2/4, not written yet.
 - `drafts` + `picks` — Playbook's tables (pre-rebuild, reused as-is).
 - `notes`, `settings` — scratchpad + control panel.

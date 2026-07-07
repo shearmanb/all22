@@ -1,43 +1,59 @@
 # All22 — To-Do / Follow-ups
 
-Open items after the PRD rebuild (branch `claude/fantasy-pros-redesign-082rjd`).
-The big phases live in `docs/SESSION_PLAN.md`; this file is the small stuff.
+_Updated 2026-07-07, end of the rebuild + first-features session. Everything
+below the "Decisions" block is non-blocking; the app is live on Railway with
+Combine (OCR confirmed working with Claude vision), Big Board, Playbook, Notes._
+_Big phases live in `docs/SESSION_PLAN.md`; this file is the small stuff._
 
-## Deployment
-- [ ] Add `ANTHROPIC_API_KEY` to Railway → Variables (Claude-vision OCR; the
-      app falls back to Tesseract and nags in the UI until set).
-- [ ] After first deploy: open each pre-rebuild ranking set and hit
-      **Re-match names** once (legacy sets were backfilled raw; matching runs
-      against the freshly seeded players_master).
-- [ ] Set `COOKIE_SECRET` on Railway if not already present.
+## Decisions waiting on the owner
+- [ ] **Native .xlsx upload in Combine.** Needs the SheetJS npm dependency
+      (rule: ask before adding any dependency). Shipped workaround: Excel →
+      Save As → CSV → import (CSV importer auto-detects columns).
+- [ ] **Owner's remaining issue list.** After the first OCR test he said "a few
+      issues" — auction values, the Zero RB board, and CSV import are shipped;
+      collect whatever else was on that list next session.
+
+## Deployment / one-time
+- [x] `ANTHROPIC_API_KEY` on Railway — DONE; owner tested OCR in prod, works.
+- [ ] Re-match pre-rebuild ranking sets once (Combine → Sets → open each →
+      **Re-match names**) — legacy sets were backfilled raw. Skip if already done.
+- [ ] Confirm `COOKIE_SECRET` is set on Railway.
 
 ## Combine follow-ups
-- [ ] **Verify Underdog & Yahoo export columns** (carried over from before the
-      rebuild). `features/combine/lib/converters/underdog.js` and `yahoo.js`
-      are flagged `verified: false` — download a current template from each
-      site, confirm headers, flip the flag. (The Underdog-with-IDs export
-      sidesteps this and is the recommended path.)
-- [ ] Consider seeding per-site alias blocks in `lib/aliases.js` from real
-      lists (FantasyPros/Underdog/Yahoo quirks). The review queue's
-      "remember alias" flow grows `players_master.aliases` organically either way.
-- [ ] Tune the Claude-vision prompt on real screenshots from your rankers; if a
-      site's layout confuses it, add an example to the prompt in
-      `features/combine/lib/vision.js`.
-- [ ] Natural-language Q&A over the stored tables (PRD §9) — server key is in
-      place once OCR uses it; needs a read-only query surface + a small UI.
+- [ ] **Verify Underdog & Yahoo export columns** (both flagged `verified:false`
+      in `features/combine/lib/converters/`). The Underdog-with-IDs export
+      sidesteps this and is the recommended path.
+- [ ] Auction $ shows in the set view + Plain CSV export only; add to other
+      exports if a need appears.
+- [ ] Seed per-site alias blocks in `lib/aliases.js` from real lists; the
+      review queue's "remember alias" grows `players_master.aliases` meanwhile.
+- [ ] Tune the vision prompt on real ranker screenshots if a layout misreads
+      (`features/combine/lib/vision.js`).
+- [ ] Natural-language Q&A over the stored tables (PRD §9) — server-side key is
+      in place; needs a read-only query surface + small UI.
+
+## Big Board follow-ups
+- [ ] Per-player note on a board — `board_players.note` exists in the schema
+      but the UI doesn't expose it yet.
+- [ ] Board export (CSV / Underdog) if wanted.
+
+## Phase 2 gate — deep session FIRST, do not default (PRD §17)
+- [ ] Cross-format blending, aggregation method, "unranked" semantics,
+      tiers-vs-ordinals — settle in a dedicated session with the most capable
+      model before building the custom model. Details in `docs/SESSION_PLAN.md`.
 
 ## Playbook (Phase 3 groundwork)
 - [ ] Resolve picks to `player_id` via players_master on save (pages currently
       store raw names — fine for the log, required for analysis).
-- [ ] Pre-rebuild correctness batch (still valid): timestamp drift on edit,
-      pick validation messages, snake-math round assertion, batch pick INSERTs.
+- [ ] Pre-rebuild correctness batch: timestamp drift on edit, pick validation
+      messages, snake-math round assertion, batch pick INSERTs.
 
-## Infra (carried over, still worth doing)
-- [ ] `npm test` in CI (GitHub Action).
+## Infra
+- [ ] `npm test` in CI (GitHub Action). 50 tests, no DB needed.
 - [ ] pg pool timeouts; SSL via env flag instead of URL-sniffing; process-level
       crash guard; stop news blocking the homepage on cold start.
 
-## Dormant legacy (decide later, no rush)
-- [ ] `roster_cache` and `converter_corrections` tables are no longer read —
-      drop via a migration once the rebuild has been live and happy for a while.
-      `ranking_sets.players` (JSONB archive of pre-rebuild saves) same deal.
+## Dormant legacy (no rush)
+- [ ] Drop `roster_cache`, `converter_corrections`, and the archived
+      `ranking_sets.players` JSONB via a migration once the rebuild has been
+      live and happy for a while.

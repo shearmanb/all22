@@ -1,43 +1,49 @@
 # All22 Session State
 
-_Last updated: 2026-07-05_
+_Last updated: 2026-07-07 (end of session)_
 
-## Branch
-- Working branch: `claude/fantasy-pros-redesign-082rjd` (the full rebuild)
-- Railway auto-deploys from `main` — merge the branch to deploy.
+## Where things stand — LIVE
+The PRD rebuild is **deployed to production** (Railway auto-deploys `main`).
+`main` and the working branch `claude/fantasy-pros-redesign-082rjd` are in sync
+except for a docs-only commit on the branch (this file, CLAUDE.md, TODO.md).
+Migrations applied in prod: 001–014.
 
-## What just happened: the rebuild
-The app was torn down and rebuilt around `docs/PRD.md` (gospel). What changed:
+- **Combine** (`/combine.html`) — screenshot→Claude-vision OCR (owner tested in
+  prod: WORKS; `ANTHROPIC_API_KEY` is set on Railway), paste-as-text, and
+  CSV/spreadsheet import (auto-detects columns incl. auction $). Review queue,
+  set compare, exports incl. Underdog-with-IDs. Optional per-row auction values
+  (migration 013) shown/exported only when a set has them.
+- **Big Board** (`/boards.html`, migration 014) — hand-built drag-and-drop
+  lists (built for the owner's Zero RB list), search-to-add via players_master,
+  pointer drag + ▲▼ reorder. Independent of ingested rankings.
+- **Playbook** — the renamed pre-rebuild draft tracker, unchanged data.
+- **Notes**, **hub** (launcher + data-health + league settings + news) — live.
+- **players_master** seeds/refreshes from Sleeper daily; manual adds + per-site
+  learned aliases live on the row.
 
-- **New schema (012):** `players_master` (the linchpin registry, synced daily
-  from Sleeper), `rankings_raw` + `rankings_normalized` under the existing
-  `ranking_sets` (extended with `native_scoring_format` / `captured_on`),
-  plus `my_rankings`, `adp_history`, `notes`, `settings` created for later
-  phases. Pre-rebuild saved sets were backfilled into `rankings_raw` — open
-  each old set once and hit "Re-match names" to resolve them.
-- **Combine** replaced the Rankings Converter (`/combine.html`, `/api/combine`):
-  one-click screenshot→OCR→match→save, review queue, set compare, all the old
-  exports including Underdog-with-IDs. OCR is Claude vision when
-  `ANTHROPIC_API_KEY` is set on Railway, Tesseract fallback otherwise.
-- **Playbook** is the renamed draft tracker (same pages, same `/api/drafts`,
-  same data). It becomes the PRD's Playbook in Phase 3.
-- **Notes** is new (`/notes.html`).
-- **Hub** redesigned: launcher cards with live stats, per-dataset data-health
-  panel, global league-profile settings, news aggregator retained.
-- Kept verbatim: `lib/players.js` matcher + tests, `lib/aliases.js`, export
-  converters, underdog-ids, text parser, news, auth/health, db plumbing.
-- Dormant legacy tables (kept, unread): `roster_cache`,
-  `converter_corrections`. `converter_aliases` is still read into the alias
-  map; new learned aliases go to `players_master.aliases`.
+## Decisions made this session (don't relitigate)
+- **Railway + Express + Railway Postgres stays.** Supabase was evaluated at the
+  owner's request and rejected: free tier pauses after ~1 week idle (deadly for
+  a seasonal app), cross-provider query latency, and its headline features
+  (auto REST API) are redundant with the Express backend. Revisit only if a
+  specific need appears (its table-editor UI was the one attraction — a
+  read-only data browser in the hub is the cheaper answer).
+- **OCR model dial** defaults to `claude-sonnet-5` (Combine → Settings). Owner
+  has the model-choice framework: smallest accurate model for runtime calls;
+  biggest model for silent-corruption-risk work (Phase 2 math → Fable-class).
+- **Zero RB shipped as general custom lists** (Big Board applet), not a
+  hardcoded single list.
 
-## To finish deployment
-1. Merge to `main`; Railway builds and runs migration 012 at boot (verified
-   locally against a scratch Postgres, including the legacy backfill).
-2. Add `ANTHROPIC_API_KEY` in Railway → Variables for Claude-vision OCR
-   (optional but strongly recommended; the UI nags until it's set).
-3. First boot seeds `players_master` from Sleeper automatically; check the
-   hub's data-health panel.
+## Bug fixed this session
+One-click ingest was dropping `auction_value` on save (client payload omitted
+it; only direct API posts kept it). Fixed in `combine.html` payloadRows.
 
-## Next sessions
-See `docs/SESSION_PLAN.md` — Phase 2 (the model) needs its deep-session
-decisions settled first; TODO.md carries the small follow-ups.
+## Immediate next steps
+1. Owner has more issues from testing — only auction values, Zero RB, and CSV
+   import were named and all three are shipped. Get the rest of the list.
+2. Owner to decide on native .xlsx upload (needs SheetJS dependency approval).
+3. One-time: re-match legacy sets; confirm `COOKIE_SECRET` on Railway.
+4. Before Phase 2 (custom model): the dedicated deep session on blending math —
+   see `docs/SESSION_PLAN.md` open decisions. Do not quick-pick defaults.
+
+TODO.md carries the full follow-up list. 50 tests green at session end.
