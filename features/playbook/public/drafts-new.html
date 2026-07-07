@@ -121,6 +121,16 @@
       </div>
     </div>
 
+    <!-- FantasyPros Draft Wizard URL import -->
+    <div class="section-title">Import from a Draft Wizard link</div>
+    <div class="card">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input type="text" id="fp-url" placeholder="https://draftwizard.fantasypros.com/d/secondscreen.jsp?mockDraftKey=…" style="flex:1;min-width:220px">
+        <button type="button" id="fetch-btn">Fetch Draft</button>
+      </div>
+      <p class="hint" style="margin-bottom:0">Paste any FantasyPros Draft Wizard link that contains <code>mockDraftKey</code> (the Second Screen URL works great) — the picks load straight into the preview below. If FantasyPros blocks the fetch, copy the draft board and paste it in the box underneath instead.</p>
+    </div>
+
     <!-- Paste area -->
     <div class="section-title">Paste Draft Board</div>
     <div class="card">
@@ -184,6 +194,35 @@
         b.classList.toggle('active', +b.dataset.v <= rating);
       });
     });
+
+    // Fetch a FantasyPros Draft Wizard link server-side
+    document.getElementById('fetch-btn').addEventListener('click', doFetchUrl);
+    document.getElementById('fp-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') doFetchUrl(); });
+
+    async function doFetchUrl() {
+      const url = document.getElementById('fp-url').value.trim();
+      if (!url) { showError('Paste the Draft Wizard link first.'); return; }
+      const btn = document.getElementById('fetch-btn');
+      btn.disabled = true;
+      btn.textContent = 'Fetching…';
+      const data = await apiFetch('/api/drafts/fetch-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url,
+          leagueSize: document.getElementById('league-size').value,
+          mySlot: document.getElementById('my-slot').value,
+        }),
+      }).catch(() => null);
+      btn.disabled = false;
+      btn.textContent = 'Fetch Draft';
+      if (!data) return;
+
+      document.getElementById('site').value = 'fantasypros';
+      if (data.inferredLeagueSize) document.getElementById('league-size').value = data.inferredLeagueSize;
+      if (data.inferredMySlot) document.getElementById('my-slot').value = data.inferredMySlot;
+      renderPreview(data.picks, data.unparseable, data.suggestedStrategy, data.positionCounts);
+    }
 
     // Parse
     document.getElementById('parse-btn').addEventListener('click', doParse);

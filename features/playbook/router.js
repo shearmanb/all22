@@ -2,8 +2,20 @@ const express = require('express');
 const pool = require('../../db/pool');
 const { parse: parserParse } = require('./lib/parsers');
 const { suggest } = require('./lib/strategy');
+const fpwizard = require('./lib/fpwizard');
 
 const router = express.Router();
+
+function analyze(picks) {
+  const myPicks = picks.filter((p) => p.isMyPick);
+  const suggestedStrategy = suggest(myPicks);
+  const positionCounts = {};
+  for (const p of myPicks) {
+    const pos = p.position || 'Other';
+    positionCounts[pos] = (positionCounts[pos] || 0) + 1;
+  }
+  return { suggestedStrategy, positionCounts };
+}
 
 // POST /api/drafts/parse — parse pasted text; does NOT save anything.
 // Must be declared before /:id routes.
@@ -18,18 +30,54 @@ router.post('/parse', async (req, res) => {
       mySlot: parseInt(mySlot, 10) || 1,
     });
 
-    const myPicks = result.picks.filter((p) => p.isMyPick);
-    const suggestedStrategy = suggest(myPicks);
-    const positionCounts = {};
-    for (const p of myPicks) {
-      const pos = p.position || 'Other';
-      positionCounts[pos] = (positionCounts[pos] || 0) + 1;
-    }
-
-    res.json({ ok: true, data: { ...result, suggestedStrategy, positionCounts } });
+    res.json({ ok: true, data: { ...result, ...analyze(result.picks) } });
   } catch (err) {
     console.error(`POST /api/drafts/parse: ${err.message}`);
     res.json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/drafts/fetch-url — fetch a FantasyPros Draft Wizard link server-side
+// and mine the picks out of it (no copy-paste). Body: { url, leagueSize?, mySlot? }.
+// Does NOT save anything; returns the same shape as /parse for the preview.
+router.post('/fetch-url', async (req, res) => {
+  try {
+    const { url, leagueSize, mySlot } = req.body || {};
+    const target = fpwizard.parseTarget(url);
+    if (!target) {
+      return res.json({
+        ok: false,
+        error: 'That doesn’t look like a FantasyPros Draft Wizard link — paste the Second Screen URL (it contains mockDraftKey=…).',
+      });
+    }
+    const result = await fpwizard.fetchDraft(target, {
+      leagueSize: parseInt(leagueSize, 10) || 12,
+      mySlot: parseInt(mySlot, 10) || null,
+    });
+    if (!result.picks.length) {
+      const notes = result.tried.map((t) => `${t.url} -> ${t.status || 'error'} (${t.note})`).join('; ');
+      console.error(`POST /api/drafts/fetch-url: no picks. ${notes}`);
+      const reached = result.tried.some((t) => t.status >= 200 && t.status < 400);
+      return res.json({
+        ok: false,
+        error: reached
+          ? 'FantasyPros answered, but no draft picks were found on that page. If the mock is still running, try again once picks are in — otherwise copy the draft board and paste it below instead.'
+          : 'Could not reach FantasyPros from the server (blocked or down). Copy the draft board and paste it below instead.',
+      });
+    }
+    res.json({
+      ok: true,
+      data: {
+        picks: result.picks,
+        unparseable: [],
+        inferredMySlot: result.inferredMySlot,
+        inferredLeagueSize: result.inferredLeagueSize,
+        ...analyze(result.picks),
+      },
+    });
+  } catch (err) {
+    console.error(`POST /api/drafts/fetch-url: ${err.message}`);
+    res.json({ ok: false, error: 'Fetching that link failed: ' + err.message + '. Copy the draft board and paste it below instead.' });
   }
 });
 
