@@ -25,6 +25,7 @@ Hub (splash) + self-contained **feature modules**. Shared core at the root; each
 - `server.js` — Express entry; mounts core routers, then loops `features/index.js` to mount each applet's API router + static pages. Boot also runs migrations and a background `players_master` seed/refresh.
 - `features/index.js` — the feature registry (the ONE place applets are listed). Add an applet = new folder + one entry here.
 - `features/combine/` — the rankings hub (#1 job): `router.js` (`/api/combine`), `lib/` (vision, ocr, rankings text parser, csv-import, ingest matching pipeline, store, converters/, underdog-ids), `public/combine.html`. Ingest sources: screenshot→OCR, paste-as-text, and CSV/spreadsheet import (auto-detects columns; Excel via Save-As-CSV). Optional per-row `auction_value` rides on `rankings_raw`.
+- `features/auction/` — War Chest, the auction budget calculator (`/api/auction`, `auction.html`): per-auction config (teams, budget, roster slots), one budget row per slot (plan $ / player / paid $), must-have/want/watch target lists. All arithmetic lives in `public/auction-math.js` — shared verbatim by the router and the browser (UMD wrapper, no build step), golden-tested.
 - `features/playbook/` — draft log & analysis (`/api/drafts`; the old draft tracker, seed of the PRD's Playbook): parsers for Underdog/FantasyPros paste, drafts pages.
 - `features/notes/` — scratchpad (`/api/notes`, `notes.html`).
 - `routes/` — core (shared) routers: `auth.js`, `health.js` (unauthenticated), `news.js`, `settings.js`, `datahealth.js` (behind the gate).
@@ -40,6 +41,7 @@ Hub (splash) + self-contained **feature modules**. Shared core at the root; each
 - `rankings_normalized` — raw row resolved to a `player_id` + confidence/via/confirmed. Missing row here = review queue.
 - `my_ranking_runs` + `my_rankings`, `adp_history` — created for Phases 2/4, not written yet.
 - `drafts` + `picks` — Playbook's tables (pre-rebuild, reused as-is).
+- `auctions` + `auction_slots` + `auction_targets` (migration 015) — War Chest: config, one row per roster slot (`plan`/`player_id`/`player_name`/`paid`; `paid IS NULL` = open slot), target tiers (`must|want|watch`).
 - `notes`, `settings` — scratchpad + control panel.
 - Legacy tables kept but dormant: `roster_cache`, `converter_corrections` (superseded by players_master), `converter_aliases` (still read into the alias map; new learned aliases go to `players_master.aliases`).
 

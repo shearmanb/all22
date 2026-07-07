@@ -37,6 +37,10 @@
 
 * { box-sizing: border-box; }
 
+/* The hidden attribute must always win, even over classes that set display
+   (e.g. .row's flex) — pages toggle visibility via el.hidden everywhere. */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   padding: 0;

@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>War Chest — All22</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    /* KPI strip — label + value tiles; Max bid is the hero mid-auction. */
+    .kpi-row {
+      display: grid; gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      margin-top: 14px;
+    }
+    .kpi {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 10px 12px;
+    }
+    .kpi-label { display: block; color: var(--text-dim); font-size: 0.78rem; }
+    .kpi-value { display: block; font-weight: 600; font-size: 1.5rem; margin-top: 2px; }
+    .kpi-sub { display: block; color: var(--text-dim); font-size: 0.75rem; margin-top: 2px; }
+    .kpi.hero { border-color: var(--accent); }
+    .kpi.hero .kpi-value { font-size: 1.9rem; color: var(--accent-strong); }
+    .kpi-value.good { color: var(--green); }
+    .kpi-value.bad { color: var(--red); }
+
+    /* Budget meter: solid = cash actually spent, translucent = plan-committed. */
+    .meter {
+      position: relative; height: 12px; border-radius: 6px; overflow: hidden;
+      background: rgba(79, 156, 249, 0.15); margin-top: 12px;
+    }
+    .meter-committed { position: absolute; inset: 0 auto 0 0; background: rgba(79, 156, 249, 0.4); }
+    .meter-fill { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+    .meter.warn .meter-committed { background: rgba(240, 179, 79, 0.5); }
+    .meter.bad .meter-fill { background: var(--red); }
+    .meter-caption { margin-top: 6px; }
+
+    /* Budget board table */
+    .board-wrap { overflow-x: auto; }
+    table.board { width: 100%; border-collapse: collapse; margin-top: 4px; }
+    table.board th {
+      text-align: left; color: var(--text-dim); font-size: 0.75rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.04em; padding: 6px 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    table.board td { padding: 5px 6px; border-bottom: 1px solid var(--border); }
+    table.board tr.group td {
+      color: var(--text-dim); font-size: 0.78rem; padding: 10px 6px 4px;
+      border-bottom: none; font-variant-numeric: tabular-nums;
+    }
+    table.board tr.filled td { background: rgba(62, 207, 142, 0.05); }
+    .c-slot { white-space: nowrap; width: 62px; }
+    .c-slot .slot-n { color: var(--text-dim); font-size: 0.8rem; margin-left: 3px; }
+    .c-player { min-width: 170px; }
+    .c-player input { padding: 7px 9px; }
+    .p-meta { display: block; color: var(--text-dim); font-size: 0.72rem; margin-top: 2px; padding-left: 2px; }
+    .c-num { width: 78px; }
+    .c-num input {
+      width: 72px; padding: 7px 8px; text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .c-delta { width: 52px; text-align: right; font-variant-numeric: tabular-nums; font-size: 0.85rem; white-space: nowrap; }
+    .c-delta.neg { color: var(--green); }
+    .c-delta.pos { color: var(--red); }
+    .c-clear { width: 28px; text-align: center; }
+    .c-clear button { background: none; border: none; color: var(--text-dim); width: auto; padding: 2px 6px; font-size: 1.05rem; cursor: pointer; }
+    .c-clear button:hover { color: var(--error-text); filter: none; }
+    .suggest-list .s-meta { color: var(--text-dim); font-size: 0.8rem; margin-left: 6px; }
+    .suggest-list .s-val { color: var(--green); font-size: 0.8rem; margin-left: 6px; }
+
+    /* Targets */
+    .tgt-group + .tgt-group { margin-top: 18px; }
+    .tgt-head { display: flex; align-items: baseline; gap: 8px; }
+    .tgt-head .tgt-total { color: var(--text-dim); font-size: 0.82rem; margin-left: auto; font-variant-numeric: tabular-nums; }
+    .tgt-row {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 5px 8px; margin-top: 6px;
+    }
+    .tgt-row .t-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tgt-row.gone .t-name { text-decoration: line-through; color: var(--text-dim); }
+    .tgt-row .t-est { width: 62px; padding: 5px 7px; text-align: right; font-variant-numeric: tabular-nums; }
+    .tgt-row label.t-gone { display: flex; align-items: center; gap: 4px; color: var(--text-dim); font-size: 0.78rem; white-space: nowrap; }
+    .tgt-row label.t-gone input { width: auto; }
+    .tgt-row .rm { background: none; border: none; color: var(--text-dim); width: auto; padding: 2px 6px; font-size: 1.05rem; cursor: pointer; }
+    .tgt-row .rm:hover { color: var(--error-text); filter: none; }
+    .tgt-add { margin-top: 8px; }
+    .tgt-add .tgt-est-in { width: 64px; text-align: right; }
+
+    /* Setup */
+    .roster-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 8px; max-width: 480px; }
+    .roster-grid input { text-align: center; }
+
+    @media (min-width: 860px) {
+      #auction-view .columns { display: grid; grid-template-columns: 3fr 2fr; gap: 14px; align-items: start; }
+    }
+    /* Phone: the Paid column must stay on screen — it's the mid-draft workhorse.
+       Drop the +/- column and slim everything else down. */
+    @media (max-width: 620px) {
+      .c-delta, table.board th:nth-child(5) { display: none; }
+      table.board td, table.board th { padding: 5px 3px; }
+      .c-slot { width: 48px; }
+      .c-slot .pos-badge { font-size: 0.66rem; padding: 2px 5px; }
+      .c-player { min-width: 0; }
+      .c-num { width: 60px; }
+      .c-num input { width: 56px; padding: 7px 6px; }
+      .card { padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">All<em>22</em></span>
+    <a href="/">Hub</a>
+    <a href="/combine.html">Combine</a>
+    <a href="/boards.html">Big Board</a>
+    <a href="/auction.html" class="active">War Chest</a>
+    <a href="/drafts.html">Playbook</a>
+    <a href="/notes.html">Notes</a>
+    <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
+  </nav>
+  <div id="error-banner"></div>
+
+  <main>
+    <h1>War Chest <span class="muted small">auction budget calculator</span></h1>
+    <p class="muted">Plan a $ for every roster slot, then run the auction against it. Think you can land a player? Type him in with a price and watch what it does to your budget — clear it if he goes elsewhere.</p>
+
+    <div class="card">
+      <div class="row">
+        <label class="grow">
+          <span class="field-label">Auction</span>
+          <select id="auction-select" class="inline" style="width:100%"></select>
+        </label>
+        <div style="align-self:end">
+          <button id="auction-new-toggle" class="secondary">+ New auction</button>
+        </div>
+      </div>
+      <div id="auction-new-row" class="row section-gap" hidden>
+        <input id="new-name" class="grow" placeholder="Auction name (e.g. Main league 2026)">
+        <label><span class="field-label">Teams</span><input id="new-teams" type="number" min="2" max="24" value="12" class="inline" style="width:70px"></label>
+        <label><span class="field-label">Budget $</span><input id="new-budget" type="number" min="1" value="200" class="inline" style="width:90px"></label>
+        <div style="align-self:end" class="row">
+          <button id="auction-create">Create</button>
+          <button id="auction-new-cancel" class="link">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <p id="auction-empty" class="muted" hidden>No auctions yet — create one above. You'll get the standard roster (1 QB, 2 RB, 3 WR, 1 TE, 2 Flex, 1 K, 1 DST, 6 Bench), adjustable below once it exists.</p>
+
+    <div id="auction-view" hidden>
+      <div class="kpi-row">
+        <div class="kpi hero">
+          <span class="kpi-label">Max bid</span>
+          <span class="kpi-value" id="k-maxbid"></span>
+          <span class="kpi-sub">keeps $1 for every other open slot</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">Left to spend</span>
+          <span class="kpi-value" id="k-remaining"></span>
+          <span class="kpi-sub" id="k-avg"></span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">Open slots</span>
+          <span class="kpi-value" id="k-open"></span>
+          <span class="kpi-sub" id="k-filled"></span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">Spent</span>
+          <span class="kpi-value" id="k-spent"></span>
+          <span class="kpi-sub" id="k-budget"></span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">Plan + paid</span>
+          <span class="kpi-value" id="k-committed"></span>
+          <span class="kpi-sub" id="k-slack"></span>
+        </div>
+      </div>
+      <div class="meter" id="meter">
+        <div class="meter-committed" id="meter-committed"></div>
+        <div class="meter-fill" id="meter-fill"></div>
+      </div>
+      <div class="meter-caption muted small" id="meter-caption"></div>
+
+      <div class="columns section-gap">
+        <div class="card">
+          <h2>Budget board</h2>
+          <p class="muted small">Plan = what you've budgeted for the slot. Paid = what he actually cost (fill it in when you win a player — or to try one on). × clears the player and price, keeps your plan.</p>
+          <div class="board-wrap">
+            <table class="board">
+              <thead>
+                <tr><th>Slot</th><th>Player</th><th>Plan $</th><th>Paid $</th><th style="text-align:right">+/−</th><th></th></tr>
+              </thead>
+              <tbody id="board-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <div class="card">
+            <h2>Targets</h2>
+            <p class="muted small">The guys you're going in for, with what you expect they'll cost. Tick <em>gone</em> when someone else lands one.</p>
+            <div id="targets"></div>
+          </div>
+
+          <details class="card">
+            <summary style="cursor:pointer"><strong>Setup</strong> <span class="muted small" id="setup-summary"></span></summary>
+            <label class="section-gap"><span class="field-label">Name</span><input id="cfg-name"></label>
+            <div class="row section-gap">
+              <label><span class="field-label">Teams</span><input id="cfg-teams" type="number" min="2" max="24" class="inline" style="width:80px"></label>
+              <label><span class="field-label">Budget per team $</span><input id="cfg-budget" type="number" min="1" class="inline" style="width:110px"></label>
+            </div>
+            <div class="section-gap">
+              <span class="field-label">Roster slots</span>
+              <div class="roster-grid" id="roster-grid"></div>
+              <p class="muted small" style="margin:8px 0 0">Shrinking the roster only removes empty slots — clear a slot first if it has a player or price on it.</p>
+            </div>
+            <div class="row section-gap">
+              <button id="cfg-save">Save setup</button>
+              <button id="cfg-delete" class="danger">Delete auction</button>
+            </div>
+            <div id="cfg-status" class="muted small section-gap"></div>
+          </details>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script src="/auction-math.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var M = window.AuctionMath;
+    var TIERS = [
+      { key: 'must', label: 'Must haves' },
+      { key: 'want', label: 'Wants' },
+      { key: 'watch', label: 'Watch list' },
+    ];
+    var state = { list: [], auction: null, slots: [], targets: [] };
+    // Live references into the board DOM so numbers update in place —
+    // re-rendering the table would steal focus while the owner is typing.
+    var rowEls = {}, groupEls = {};
+
+    function el(tag, className, text) {
+      var n = document.createElement(tag);
+      if (className) n.className = className;
+      if (text != null) n.textContent = text;
+      return n;
+    }
+    function fmt(n) {
+      if (n == null || !isFinite(n)) return '—';
+      var r = Math.round(n * 10) / 10;
+      return '$' + (r % 1 ? r.toFixed(1) : String(r));
+    }
+    function api(path, payload, method) {
+      var base = '/api/auction' + (path || '');
+      return payload === undefined ? apiFetch(base) : apiPost(base, payload, method);
+    }
+    function aid() { return state.auction ? state.auction.id : null; }
+
+    // ---------------- auctions list ----------------
+    async function loadList(selectId) {
+      state.list = await api('');
+      var sel = $('auction-select');
+      sel.textContent = '';
+      state.list.forEach(function (a) {
+        var o = document.createElement('option');
+        o.value = a.id;
+        o.textContent = a.name + ' — ' + fmt(Number(a.spent)) + ' of ' + fmt(Number(a.budget)) + ' spent, ' + a.filled_count + '/' + a.slot_count + ' slots';
+        sel.appendChild(o);
+      });
+      $('auction-empty').hidden = state.list.length > 0;
+      $('auction-view').hidden = state.list.length === 0;
+      if (!state.list.length) { state.auction = null; $('auction-new-row').hidden = false; return; }
+      var pick = selectId || aid() || state.list[0].id;
+      sel.value = pick;
+      await openAuction(pick);
+    }
+
+    $('auction-select').addEventListener('change', function () { openAuction($('auction-select').value); });
+    $('auction-new-toggle').addEventListener('click', function () {
+      $('auction-new-row').hidden = false;
+      $('new-name').focus();
+    });
+    $('auction-new-cancel').addEventListener('click', function () { $('auction-new-row').hidden = true; });
+    $('auction-create').addEventListener('click', createAuction);
+    $('new-name').addEventListener('keydown', function (e) { if (e.key === 'Enter') createAuction(); });
+
+    async function createAuction() {
+      var name = $('new-name').value.trim();
+      if (!name) { showError('Give the auction a name first.'); return; }
+      var data = await api('', {
+        name: name,
+        teams: parseInt($('new-teams').value, 10) || 12,
+        budget: Number($('new-budget').value) || 200,
+      });
+      $('new-name').value = '';
+      $('auction-new-row').hidden = true;
+      toast('Auction created');
+      setState(data);
+      await loadList(data.auction.id);
+    }
+
+    async function openAuction(id) {
+      setState(await api('/' + id));
+    }
+
+    function setState(data) {
+      state.auction = data.auction;
+      state.slots = data.slots;
+      state.targets = data.targets;
+      renderBoard();
+      renderTargets();
+      renderSetup();
+      updateComputed();
+    }
+
+    // ---------------- KPIs / meter ----------------
+    function updateComputed() {
+      if (!state.auction) return;
+      var s = M.summarize(state.auction.budget, state.slots);
+      $('k-maxbid').textContent = fmt(s.maxBid);
+      $('k-remaining').textContent = fmt(s.remaining);
+      $('k-remaining').className = 'kpi-value' + (s.remaining < 0 ? ' bad' : '');
+      $('k-avg').textContent = s.avgPerOpen == null ? 'roster full' : '≈ ' + fmt(s.avgPerOpen) + ' per open slot';
+      $('k-open').textContent = String(s.openSlots);
+      $('k-filled').textContent = s.filledSlots + ' filled of ' + (s.openSlots + s.filledSlots);
+      $('k-spent').textContent = fmt(s.spent);
+      $('k-budget').textContent = 'of ' + fmt(s.budget);
+      $('k-committed').textContent = fmt(s.committed);
+      var slackEl = $('k-slack');
+      if (s.slack < 0) { slackEl.textContent = fmt(-s.slack) + ' over budget'; slackEl.style.color = 'var(--red)'; }
+      else { slackEl.textContent = fmt(s.slack) + ' under budget'; slackEl.style.color = 'var(--green)'; }
+
+      var pct = function (v) { return Math.max(0, Math.min(100, s.budget ? (v / s.budget) * 100 : 0)) + '%'; };
+      $('meter-fill').style.width = pct(s.spent);
+      $('meter-committed').style.width = pct(s.committed);
+      $('meter').className = 'meter' + (s.spent > s.budget ? ' bad' : (s.committed > s.budget ? ' warn' : ''));
+      $('meter-caption').textContent =
+        'Spent ' + fmt(s.spent) + ' of ' + fmt(s.budget) +
+        ' · plan + paid commits ' + fmt(s.committed) +
+        ' · ' + state.auction.teams + ' teams × ' + fmt(s.budget) + ' = ' + fmt(state.auction.teams * s.budget) + ' in the room';
+
+      // Per-position subtotals + row deltas/highlights, updated in place.
+      M.SLOT_ORDER.forEach(function (slot) {
+        if (!groupEls[slot]) return;
+        var plan = 0, paid = 0;
+        state.slots.forEach(function (r) {
+          if (r.slot !== slot) return;
+          plan += M.money(r.plan) || 0;
+          if (M.money(r.paid) !== null) paid += M.money(r.paid);
+        });
+        groupEls[slot].textContent = M.SLOT_LABELS[slot] + ' — plan ' + fmt(plan) + ' · paid ' + fmt(paid);
+      });
+      state.slots.forEach(function (r) {
+        var refs = rowEls[r.id];
+        if (!refs) return;
+        var plan = M.money(r.plan), paid = M.money(r.paid);
+        var delta = plan !== null && paid !== null ? paid - plan : null;
+        refs.delta.textContent = delta === null ? '' : (delta > 0 ? '+' : delta < 0 ? '−' : '') + fmt(Math.abs(delta)).slice(1);
+        refs.delta.className = 'c-delta' + (delta > 0 ? ' pos' : delta < 0 ? ' neg' : '');
+        refs.tr.className = paid !== null ? 'filled' : '';
+        refs.meta.textContent = playerMeta(r);
+      });
+      $('setup-summary').textContent = '— ' + state.auction.teams + ' teams · ' + fmt(state.auction.budget) + ' each';
+    }
+
+    function playerMeta(r) {
+      if (!r.player_name) return '';
+      var bits = [];
+      if (r.player_position) bits.push(r.player_position + (r.player_team ? ' · ' + r.player_team : ''));
+      else if (r.player_id == null) bits.push('not linked to the player list');
+      return bits.join('');
+    }
+
+    // ---------------- budget board ----------------
+    function renderBoard() {
+      var body = $('board-body');
+      body.textContent = '';
+      rowEls = {}; groupEls = {};
+      var lastSlot = null;
+      var multi = {};
+      M.SLOT_ORDER.forEach(function (slot) {
+        multi[slot] = state.slots.filter(function (r) { return r.slot === slot; }).length > 1;
+      });
+      state.slots.forEach(function (r) {
+        if (r.slot !== lastSlot) {
+          lastSlot = r.slot;
+          var g = el('tr', 'group');
+          var td = el('td'); td.colSpan = 6;
+          g.appendChild(td);
+          groupEls[r.slot] = td;
+          body.appendChild(g);
+        }
+        body.appendChild(buildRow(r, multi[r.slot]));
+      });
+    }
+
+    function buildRow(r, showNum) {
+      var tr = el('tr');
+      var slotTd = el('td', 'c-slot');
+      var badge = el('span', 'pos-badge', M.SLOT_LABELS[r.slot]);
+      if (r.slot !== 'FLEX' && r.slot !== 'BN') badge.classList.add('pos-' + r.slot);
+      slotTd.appendChild(badge);
+      if (showNum) slotTd.appendChild(el('span', 'slot-n', String(r.slot_num)));
+      tr.appendChild(slotTd);
+
+      var playerTd = el('td', 'c-player');
+      var box = el('div', 'suggest-box');
+      var input = document.createElement('input');
+      input.placeholder = '— open —';
+      input.autocomplete = 'off';
+      input.value = r.player_name || '';
+      var suggest = el('div', 'suggest-list');
+      suggest.hidden = true;
+      box.appendChild(input); box.appendChild(suggest);
+      playerTd.appendChild(box);
+      var meta = el('span', 'p-meta');
+      playerTd.appendChild(meta);
+      tr.appendChild(playerTd);
+
+      var planTd = el('td', 'c-num');
+      var planIn = numInput(r.plan);
+      planTd.appendChild(planIn);
+      tr.appendChild(planTd);
+
+      var paidTd = el('td', 'c-num');
+      var paidIn = numInput(r.paid);
+      paidTd.appendChild(paidIn);
+      tr.appendChild(paidTd);
+
+      var delta = el('td', 'c-delta');
+      tr.appendChild(delta);
+
+      var clearTd = el('td', 'c-clear');
+      var clearBtn = el('button', null, '×');
+      clearBtn.title = 'Clear player & paid (keeps your plan $)';
+      clearTd.appendChild(clearBtn);
+      tr.appendChild(clearTd);
+
+      rowEls[r.id] = { tr: tr, delta: delta, meta: meta, playerIn: input, planIn: planIn, paidIn: paidIn };
+
+      // Live math while typing; persist on change (blur/enter).
+      planIn.addEventListener('input', function () { r.plan = planIn.value; updateComputed(); });
+      paidIn.addEventListener('input', function () { r.paid = paidIn.value; updateComputed(); });
+      planIn.addEventListener('change', function () { saveSlot(r, { plan: planIn.value }); });
+      paidIn.addEventListener('change', function () { saveSlot(r, { paid: paidIn.value }); });
+
+      attachSearch(input, suggest, r.slot, {
+        onPick: function (p) {
+          r.player_id = p.player_id;
+          r.player_name = p.name;
+          r.player_position = p.position;
+          r.player_team = p.team;
+          input.value = p.name;
+          var fields = { player_id: p.player_id, player_name: p.name };
+          // A known auction value pre-fills an empty plan — a starting point, not gospel.
+          if (p.value != null && M.money(r.plan) === null) {
+            r.plan = p.value;
+            planIn.value = p.value;
+            fields.plan = p.value;
+          }
+          updateComputed();
+          saveSlot(r, fields);
+        },
+        onFreetext: function (text) {
+          // No change (including the blur that follows a pick) — don't unlink.
+          if ((text || null) === (r.player_name || null)) return;
+          r.player_id = null;
+          r.player_name = text || null;
+          r.player_position = null;
+          r.player_team = null;
+          updateComputed();
+          saveSlot(r, { player_id: null, player_name: text });
+        },
+      });
+
+      clearBtn.addEventListener('click', function () {
+        r.player_id = null; r.player_name = null; r.player_position = null; r.player_team = null; r.paid = null;
+        input.value = ''; paidIn.value = '';
+        updateComputed();
+        saveSlot(r, { player_id: null, player_name: null, paid: null });
+      });
+
+      return tr;
+    }
+
+    function numInput(value) {
+      var i = document.createElement('input');
+      i.type = 'number'; i.min = '0'; i.step = '1'; i.inputMode = 'numeric'; i.placeholder = '$';
+      if (value != null) i.value = value;
+      return i;
+    }
+
+    function saveSlot(r, fields) {
+      api('/' + aid() + '/slots/' + r.id, fields, 'PATCH').then(function (row) {
+        r.plan = row.plan; r.paid = row.paid;
+        r.player_id = row.player_id; r.player_name = row.player_name;
+        updateComputed();
+      }).catch(function () { openAuction(aid()); });
+    }
+
+    // ---------------- player search dropdown ----------------
+    // Shared by board rows (slot-filtered) and target add boxes (unfiltered).
+    function attachSearch(input, suggest, slotType, handlers) {
+      var timer = null;
+      input.addEventListener('input', function () {
+        clearTimeout(timer);
+        var q = input.value.trim();
+        if (q.length < 2) { suggest.hidden = true; return; }
+        timer = setTimeout(async function () {
+          var url = '/players?q=' + encodeURIComponent(q) + (slotType ? '&slot=' + slotType : '');
+          var hits = await api(url).catch(function () { return []; });
+          suggest.textContent = '';
+          hits.forEach(function (p) {
+            var opt = el('div');
+            opt.appendChild(el('span', null, p.name));
+            opt.appendChild(el('span', 's-meta', (p.position || '?') + (p.team ? ' ' + p.team : '')));
+            if (p.value != null) opt.appendChild(el('span', 's-val', fmt(p.value)));
+            // pointerdown so the pick lands before the input's blur hides the list
+            opt.addEventListener('pointerdown', function (e) {
+              e.preventDefault();
+              suggest.hidden = true;
+              handlers.onPick(p);
+            });
+            suggest.appendChild(opt);
+          });
+          suggest.hidden = !hits.length;
+        }, 200);
+      });
+      input.addEventListener('keydown', function (e) { if (e.key === 'Enter') input.blur(); });
+      input.addEventListener('blur', function () {
+        setTimeout(function () { suggest.hidden = true; }, 150);
+        if (handlers.onFreetext) handlers.onFreetext(input.value.trim());
+      });
+    }
+
+    // ---------------- targets ----------------
+    function renderTargets() {
+      var wrap = $('targets');
+      wrap.textContent = '';
+      TIERS.forEach(function (tier) {
+        var group = el('div', 'tgt-group');
+        var head = el('div', 'tgt-head');
+        head.appendChild(el('strong', null, tier.label));
+        var total = el('span', 'tgt-total');
+        head.appendChild(total);
+        group.appendChild(head);
+
+        var list = el('div');
+        var rows = state.targets.filter(function (t) { return t.tier === tier.key; });
+        rows.forEach(function (t) { list.appendChild(buildTargetRow(t)); });
+        if (!rows.length) list.appendChild(el('div', 'muted small', 'Nobody yet.'));
+        group.appendChild(list);
+
+        var live = rows.filter(function (t) { return !t.gone; });
+        var sum = live.reduce(function (acc, t) { return acc + (M.money(t.est) || 0); }, 0);
+        total.textContent = live.length ? live.length + ' live · ' + fmt(sum) : '';
+
+        // add row
+        var add = el('div', 'row tgt-add');
+        var box = el('div', 'suggest-box grow');
+        var input = document.createElement('input');
+        input.placeholder = 'Add a player…';
+        input.autocomplete = 'off';
+        var suggest = el('div', 'suggest-list');
+        suggest.hidden = true;
+        box.appendChild(input); box.appendChild(suggest);
+        var estIn = numInput(null);
+        estIn.className = 'tgt-est-in';
+        estIn.title = 'Expected price';
+        var btn = el('button', 'secondary', 'Add');
+        add.appendChild(box); add.appendChild(estIn); add.appendChild(btn);
+        group.appendChild(add);
+
+        var picked = null;
+        attachSearch(input, suggest, null, {
+          onPick: function (p) {
+            picked = p;
+            input.value = p.name;
+            if (p.value != null && !estIn.value) estIn.value = p.value;
+          },
+          onFreetext: function () { /* target adds commit on the Add button, not blur */ },
+        });
+        function submit() {
+          var name = input.value.trim();
+          if (!name) { showError('Type a player name first.'); return; }
+          api('/' + aid() + '/targets', {
+            tier: tier.key,
+            player_name: name,
+            player_id: picked && picked.name === name ? picked.player_id : null,
+            est: estIn.value === '' ? null : estIn.value,
+          }).then(function (t) {
+            state.targets.push(t);
+            renderTargets();
+          }).catch(function () {});
+        }
+        btn.addEventListener('click', submit);
+        input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+
+        wrap.appendChild(group);
+      });
+    }
+
+    function buildTargetRow(t) {
+      var row = el('div', 'tgt-row' + (t.gone ? ' gone' : ''));
+      row.appendChild(el('span', 't-name', t.player_name));
+      var estIn = numInput(t.est);
+      estIn.className = 't-est';
+      estIn.title = 'Expected price';
+      estIn.addEventListener('change', function () {
+        t.est = estIn.value === '' ? null : estIn.value;
+        api('/' + aid() + '/targets/' + t.id, { est: t.est }, 'PATCH')
+          .then(function () { renderTargets(); })
+          .catch(function () {});
+      });
+      row.appendChild(estIn);
+      var goneLbl = el('label', 't-gone');
+      var goneIn = document.createElement('input');
+      goneIn.type = 'checkbox';
+      goneIn.checked = t.gone;
+      goneIn.title = 'Off the board — someone else got him';
+      goneLbl.appendChild(goneIn);
+      goneLbl.appendChild(document.createTextNode('gone'));
+      goneIn.addEventListener('change', function () {
+        t.gone = goneIn.checked;
+        api('/' + aid() + '/targets/' + t.id, { gone: t.gone }, 'PATCH')
+          .then(function () { renderTargets(); })
+          .catch(function () {});
+      });
+      row.appendChild(goneLbl);
+      var rm = el('button', 'rm', '×');
+      rm.title = 'Remove target';
+      rm.addEventListener('click', function () {
+        api('/' + aid() + '/targets/' + t.id, {}, 'DELETE').then(function () {
+          state.targets = state.targets.filter(function (x) { return x.id !== t.id; });
+          renderTargets();
+        }).catch(function () {});
+      });
+      row.appendChild(rm);
+      return row;
+    }
+
+    // ---------------- setup ----------------
+    function renderSetup() {
+      var a = state.auction;
+      $('cfg-name').value = a.name || '';
+      $('cfg-teams').value = a.teams;
+      $('cfg-budget').value = a.budget;
+      var grid = $('roster-grid');
+      grid.textContent = '';
+      M.SLOT_ORDER.forEach(function (slot) {
+        var lbl = el('label');
+        lbl.appendChild(el('span', 'field-label', M.SLOT_LABELS[slot]));
+        var i = document.createElement('input');
+        i.type = 'number'; i.min = '0'; i.max = '30'; i.inputMode = 'numeric';
+        i.id = 'cfg-slot-' + slot;
+        i.value = (a.roster && a.roster[slot]) || 0;
+        lbl.appendChild(i);
+        grid.appendChild(lbl);
+      });
+    }
+
+    $('cfg-save').addEventListener('click', function () {
+      if (!state.auction) return;
+      var roster = {};
+      M.SLOT_ORDER.forEach(function (slot) {
+        roster[slot] = parseInt($('cfg-slot-' + slot).value, 10) || 0;
+      });
+      api('/' + aid(), {
+        name: $('cfg-name').value,
+        teams: parseInt($('cfg-teams').value, 10) || 12,
+        budget: Number($('cfg-budget').value) || 200,
+        roster: roster,
+      }, 'PATCH').then(function (data) {
+        $('cfg-status').textContent = 'Saved.';
+        toast('Setup saved');
+        setState(data);
+        loadList(data.auction.id);
+      }).catch(function () { /* banner shown */ });
+    });
+
+    $('cfg-delete').addEventListener('click', async function () {
+      if (!state.auction) return;
+      if (!confirm('Delete “' + state.auction.name + '” and everything in it?')) return;
+      await api('/' + aid(), {}, 'DELETE');
+      state.auction = null;
+      toast('Deleted');
+      loadList();
+    });
+
+    loadList();
+  })();
+  </script>
+</body>
+</html>

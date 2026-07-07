@@ -12,6 +12,7 @@
     <a href="/" class="active">Hub</a>
     <a href="/combine.html">Combine</a>
     <a href="/boards.html">Big Board</a>
+    <a href="/auction.html">War Chest</a>
     <a href="/drafts.html">Playbook</a>
     <a href="/notes.html">Notes</a>
     <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
@@ -42,6 +43,13 @@
         <p class="muted">Hand-built player lists — drag-and-drop, search to add, ordered by you. A Zero RB target list, sleepers, handcuffs; independent of your ingested rankings.</p>
         <span class="tile-go">Open &rarr;</span>
         <span class="tile-stat" id="stat-boards"></span>
+      </a>
+
+      <a class="tile" href="/auction.html">
+        <h2>War Chest</h2>
+        <p class="muted">Auction budget calculator — plan a $ for every roster slot, pencil players in as you bid, always know your max bid and what's left to spend.</p>
+        <span class="tile-go">Open &rarr;</span>
+        <span class="tile-stat" id="stat-auction"></span>
       </a>
 
       <a class="tile" href="/notes.html">
@@ -171,12 +179,16 @@
       var bd = d.boards || {};
       wrap.appendChild(healthItem('Big Board', bd.count ? 'dot-ok' : 'dot-missing',
         bd.count ? bd.count + ' boards · newest ' + timeAgo(bd.latest) : 'none yet'));
+      var au = d.auctions || {};
+      wrap.appendChild(healthItem('War Chest', au.count ? 'dot-ok' : 'dot-missing',
+        au.count ? au.count + (au.count === 1 ? ' auction' : ' auctions') + ' · newest ' + timeAgo(au.latest) : 'none yet'));
 
       // Tile stats
       document.getElementById('stat-combine').textContent =
         (rk.sets ? rk.sets + ' sets' : 'no sets yet') + (rk.review_open ? ' · ' + rk.review_open + ' to review' : '');
       document.getElementById('stat-playbook').textContent = dr.count ? dr.count + ' drafts logged' : 'no drafts yet';
       document.getElementById('stat-boards').textContent = bd.count ? bd.count + (bd.count === 1 ? ' board' : ' boards') : 'no boards yet';
+      document.getElementById('stat-auction').textContent = au.count ? au.count + (au.count === 1 ? ' auction' : ' auctions') : 'no auctions yet';
       var nt = d.notes || {};
       document.getElementById('stat-notes').textContent = nt.open ? nt.open + ' open notes' : '';
     }

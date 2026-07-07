@@ -29,6 +29,13 @@ module.exports = [
     publicDir: path.join(__dirname, 'boards', 'public'),
   },
   {
+    name: 'auction',
+    label: 'War Chest',
+    apiMount: '/api/auction',
+    router: require('./auction/router'),
+    publicDir: path.join(__dirname, 'auction', 'public'),
+  },
+  {
     name: 'playbook',
     label: 'Playbook',
     apiMount: '/api/drafts',
