@@ -19,7 +19,7 @@ const { clean, teamFromToken } = require('../../../lib/players');
 
 // Bumped on every importer change; stamped into the diagnostic download so a
 // report is always tied to the build that produced it.
-const VERSION = 4;
+const VERSION = 5;
 
 // --- URL / key --------------------------------------------------------------
 
@@ -311,7 +311,7 @@ function parseSpaDraftState(root) {
   const userPos = Number.isInteger(root.userPos) ? root.userPos : null;
 
   const mk = (pl, overall, round, slot) => {
-    let name = null, playerId = null, position = '', team = '';
+    let name = null, playerId = null, position = '', team = '', mine;
     if (typeof pl === 'number') playerId = num(pl);
     else if (typeof pl === 'string') { playerId = num(pl); if (!playerId) name = pl.trim() || null; }
     else if (pl && typeof pl === 'object') {
@@ -320,13 +320,16 @@ function parseSpaDraftState(root) {
       position = normPos(pickField(pl, ['position', 'pos', 'position_id']));
       const tr = pickField(pl, ['nfl_team', 'team_abbr', 'pro_team', 'team']);
       team = tr == null ? '' : (teamFromToken(String(tr)) || '');
+      // Observed pick-object schema: { owner, ownerPos (0-based seat), round,
+      // pick (overall), isUserTeam, id, isNewPick, posInRound, isKeeper }.
+      if (Number.isInteger(pl.ownerPos)) slot = pl.ownerPos + 1;
+      if (num(pl.pick)) overall = num(pl.pick);
+      if (num(pl.round)) round = num(pl.round);
+      if (pl.isUserTeam === true) mine = true;
     }
     if (!name && !playerId) return null;
-    return {
-      name, playerId, position, team, overall, round, slot,
-      mine: userPos !== null && slot === userPos + 1 ? true : undefined,
-      hasPickInfo: true,
-    };
+    if (mine === undefined) mine = userPos !== null && slot === userPos + 1 ? true : undefined;
+    return { name, playerId, position, team, overall, round, slot, mine, hasPickInfo: true };
   };
 
   // Source 1: the top-level picks list in overall order. CAUTION: on the
@@ -361,6 +364,16 @@ function parseSpaDraftState(root) {
   // Whichever source saw more of the draft is the board.
   const picks = fromTeams.length > fromPicks.length ? fromTeams : fromPicks;
   if (picks.length < 2) return null;
+
+  // GUARD (learned the hard way): an anonymous GET of /spaDraft?mockDraftKey
+  // STARTS A NEW SIMULATION — random CPU teams, a handful of auto-picks, all
+  // flagged isNewPick — instead of returning the recorded draft. Never import
+  // a state whose every pick is brand new; it's a manufactured session, not
+  // the owner's draft.
+  if (Array.isArray(root.picks) && root.picks.length &&
+      root.picks.every((p) => p && typeof p === 'object' && p.isNewPick === true)) {
+    return 'rejected';
+  }
   return { picks, teamsLen: root.teams.length, score: 100 };
 }
 
@@ -373,13 +386,18 @@ function extractDraft(body) {
   const whole = tryJson(text.trim());
   if (whole && typeof whole === 'object') roots.push(whole);
   else roots.push(...jsonBlobs(text, 40));
-  // A recognized spaDraft state payload beats every heuristic outright.
+  // A recognized spaDraft state payload beats every heuristic outright — and a
+  // REJECTED one (manufactured fresh sim) is excluded from the heuristics too,
+  // so its fake picks can't sneak back in through the generic hunt.
+  const huntable = [];
   for (const root of roots) {
     const state = parseSpaDraftState(root);
+    if (state === 'rejected') continue;
     if (state) return state;
+    huntable.push(root);
   }
   let best = null;
-  for (const root of roots) {
+  for (const root of huntable) {
     const found = huntPicks(root);
     if (found && found.picks.length && (!best || found.score > best.score)) best = found;
   }
@@ -432,16 +450,35 @@ function findBundles(html, baseUrl, allowAnyHost) {
 }
 
 // Inside a minified bundle, API endpoints exist as string literals. Pull out
-// path-looking strings that mention the draft/spa/ajax/screen machinery.
+// path-looking strings that mention the draft/spa/ajax/screen machinery, any
+// .jsp reference (with or without a leading slash — legacy code concatenates
+// relative names), and every quoted string near a mockDraftKey usage: the
+// code that attaches the key is the code that names the endpoint.
 function mineBundlePaths(js) {
+  const src = String(js || '');
   const out = [];
-  const re = /["'](\/[A-Za-z0-9_\-./]{2,80})["']/g;
-  let m;
-  while ((m = re.exec(String(js || ''))) && out.length < 15) {
-    const p = m[1];
-    if (!/draft|spa|ajax|mock|screen|pick/i.test(p)) continue;
-    if (ASSET_RE.test(p)) continue;
+  const add = (p) => {
+    if (!p || p.length > 100 || out.length >= 30) return;
+    if (ASSET_RE.test(p)) return;
     if (!out.includes(p)) out.push(p);
+  };
+  let m;
+  const absRe = /["'](\/[A-Za-z0-9_\-./]{2,80})["']/g;
+  while ((m = absRe.exec(src))) {
+    if (/draft|spa|ajax|mock|screen|pick/i.test(m[1])) add(m[1]);
+  }
+  const jspRe = /["']([A-Za-z0-9_\-./]{1,80}\.jsp[A-Za-z0-9_\-./?=&%~]{0,80})["']/g;
+  while ((m = jspRe.exec(src))) add(m[1]);
+  // ±250 chars around each mockDraftKey mention: harvest every quoted
+  // path-ish string, keyword or not.
+  let at = -1;
+  while ((at = src.indexOf('mockDraftKey', at + 1)) !== -1) {
+    const ctx = src.slice(Math.max(0, at - 250), at + 250);
+    const ctxRe = /["']([A-Za-z0-9_\-./]{3,80})["']/g;
+    let c;
+    while ((c = ctxRe.exec(ctx))) {
+      if (/[/.]/.test(c[1])) add(c[1]); // needs a slash or dot to be a path
+    }
   }
   return out;
 }
@@ -542,7 +579,7 @@ async function fetchDraft(target, opts) {
   const o = opts || {};
   const fetchImpl = o.fetchImpl || fetch;
   const started = Date.now();
-  const BUDGET_MS = 25000;
+  const BUDGET_MS = 40000;
   const tried = [];
   const captures = [];
   const urls = [target.url];
@@ -570,7 +607,7 @@ async function fetchDraft(target, opts) {
   let best = null;
   let config = null;
   let firstBody = '';
-  for (let i = 0; i < urls.length && i < 20; i++) {
+  for (let i = 0; i < urls.length && i < 32; i++) {
     if (Date.now() - started > BUDGET_MS) break;
     const url = urls[i];
     let status = 0, body = '';
@@ -585,10 +622,18 @@ async function fetchDraft(target, opts) {
 
     if (bundles.has(url)) {
       // A JS bundle: harvest the API paths it references and try them keyed.
+      // Relative names (no leading slash) resolve against the pasted page's
+      // directory AND the site root — legacy JSP code uses both.
       const paths = ok ? mineBundlePaths(body) : [];
       tried.push({ url, status, note: 'bundle — ' + paths.length + ' paths mined' });
+      // Keep the bundle source in the diagnostic: if this attempt fails, the
+      // endpoint's true name is somewhere in this text.
+      captures.push({ url, status, picks: 0, bundle: true, body: String(body).slice(0, 800 * 1024) });
       for (const p of paths) {
         try { queueUrl(new URL(p, target.url).toString()); } catch (e) { /* skip */ }
+        if (!p.startsWith('/')) {
+          try { queueUrl(new URL('/' + p, target.url).toString()); } catch (e) { /* skip */ }
+        }
       }
       continue;
     }
@@ -598,8 +643,8 @@ async function fetchDraft(target, opts) {
     // Retention: the first page and anything that yielded picks are pinned;
     // pick-less responses get evicted oldest-first.
     captures.push({ url, status, picks: found ? found.picks.length : 0, body: String(body).slice(0, 300 * 1024) });
-    if (captures.length > 8) {
-      const evict = captures.findIndex((c, j) => j > 0 && !c.picks);
+    if (captures.length > 10) {
+      const evict = captures.findIndex((c, j) => j > 0 && !c.picks && !c.bundle);
       captures.splice(evict === -1 ? 1 : evict, 1);
     }
     if (found && found.picks.length >= 4) {
@@ -607,18 +652,20 @@ async function fetchDraft(target, opts) {
       if (found.score >= 100) break; // deterministic state parse — done
       if (found.picks.length >= 12) break; // a real board — stop looking
     }
-    // Only the first page (the one the owner pasted) seeds discovery: linked
-    // data URLs, the page's own config paths, and its draft-screen bundles.
+    // Only the first page (the one the owner pasted) seeds discovery. Order
+    // matters — the crawl budget is finite: the draft-screen bundles (which
+    // name the real endpoints) go first, then the page's config paths, and the
+    // nav-page links last.
     if (i === 0 && ok) {
       firstBody = body;
       config = mineConfig(body);
-      for (const u of discoverUrls(body, url, target.key, o.allowAnyHost)) queueUrl(u);
-      for (const p of config.urls) {
-        try { queueUrl(new URL(p, url).toString()); } catch (e) { /* skip */ }
-      }
       for (const b of findBundles(body, url, o.allowAnyHost)) {
         if (!queued.has(b)) { queued.add(b); bundles.add(b); urls.push(b); }
       }
+      for (const p of config.urls) {
+        try { queueUrl(new URL(p, url).toString()); } catch (e) { /* skip */ }
+      }
+      for (const u of discoverUrls(body, url, target.key, o.allowAnyHost)) queueUrl(u);
     }
   }
 

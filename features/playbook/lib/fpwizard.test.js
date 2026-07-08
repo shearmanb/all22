@@ -448,3 +448,38 @@ test('spaDraft state: a recent-picks ticker never beats the full team rosters', 
   assert.deepEqual(mine.slice(0, 4), [6, 19, 30, 43]);
   assert.equal(mine.length, 15);
 });
+
+// The ACTUAL payload /spaDraft?mockDraftKey returned on the owner's attempt:
+// a freshly manufactured simulation (5 CPU auto-picks, random team names,
+// every pick isNewPick) — NOT his recorded draft. Must never import.
+const FRESH_SIM = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'fp-spadraft-freshsim.json'), 'utf8'));
+
+test('real fresh-sim payload: rejected outright, heuristics excluded too', () => {
+  assert.equal(fpw.parseSpaDraftState(FRESH_SIM), 'rejected');
+  assert.equal(fpw.extractDraft(JSON.stringify(FRESH_SIM)), null);
+});
+
+test('real pick-object schema: ownerPos/pick/isUserTeam are read exactly', () => {
+  const state = JSON.parse(JSON.stringify(SPA_STATE));
+  state.userPos = 5;
+  state.picks = Array.from({ length: 24 }, (_, i) => ({
+    owner: 'Team ' + ((i % 12) + 1), ownerPos: i % 12, round: Math.floor(i / 12) + 1,
+    pick: i + 1, isUserTeam: i % 12 === 5, id: 60000 + i,
+    isNewPick: i === 23, posInRound: (i % 12) + 1, isKeeper: false,
+  }));
+  const found = fpw.parseSpaDraftState(state);
+  assert.ok(found && found !== 'rejected');
+  assert.equal(found.picks.length, 24);
+  assert.equal(found.picks[5].slot, 6);      // ownerPos 5 -> seat 6
+  assert.equal(found.picks[5].mine, true);   // isUserTeam
+  assert.equal(found.picks[6].mine, undefined);
+});
+
+test('mineBundlePaths: .jsp strings and quoted paths near mockDraftKey usage', () => {
+  const js = 'function sync(){var k=window.cfg.mockDraftKey;$.getJSON("secondscreen_data.jsp",{mockDraftKey:k},render)}' +
+    'var other="/assets/x.png";load("editor/v.jsp?x=1")';
+  const paths = fpw.mineBundlePaths(js);
+  assert.ok(paths.includes('secondscreen_data.jsp'), JSON.stringify(paths));
+  assert.ok(paths.includes('editor/v.jsp?x=1'));
+  assert.ok(!paths.includes('/assets/x.png'));
+});
