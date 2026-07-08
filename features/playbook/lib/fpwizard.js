@@ -17,6 +17,10 @@
 
 const { clean, teamFromToken } = require('../../../lib/players');
 
+// Bumped on every importer change; stamped into the diagnostic download so a
+// report is always tied to the build that produced it.
+const VERSION = 4;
+
 // --- URL / key --------------------------------------------------------------
 
 // Accepts a full fantasypros.com URL or a bare "nfl~<uuid>" key.
@@ -325,34 +329,37 @@ function parseSpaDraftState(root) {
     };
   };
 
-  const picks = [];
-  // Preferred: the top-level picks list, already in overall order.
+  // Source 1: the top-level picks list in overall order. CAUTION: on the
+  // second-screen state this can be just the recent-picks ticker (last few),
+  // not the whole board.
+  const fromPicks = [];
   if (Array.isArray(root.picks) && root.picks.length) {
     root.picks.forEach((pl, i) => {
       const at = root.draftOrder[i];
       const p = mk(pl, i + 1, at ? at[0] : null, at ? at[2] : null);
-      if (p) picks.push(p);
+      if (p) fromPicks.push(p);
     });
   }
-  // Fallback: rebuild from per-team rosters — team seat n's k-th player went
+  // Source 2: rebuild from per-team rosters — team seat n's k-th player went
   // at the k-th draftOrder entry belonging to seat n.
-  if (!picks.length) {
-    const bySlot = {};
-    root.draftOrder.forEach((e, i) => {
-      if (Array.isArray(e) && e.length >= 3) (bySlot[e[2]] = bySlot[e[2]] || []).push({ overall: i + 1, round: e[0] });
+  const fromTeams = [];
+  const bySlot = {};
+  root.draftOrder.forEach((e, i) => {
+    if (Array.isArray(e) && e.length >= 3) (bySlot[e[2]] = bySlot[e[2]] || []).push({ overall: i + 1, round: e[0] });
+  });
+  root.teams.forEach((t, ti) => {
+    const slot = num(t && t.id) || ti + 1;
+    const seq = bySlot[slot] || [];
+    (t && Array.isArray(t.players) ? t.players : []).forEach((pl, pi) => {
+      const at = seq[pi];
+      const p = mk(pl, at ? at.overall : null, at ? at.round : null, slot);
+      if (p) fromTeams.push(p);
     });
-    root.teams.forEach((t, ti) => {
-      const slot = num(t && t.id) || ti + 1;
-      const seq = bySlot[slot] || [];
-      (t && Array.isArray(t.players) ? t.players : []).forEach((pl, pi) => {
-        const at = seq[pi];
-        const p = mk(pl, at ? at.overall : null, at ? at.round : null, slot);
-        if (p) picks.push(p);
-      });
-    });
-    picks.sort((a, b) => (a.overall || Infinity) - (b.overall || Infinity));
-  }
+  });
+  fromTeams.sort((a, b) => (a.overall || Infinity) - (b.overall || Infinity));
 
+  // Whichever source saw more of the draft is the board.
+  const picks = fromTeams.length > fromPicks.length ? fromTeams : fromPicks;
   if (picks.length < 2) return null;
   return { picks, teamsLen: root.teams.length, score: 100 };
 }
@@ -588,12 +595,16 @@ async function fetchDraft(target, opts) {
 
     const found = ok ? extractDraft(body) : null;
     tried.push({ url, status, note: found ? found.picks.length + ' picks' : 'no picks found' });
-    // Keep the first page plus the most recent responses — the interesting
-    // endpoint is usually found late, after the nav pages.
-    captures.push({ url, status, body: String(body).slice(0, 300 * 1024) });
-    if (captures.length > 8) captures.splice(1, 1);
+    // Retention: the first page and anything that yielded picks are pinned;
+    // pick-less responses get evicted oldest-first.
+    captures.push({ url, status, picks: found ? found.picks.length : 0, body: String(body).slice(0, 300 * 1024) });
+    if (captures.length > 8) {
+      const evict = captures.findIndex((c, j) => j > 0 && !c.picks);
+      captures.splice(evict === -1 ? 1 : evict, 1);
+    }
     if (found && found.picks.length >= 4) {
       if (!best || found.score > best.score) best = found;
+      if (found.score >= 100) break; // deterministic state parse — done
       if (found.picks.length >= 12) break; // a real board — stop looking
     }
     // Only the first page (the one the owner pasted) seeds discovery: linked
@@ -659,6 +670,7 @@ async function fetchDraft(target, opts) {
 }
 
 module.exports = {
+  VERSION,
   parseTarget, extractDraft, discoverUrls, toPlaybookPicks, fetchDraft, jsonBlobs,
   mineConfig, findBundles, mineBundlePaths, parseSpaDraftState,
 };

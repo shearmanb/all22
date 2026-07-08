@@ -103,7 +103,7 @@ router.get('/fetch-url/diagnostic', (req, res) => {
   }
   const d = lastFetchDiagnostic;
   const parts = [
-    `All22 Draft Wizard fetch diagnostic — ${d.at}`,
+    `All22 Draft Wizard fetch diagnostic — ${d.at} (importer v${fpwizard.VERSION})`,
     `Pasted URL: ${d.url}`,
     `Outcome: ${d.result || 'no picks'}`,
     '',

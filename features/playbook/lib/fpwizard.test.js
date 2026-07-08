@@ -429,3 +429,22 @@ test('fetchDraft: full spaDraft flow — state ids resolved via PLAYER_DATA', as
     server.close();
   }
 });
+
+test('spaDraft state: a recent-picks ticker never beats the full team rosters', () => {
+  const state = JSON.parse(JSON.stringify(SPA_STATE));
+  state.userPos = 5;
+  // Second-screen style: top-level picks = last 5 only; rosters hold the board.
+  state.picks = [50175, 50176, 50177, 50178, 50179];
+  state.teams.forEach((t) => {
+    t.players = Array.from({ length: 15 }, (_, r) => 50000 + r * 12 + (t.id - 1));
+  });
+  const found = fpw.parseSpaDraftState(state);
+  assert.ok(found);
+  assert.equal(found.picks.length, 180); // reconstruction wins over the ticker
+  assert.equal(found.picks[0].overall, 1);
+  assert.equal(found.picks[179].overall, 180);
+  // Owner's picks: seat 6 (userPos 5) — overalls 6, 19, 30, 43, ...
+  const mine = found.picks.filter((p) => p.mine).map((p) => p.overall);
+  assert.deepEqual(mine.slice(0, 4), [6, 19, 30, 43]);
+  assert.equal(mine.length, 15);
+});
