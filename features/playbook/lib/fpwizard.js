@@ -19,7 +19,7 @@ const { clean, teamFromToken } = require('../../../lib/players');
 
 // Bumped on every importer change; stamped into the diagnostic download so a
 // report is always tied to the build that produced it.
-const VERSION = 5;
+const VERSION = 6;
 
 // --- URL / key --------------------------------------------------------------
 
@@ -366,12 +366,15 @@ function parseSpaDraftState(root) {
   if (picks.length < 2) return null;
 
   // GUARD (learned the hard way): an anonymous GET of /spaDraft?mockDraftKey
-  // STARTS A NEW SIMULATION — random CPU teams, a handful of auto-picks, all
-  // flagged isNewPick — instead of returning the recorded draft. Never import
-  // a state whose every pick is brand new; it's a manufactured session, not
-  // the owner's draft.
-  if (Array.isArray(root.picks) && root.picks.length &&
-      root.picks.every((p) => p && typeof p === 'object' && p.isNewPick === true)) {
+  // with no cmd STARTS A NEW SIMULATION — random CPU teams, a handful of
+  // auto-picks all flagged isNewPick, the user's team empty. Reject that
+  // signature. A resumed real draft passes: it has more picks than teams
+  // (and/or the user's roster is populated).
+  const userTeam = userPos !== null && root.teams[userPos] ? root.teams[userPos] : null;
+  const userEmpty = !userTeam || !Array.isArray(userTeam.players) || userTeam.players.length === 0;
+  const allNew = Array.isArray(root.picks) && root.picks.length &&
+    root.picks.every((p) => p && typeof p === 'object' && p.isNewPick === true);
+  if (allNew && picks.length <= root.teams.length && userEmpty) {
     return 'rejected';
   }
   return { picks, teamsLen: root.teams.length, score: 100 };
@@ -558,11 +561,17 @@ const BROWSER_HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9',
 };
 
-async function fetchText(url, fetchImpl) {
+async function fetchText(url, fetchImpl, req) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 12000);
   try {
-    const res = await fetchImpl(url, { headers: BROWSER_HEADERS, redirect: 'follow', signal: controller.signal });
+    const init = { headers: { ...BROWSER_HEADERS }, redirect: 'follow', signal: controller.signal };
+    if (req && req.method === 'POST') {
+      init.method = 'POST';
+      init.body = req.body || '';
+      init.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    }
+    const res = await fetchImpl(url, init);
     const body = await res.text();
     return { status: res.status, body };
   } finally {
@@ -582,8 +591,9 @@ async function fetchDraft(target, opts) {
   const BUDGET_MS = 40000;
   const tried = [];
   const captures = [];
+  // Queue entries: a string URL (GET) or { url, method, body } for POSTs.
   const urls = [target.url];
-  const queued = new Set(urls);
+  const queued = new Set([target.url]);
   const bundles = new Set(); // .js bundles get MINED for paths, not extracted
 
   // A discovered data endpoint may expect the draft key under a different
@@ -609,10 +619,11 @@ async function fetchDraft(target, opts) {
   let firstBody = '';
   for (let i = 0; i < urls.length && i < 32; i++) {
     if (Date.now() - started > BUDGET_MS) break;
-    const url = urls[i];
+    const req = typeof urls[i] === 'string' ? { url: urls[i] } : urls[i];
+    const url = (req.method === 'POST' ? 'POST ' : '') + req.url + (req.body ? ' [' + req.body + ']' : '');
     let status = 0, body = '';
     try {
-      const r = await fetchText(url, fetchImpl);
+      const r = await fetchText(req.url, fetchImpl, req);
       status = r.status; body = r.body;
     } catch (e) {
       tried.push({ url, status: 0, note: e.name === 'AbortError' ? 'timed out' : e.message });
@@ -620,7 +631,7 @@ async function fetchDraft(target, opts) {
     }
     const ok = status >= 200 && status < 300;
 
-    if (bundles.has(url)) {
+    if (bundles.has(req.url)) {
       // A JS bundle: harvest the API paths it references and try them keyed.
       // Relative names (no leading slash) resolve against the pasted page's
       // directory AND the site root — legacy JSP code uses both.
@@ -659,13 +670,32 @@ async function fetchDraft(target, opts) {
     if (i === 0 && ok) {
       firstBody = body;
       config = mineConfig(body);
-      for (const b of findBundles(body, url, o.allowAnyHost)) {
+      // Strongest lead first (learned from the second-screen bundle): the
+      // /spaDraft command API. A bare key defaults to cmd=draft which STARTS
+      // a new sim; resumeMock/checkSync load the recorded one. Try GET and
+      // form-POST for each.
+      if (target.key) {
+        const origin = new URL(req.url).origin;
+        const sport = (/^([a-z]+)~/.exec(target.key) || [])[1] || 'nfl';
+        const cmdReqs = [];
+        for (const cmd of ['resumeMock', 'checkSync']) {
+          const qs = `cmd=${cmd}&mockDraftKey=${encodeURIComponent(target.key)}&format=json&sport=${sport}`;
+          for (const base of ['/spaDraft', ...(config.urls.length ? config.urls : [])]) {
+            const abs = new URL(base, origin).toString();
+            if (!queued.has(abs + '?' + qs)) { queued.add(abs + '?' + qs); cmdReqs.push(abs + '?' + qs); }
+            const postKey = 'POST ' + abs + ' ' + qs;
+            if (!queued.has(postKey)) { queued.add(postKey); cmdReqs.push({ url: abs, method: 'POST', body: qs }); }
+          }
+        }
+        urls.splice(1, 0, ...cmdReqs); // right after the page, ahead of everything
+      }
+      for (const b of findBundles(body, req.url, o.allowAnyHost)) {
         if (!queued.has(b)) { queued.add(b); bundles.add(b); urls.push(b); }
       }
       for (const p of config.urls) {
-        try { queueUrl(new URL(p, url).toString()); } catch (e) { /* skip */ }
+        try { queueUrl(new URL(p, req.url).toString()); } catch (e) { /* skip */ }
       }
-      for (const u of discoverUrls(body, url, target.key, o.allowAnyHost)) queueUrl(u);
+      for (const u of discoverUrls(body, req.url, target.key, o.allowAnyHost)) queueUrl(u);
     }
   }
 

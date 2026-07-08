@@ -251,9 +251,13 @@
       }).catch(() => null);
       if (!data) return;
 
-      // FantasyPros parser infers the draft slot from the first round-1 pick.
+      // FantasyPros parsers can infer the slot (and, for board copies with the
+      // team header, the league size) from the paste itself.
       if (data.inferredMySlot) {
         document.getElementById('my-slot').value = data.inferredMySlot;
+      }
+      if (data.inferredLeagueSize) {
+        document.getElementById('league-size').value = data.inferredLeagueSize;
       }
 
       renderPreview(data.picks, data.unparseable, data.suggestedStrategy, data.positionCounts);

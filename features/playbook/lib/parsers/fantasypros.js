@@ -172,8 +172,13 @@ function parseTeamView(text, { leagueSize = 12 } = {}) {
 
 // ─── Auto-detect & export ──────────────────────────────────────────────────────
 
+const fpboard = require('./fpboard');
+
 function parse(rawText, opts = {}) {
   const text = rawText.replace(/\r\n?/g, '\n');
+  // Second-screen board copy: cells like "RB-DET1.01..." carry their own
+  // round.pick, the most reliable FP paste format — check it first.
+  if (fpboard.detect(text)) return fpboard.parse(text, opts);
   if (ROUND_HDR_RE.test(text)) return parseFullBoard(text, opts);
   return parseTeamView(text, opts);
 }
