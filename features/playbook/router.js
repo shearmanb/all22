@@ -54,12 +54,19 @@ router.post('/fetch-url', async (req, res) => {
       leagueSize: parseInt(leagueSize, 10) || 12,
       mySlot: parseInt(mySlot, 10) || null,
     });
+    // Keep what FantasyPros actually sent so it can be downloaded and debugged
+    // instead of guessed at — on EVERY attempt, because a "success" that parsed
+    // the wrong array needs the diagnostic just as much as a failure.
+    lastFetchDiagnostic = {
+      at: new Date().toISOString(),
+      url: String(url),
+      result: `${result.picks.length} picks`,
+      tried: result.tried,
+      captures: result.captures || [],
+    };
     if (!result.picks.length) {
       const notes = result.tried.map((t) => `${t.url} -> ${t.status || 'error'} (${t.note})`).join('; ');
       console.error(`POST /api/drafts/fetch-url: no picks. ${notes}`);
-      // Keep what FantasyPros actually sent so it can be downloaded and
-      // debugged instead of guessed at (single-user app: last failure only).
-      lastFetchDiagnostic = { at: new Date().toISOString(), url: String(url), tried: result.tried, captures: result.captures || [] };
       const reached = result.tried.some((t) => t.status >= 200 && t.status < 400);
       return res.json({
         ok: false,
@@ -98,6 +105,7 @@ router.get('/fetch-url/diagnostic', (req, res) => {
   const parts = [
     `All22 Draft Wizard fetch diagnostic — ${d.at}`,
     `Pasted URL: ${d.url}`,
+    `Outcome: ${d.result || 'no picks'}`,
     '',
     'Attempts:',
     ...d.tried.map((t) => `  ${t.status || 'error'}  ${t.url}  (${t.note})`),

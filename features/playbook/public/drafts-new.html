@@ -130,7 +130,7 @@
       </div>
       <p class="hint" style="margin-bottom:0">Paste any FantasyPros Draft Wizard link that contains <code>mockDraftKey</code> (the Second Screen URL works great) — the picks load straight into the preview below. If FantasyPros blocks the fetch, copy the draft board and paste it in the box underneath instead.</p>
       <p class="hint" id="fp-diag-row" style="display:none;margin:8px 0 0">
-        Didn't work? <a href="#" id="fp-diag-link">Download the diagnostic file</a> — it contains exactly what FantasyPros sent back, so the importer can be fixed against the real thing.
+        Didn't work, or the picks look wrong? <a href="#" id="fp-diag-link">Download the diagnostic file</a> — it contains exactly what FantasyPros sent back, so the importer can be fixed against the real thing.
       </p>
     </div>
 
@@ -219,11 +219,10 @@
       }).catch(() => null);
       btn.disabled = false;
       btn.textContent = 'Fetch Draft';
-      if (!data) {
-        document.getElementById('fp-diag-row').style.display = 'block';
-        return;
-      }
-      document.getElementById('fp-diag-row').style.display = 'none';
+      // Diagnostic stays offered even on success — a parse that grabbed the
+      // wrong data needs debugging as much as an outright failure.
+      document.getElementById('fp-diag-row').style.display = 'block';
+      if (!data) return;
 
       document.getElementById('site').value = 'fantasypros';
       if (data.inferredLeagueSize) document.getElementById('league-size').value = data.inferredLeagueSize;

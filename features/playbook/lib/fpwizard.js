@@ -224,11 +224,14 @@ function buildPlayerMap(body) {
   return map;
 }
 
-// Walk a JSON tree and return the most pick-like array found, plus a guess at
-// the league size from any team-list array alongside it.
+// Walk a JSON tree and return the most pick-like content, plus a guess at the
+// league size. Draft payloads come flat (one picks array) OR as per-team
+// rosters (12 arrays of ~15) — when several qualifying arrays carry distinct
+// overall-pick numbers, their UNION is the board and beats any single array.
 function huntPicks(root) {
-  let best = null;
+  const candidates = [];
   let teamsLen = null;
+  const seen = new Set();
   const queue = [root];
   let visited = 0;
   while (queue.length && visited < 5000) {
@@ -236,19 +239,22 @@ function huntPicks(root) {
     visited++;
     if (!node || typeof node !== 'object') continue;
     if (Array.isArray(node)) {
-      if (node.length >= 4 && node.length <= 600) {
+      if (seen.has(node)) continue; // an aliased array must not count twice
+      seen.add(node);
+      if (node.length >= 2 && node.length <= 600) {
         const sample = node.slice(0, 40);
         const reads = sample.map(readPick);
         const named = reads.filter(Boolean);
-        if (named.length / sample.length >= 0.7) {
+        if (named.length / sample.length >= 0.7 && named.length >= 2) {
           const withInfo = named.filter((p) => p.hasPickInfo).length;
           const withPos = named.filter((p) => p.position).length;
           // Pick arrays carry pick numbers and/or positions; a plain roster of
           // team names carries neither.
           if (withInfo || withPos >= named.length * 0.5) {
+            const picks = node.map(readPick).filter(Boolean);
             const score = named.length / sample.length + (withInfo ? 1 : 0) +
               (withPos / Math.max(1, named.length)) + Math.min(1, node.length / 100);
-            if (!best || score > best.score) best = { arr: node, score };
+            candidates.push({ picks, score, infoRate: withInfo / Math.max(1, named.length) });
           } else if (node.length >= 6 && node.length <= 20 && teamsLen === null) {
             teamsLen = node.length; // looks like the fantasy-team list
           }
@@ -267,8 +273,25 @@ function huntPicks(root) {
       }
     }
   }
-  if (!best) return null;
-  return { picks: best.arr.map(readPick).filter(Boolean), teamsLen, score: best.score };
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  const best = candidates[0];
+
+  // Union pass: merge every numbered pick across qualifying arrays. Distinct
+  // overall numbers = per-team rosters of one board; heavy overlap = the same
+  // list seen twice (union adds nothing, best single array stands).
+  const byOverall = new Map();
+  for (const c of candidates) {
+    if (c.infoRate < 0.7) continue;
+    for (const p of c.picks) {
+      if (p.overall !== null && !byOverall.has(p.overall)) byOverall.set(p.overall, p);
+    }
+  }
+  if (byOverall.size >= 8 && byOverall.size >= best.picks.length * 1.5) {
+    const union = [...byOverall.values()].sort((a, b) => a.overall - b.overall);
+    return { picks: union, teamsLen, score: best.score + 1 };
+  }
+  return { picks: best.picks, teamsLen, score: best.score };
 }
 
 // Extract the best pick list from a response body (JSON or HTML with embedded
@@ -304,10 +327,13 @@ function mineConfig(html) {
   while ((m = urlRe.exec(s)) && urls.length < 8) {
     if (!urls.includes(m[1])) urls.push(m[1]);
   }
+  const userPosRaw = get(/userPos\s*:\s*(\d+)/);
   return {
     key: get(/mockDraftKey\s*[:=]\s*["']([^"']+)["']/),
     teamCount: num(get(/teamCount\s*:\s*(\d+)/)),
-    userPos: num(get(/userPos\s*:\s*(\d+)/)), // num() maps 0 -> null: 0 = observer/unknown
+    // 0-BASED seat index (verified against a real board: userPos 5 = the 6th
+    // column, "Your Team" picking 1.06). 0 is a real value (seat 1).
+    userPos: userPosRaw === null ? null : parseInt(userPosRaw, 10),
     positions: get(/positions\s*:\s*["']([A-Z/,]+)["']/),
     urls,
   };
@@ -515,7 +541,8 @@ async function fetchDraft(target, opts) {
   }
 
   const cfgLeague = config && config.teamCount && config.teamCount >= 4 && config.teamCount <= 24 ? config.teamCount : null;
-  const cfgSlot = config && config.userPos ? config.userPos : null;
+  // userPos is a 0-based seat index -> 1-based draft slot.
+  const cfgSlot = config && config.userPos !== null && config.userPos >= 0 ? config.userPos + 1 : null;
   if (!best) {
     return { picks: [], inferredMySlot: cfgSlot, inferredLeagueSize: cfgLeague, tried, captures };
   }

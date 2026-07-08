@@ -264,9 +264,10 @@ test('fetchDraft: mines the bundle, hits its endpoint with the key, gets picks',
     );
     assert.equal(result.picks.length, 24);
     assert.equal(result.inferredLeagueSize, 12);
-    // userPos from the page config decides "my picks", not the form default.
-    assert.equal(result.inferredMySlot, 5);
-    assert.deepEqual(result.picks.filter((p) => p.isMyPick).map((p) => p.overallPick), [5, 20]);
+    // userPos from the page config decides "my picks", not the form default —
+    // and it's a 0-based seat index, so userPos 5 = draft slot 6.
+    assert.equal(result.inferredMySlot, 6);
+    assert.deepEqual(result.picks.filter((p) => p.isMyPick).map((p) => p.overallPick), [6, 19]);
   } finally {
     server.close();
   }
@@ -311,4 +312,28 @@ test('fetchDraft: id-only picks resolve names via the site PLAYER_DATA file', as
   } finally {
     server.close();
   }
+});
+
+test('huntPicks union: per-team roster arrays merge into one full board', () => {
+  // 4 teams x 3 rounds, snake — each team's picks live in its own array.
+  const teams = [1, 2, 3, 4].map((slot) => ({
+    team_name: 'Team ' + slot,
+    picks: [1, 2, 3].map((round) => {
+      const overall = round % 2 === 1 ? (round - 1) * 4 + slot : (round - 1) * 4 + (4 - slot + 1);
+      return { overall_pick: overall, round, player_name: 'Player ' + overall, position: 'RB', team: 'ATL' };
+    }),
+  }));
+  const found = fpw.extractDraft(JSON.stringify({ draft: { teams } }));
+  assert.ok(found);
+  assert.equal(found.picks.length, 12); // the union, not one team's 3
+  assert.deepEqual(found.picks.map((p) => p.overall), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+});
+
+test('huntPicks union: a duplicated list does not out-vote the single best array', () => {
+  // The same 6-pick list appears twice (aliased/copied) — union must not
+  // treat that as "12 picks" or double anything.
+  const picks = mkPicks(6, (name, position, team, i) => ({ pick: i, player_name: name, position, team }));
+  const found = fpw.extractDraft(JSON.stringify({ a: picks, b: JSON.parse(JSON.stringify(picks)) }));
+  assert.ok(found);
+  assert.equal(found.picks.length, 6);
 });
