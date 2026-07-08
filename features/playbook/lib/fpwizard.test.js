@@ -161,3 +161,43 @@ test('fetchDraft end-to-end: page references a data endpoint that has the picks'
     server.close();
   }
 });
+
+test('extractDraft: JS object literal (unquoted keys, single quotes) in a JSP page', () => {
+  const rows = mkPicks(14, (name, position, team, i) =>
+    `{pick: ${i}, name: '${name}', pos: '${position}', team: '${team}'}`).join(', ');
+  const html = '<html><script>var draftData = {numTeams: 14, picks: [' + rows + ']};</script></html>';
+  const found = fpw.extractDraft(html);
+  assert.ok(found, 'relaxed JSON should be repaired and parsed');
+  assert.equal(found.picks.length, 14);
+  assert.equal(found.teamsLen, 14);
+  assert.equal(found.picks[0].name, 'Bijan Robinson');
+  assert.equal(found.picks[0].position, 'RB');
+});
+
+test('fetchDraft: discovered endpoint gets keyed variants when the key is missing', async () => {
+  const data = { picks: mkPicks(16, (name, position, team, i) => ({ pick: i, name, position, team })) };
+  const server = http.createServer((req, res) => {
+    const u = new URL(req.url, 'http://x');
+    if (req.url.startsWith('/d/secondscreen.jsp')) {
+      res.setHeader('Content-Type', 'text/html');
+      res.end('<html><script>poll("/ajax/draft/status.json")</script></html>');
+    } else if (u.pathname === '/ajax/draft/status.json' && u.searchParams.get('mockDraftKey') === 'nfl~kv') {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(data)); // only answers WITH the key
+    } else if (u.pathname === '/ajax/draft/status.json') {
+      res.end('{"error": "missing key"}');
+    } else { res.statusCode = 404; res.end('nope'); }
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const base = 'http://127.0.0.1:' + server.address().port;
+  try {
+    const result = await fpw.fetchDraft(
+      { url: base + '/d/secondscreen.jsp?mockDraftKey=nfl~kv', key: 'nfl~kv' },
+      { allowAnyHost: true, leagueSize: 8, mySlot: 1 }
+    );
+    assert.equal(result.picks.length, 16);
+    assert.ok(result.captures.length >= 2, 'captures record what each URL sent');
+  } finally {
+    server.close();
+  }
+});

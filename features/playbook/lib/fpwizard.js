@@ -45,6 +45,19 @@ function tryJson(text) {
   try { return JSON.parse(text); } catch (e) { return null; }
 }
 
+// JSP-era pages often embed JAVASCRIPT object literals, not strict JSON:
+// unquoted keys ({pick: 1}) and single-quoted strings ('Bijan Robinson').
+// Repair those two patterns and re-parse. Heuristic by design — the result
+// still has to survive JSON.parse, so a bad repair just yields null.
+function tryRelaxedJson(text) {
+  let t = String(text)
+    // 'single quoted' -> "double quoted" (escaping inner double quotes)
+    .replace(/'((?:[^'\\]|\\.)*)'/g, (m, inner) => '"' + inner.replace(/\\'/g, "'").replace(/"/g, '\\"') + '"')
+    // {key: / ,key:  ->  {"key":
+    .replace(/([{,]\s*)([A-Za-z_$][\w$]*)(\s*:)/g, '$1"$2"$3');
+  return tryJson(t);
+}
+
 // Scan text for balanced {...} / [...] regions that parse as JSON. Only starts
 // at assignment/argument positions ("= {", ": [", "({", ", [", etc.) so an
 // HTML page doesn't trigger a parse attempt at every brace.
@@ -58,7 +71,8 @@ function jsonBlobs(text, maxBlobs) {
     const end = balancedEnd(src, start);
     if (end === -1) continue;
     if (end - start < 80) { startRe.lastIndex = start + 1; continue; } // too small to be a draft
-    const parsed = tryJson(src.slice(start, end + 1));
+    const slice = src.slice(start, end + 1);
+    const parsed = tryJson(slice) || tryRelaxedJson(slice);
     if (parsed && typeof parsed === 'object') {
       out.push(parsed);
       startRe.lastIndex = end + 1;
@@ -299,18 +313,39 @@ async function fetchText(url, fetchImpl) {
   }
 }
 
-// Fetch the pasted URL, mine it (and up to 6 data URLs it references) for the
+// Fetch the pasted URL, mine it (and the data URLs it references) for the
 // draft. opts: { fetchImpl (tests), allowAnyHost (tests), leagueSize, mySlot }.
-// Returns { picks, inferredMySlot, inferredLeagueSize, tried: [{url, status, note}] }.
+// Returns { picks, inferredMySlot, inferredLeagueSize, tried, captures } —
+// captures holds what each URL actually sent (trimmed) so a failed attempt
+// can be downloaded and debugged instead of guessed at.
 async function fetchDraft(target, opts) {
   const o = opts || {};
   const fetchImpl = o.fetchImpl || fetch;
   const tried = [];
+  const captures = [];
   const urls = [target.url];
   const queued = new Set(urls);
 
+  // A discovered data endpoint may expect the draft key under a different
+  // query-param name — queue keyed variants alongside the original.
+  const queueUrl = (u) => {
+    if (queued.has(u)) return;
+    queued.add(u);
+    urls.push(u);
+    if (target.key && !u.includes(target.key)) {
+      for (const param of ['mockDraftKey', 'key']) {
+        try {
+          const v = new URL(u);
+          v.searchParams.set(param, target.key);
+          const s = v.toString();
+          if (!queued.has(s)) { queued.add(s); urls.push(s); }
+        } catch (e) { /* skip malformed */ }
+      }
+    }
+  };
+
   let best = null;
-  for (let i = 0; i < urls.length && i < 8; i++) {
+  for (let i = 0; i < urls.length && i < 12; i++) {
     const url = urls[i];
     let status = 0, body = '';
     try {
@@ -322,19 +357,18 @@ async function fetchDraft(target, opts) {
     }
     const found = status >= 200 && status < 300 ? extractDraft(body) : null;
     tried.push({ url, status, note: found ? found.picks.length + ' picks' : 'no picks found' });
+    if (captures.length < 8) captures.push({ url, status, body: String(body).slice(0, 300 * 1024) });
     if (found && found.picks.length >= 4) {
       if (!best || found.score > best.score) best = found;
       if (found.picks.length >= 12) break; // a real board — stop looking
     }
     // Only the first page (the one the owner pasted) seeds discovery.
     if (i === 0 && status >= 200 && status < 300) {
-      for (const u of discoverUrls(body, url, target.key, o.allowAnyHost)) {
-        if (!queued.has(u)) { queued.add(u); urls.push(u); }
-      }
+      for (const u of discoverUrls(body, url, target.key, o.allowAnyHost)) queueUrl(u);
     }
   }
 
-  if (!best) return { picks: [], inferredMySlot: null, inferredLeagueSize: null, tried };
+  if (!best) return { picks: [], inferredMySlot: null, inferredLeagueSize: null, tried, captures };
   const leagueSize = best.teamsLen || num(o.leagueSize) || 12;
   const normalized = toPlaybookPicks(best.picks, { leagueSize, mySlot: o.mySlot });
   return {
@@ -342,6 +376,7 @@ async function fetchDraft(target, opts) {
     inferredMySlot: normalized.inferredMySlot,
     inferredLeagueSize: best.teamsLen || null,
     tried,
+    captures,
   };
 }
 

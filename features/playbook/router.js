@@ -57,9 +57,13 @@ router.post('/fetch-url', async (req, res) => {
     if (!result.picks.length) {
       const notes = result.tried.map((t) => `${t.url} -> ${t.status || 'error'} (${t.note})`).join('; ');
       console.error(`POST /api/drafts/fetch-url: no picks. ${notes}`);
+      // Keep what FantasyPros actually sent so it can be downloaded and
+      // debugged instead of guessed at (single-user app: last failure only).
+      lastFetchDiagnostic = { at: new Date().toISOString(), url: String(url), tried: result.tried, captures: result.captures || [] };
       const reached = result.tried.some((t) => t.status >= 200 && t.status < 400);
       return res.json({
         ok: false,
+        diagnostic: true,
         error: reached
           ? 'FantasyPros answered, but no draft picks were found on that page. If the mock is still running, try again once picks are in — otherwise copy the draft board and paste it below instead.'
           : 'Could not reach FantasyPros from the server (blocked or down). Copy the draft board and paste it below instead.',
@@ -79,6 +83,32 @@ router.post('/fetch-url', async (req, res) => {
     console.error(`POST /api/drafts/fetch-url: ${err.message}`);
     res.json({ ok: false, error: 'Fetching that link failed: ' + err.message + '. Copy the draft board and paste it below instead.' });
   }
+});
+
+// GET /api/drafts/fetch-url/diagnostic — download what FantasyPros sent on the
+// last failed URL import, so the extractor can be fixed against the real
+// payload instead of a guess. Declared before /:id so the path isn't read as
+// an id. In-memory, last failure only (single-user app).
+let lastFetchDiagnostic = null;
+router.get('/fetch-url/diagnostic', (req, res) => {
+  if (!lastFetchDiagnostic) {
+    return res.status(404).json({ ok: false, error: 'No failed fetch to report — try a Draft Wizard link first.' });
+  }
+  const d = lastFetchDiagnostic;
+  const parts = [
+    `All22 Draft Wizard fetch diagnostic — ${d.at}`,
+    `Pasted URL: ${d.url}`,
+    '',
+    'Attempts:',
+    ...d.tried.map((t) => `  ${t.status || 'error'}  ${t.url}  (${t.note})`),
+    '',
+  ];
+  for (const c of d.captures) {
+    parts.push(`===== ${c.status} ${c.url} =====`, c.body, '');
+  }
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="fpwizard-diagnostic.txt"');
+  res.send(parts.join('\n'));
 });
 
 // GET /api/drafts — list drafts with optional filters.
