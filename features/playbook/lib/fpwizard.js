@@ -145,11 +145,21 @@ function num(v) {
   return isFinite(n) && n > 0 ? Math.round(n) : null;
 }
 
+// A player referenced by FantasyPros numeric id instead of a name — resolved
+// later against the site's PLAYER_DATA file.
+function pickPlayerId(el) {
+  const direct = pickField(el, ['player_id', 'playerId', 'fpid', 'fp_id', 'id']);
+  if (num(direct)) return num(direct);
+  // e.g. { player: 23046, pick: 1 }
+  if (num(el.player)) return num(el.player);
+  return null;
+}
+
 // Turn one array element into a raw pick, or null if it doesn't look like one.
 function readPick(el) {
   if (!el || typeof el !== 'object' || Array.isArray(el)) return null;
   const name = pickName(el);
-  if (!name || name.length > 60) return null;
+  if (!name || name.length > 60) return readIdPick(el);
   const position = normPos(pickField(el, ['position', 'pos', 'player_position', 'position_id']));
   const teamRaw = pickField(el, ['nfl_team', 'team_abbr', 'team_abbreviation', 'pro_team', 'team']);
   const team = teamRaw == null ? '' : (teamFromToken(String(teamRaw)) || '');
@@ -160,6 +170,58 @@ function readPick(el) {
   const mine = mineRaw === true || mineRaw === 'true' || mineRaw === 1 ? true : undefined;
   const hasPickInfo = overall !== null || round !== null;
   return { name, position, team, overall, round, slot, mine, hasPickInfo };
+}
+
+// A nameless element that still reads as a pick: a numeric player id plus a
+// pick/round number. The id gets a name later via resolvePlayerIds().
+function readIdPick(el) {
+  const playerId = pickPlayerId(el);
+  const overall = num(pickField(el, ['overall', 'overall_pick', 'overallPick', 'pick', 'pick_number', 'pickNumber', 'pick_no']));
+  const round = num(pickField(el, ['round', 'rd', 'round_number']));
+  if (!playerId || (overall === null && round === null)) return null;
+  const slot = num(pickField(el, ['draft_slot', 'draftSlot', 'slot', 'pick_in_round', 'round_pick']));
+  const mineRaw = pickField(el, ['is_user', 'isUser', 'is_mine', 'isMine', 'self', 'is_me', 'my_pick', 'user_pick']);
+  const mine = mineRaw === true || mineRaw === 'true' || mineRaw === 1 ? true : undefined;
+  return { name: null, playerId, position: '', team: '', overall, round, slot, mine, hasPickInfo: true };
+}
+
+// Build { fpId: {name, position, team} } from FantasyPros' PLAYER_DATA file
+// (window.PLAYER_DATA = [...] — a big array of player objects).
+function buildPlayerMap(body) {
+  const map = {};
+  const roots = [];
+  const whole = tryJson(String(body || '').trim());
+  if (whole) roots.push(whole);
+  else roots.push(...jsonBlobs(String(body || ''), 10));
+  for (const root of roots) {
+    const queue = [root];
+    let visited = 0;
+    while (queue.length && visited < 3000) {
+      const node = queue.shift();
+      visited++;
+      if (!node || typeof node !== 'object') continue;
+      if (Array.isArray(node)) {
+        for (const el of node) {
+          if (el && typeof el === 'object' && !Array.isArray(el)) {
+            const id = num(el.player_id !== undefined ? el.player_id : el.id);
+            const name = pickName(el);
+            if (id && name && map[id] === undefined) {
+              map[id] = {
+                name,
+                position: normPos(el.position || el.pos || el.position_id),
+                team: el.team ? (teamFromToken(String(el.team)) || '') : '',
+              };
+            } else if (el && typeof el === 'object') {
+              queue.push(el);
+            }
+          }
+        }
+      } else {
+        for (const k of Object.keys(node)) if (node[k] && typeof node[k] === 'object') queue.push(node[k]);
+      }
+    }
+  }
+  return map;
 }
 
 // Walk a JSON tree and return the most pick-like array found, plus a guess at
@@ -224,6 +286,63 @@ function extractDraft(body) {
     if (found && found.picks.length && (!best || found.score > best.score)) best = found;
   }
   return best;
+}
+
+// --- Page config mining -------------------------------------------------------
+
+// The second-screen page embeds window.draftRoomData.config with everything
+// but the picks: the draft key, teamCount (league size), userPos (the owner's
+// seat) and API base paths like url:'/spaDraft'. Mine it with targeted
+// regexes — the object is relaxed JS spread across template whitespace, not
+// parseable JSON.
+function mineConfig(html) {
+  const s = String(html || '');
+  const get = (re) => { const m = re.exec(s); return m ? m[1] : null; };
+  const urls = [];
+  const urlRe = /[A-Za-z]*[uU]rl['"]?\s*:\s*["'](\/[^"'\s]{1,120})["']/g;
+  let m;
+  while ((m = urlRe.exec(s)) && urls.length < 8) {
+    if (!urls.includes(m[1])) urls.push(m[1]);
+  }
+  return {
+    key: get(/mockDraftKey\s*[:=]\s*["']([^"']+)["']/),
+    teamCount: num(get(/teamCount\s*:\s*(\d+)/)),
+    userPos: num(get(/userPos\s*:\s*(\d+)/)), // num() maps 0 -> null: 0 = observer/unknown
+    positions: get(/positions\s*:\s*["']([A-Z/,]+)["']/),
+    urls,
+  };
+}
+
+// Script bundles worth mining for API paths: same-site .js whose path suggests
+// it drives the draft screens (second-screen / draft-room bundles).
+function findBundles(html, baseUrl, allowAnyHost) {
+  const out = [];
+  const re = /src\s*=\s*["']([^"']+\.js[^"']*)["']/gi;
+  let m;
+  while ((m = re.exec(String(html || ''))) && out.length < 2) {
+    if (!/(second[-_]?screen|draft[-_]?room|draft)/i.test(m[1])) continue;
+    let abs;
+    try { abs = new URL(m[1], baseUrl); } catch (e) { continue; }
+    if (!/^https?:$/.test(abs.protocol)) continue;
+    if (!allowAnyHost && !/(^|\.)fantasypros\.com$/i.test(abs.hostname)) continue;
+    if (!out.includes(abs.toString())) out.push(abs.toString());
+  }
+  return out;
+}
+
+// Inside a minified bundle, API endpoints exist as string literals. Pull out
+// path-looking strings that mention the draft/spa/ajax/screen machinery.
+function mineBundlePaths(js) {
+  const out = [];
+  const re = /["'](\/[A-Za-z0-9_\-./]{2,80})["']/g;
+  let m;
+  while ((m = re.exec(String(js || ''))) && out.length < 15) {
+    const p = m[1];
+    if (!/draft|spa|ajax|mock|screen|pick/i.test(p)) continue;
+    if (ASSET_RE.test(p)) continue;
+    if (!out.includes(p)) out.push(p);
+  }
+  return out;
 }
 
 // --- URL discovery inside a fetched page -------------------------------------
@@ -321,10 +440,13 @@ async function fetchText(url, fetchImpl) {
 async function fetchDraft(target, opts) {
   const o = opts || {};
   const fetchImpl = o.fetchImpl || fetch;
+  const started = Date.now();
+  const BUDGET_MS = 25000;
   const tried = [];
   const captures = [];
   const urls = [target.url];
   const queued = new Set(urls);
+  const bundles = new Set(); // .js bundles get MINED for paths, not extracted
 
   // A discovered data endpoint may expect the draft key under a different
   // query-param name — queue keyed variants alongside the original.
@@ -345,7 +467,10 @@ async function fetchDraft(target, opts) {
   };
 
   let best = null;
-  for (let i = 0; i < urls.length && i < 12; i++) {
+  let config = null;
+  let firstBody = '';
+  for (let i = 0; i < urls.length && i < 20; i++) {
+    if (Date.now() - started > BUDGET_MS) break;
     const url = urls[i];
     let status = 0, body = '';
     try {
@@ -355,29 +480,87 @@ async function fetchDraft(target, opts) {
       tried.push({ url, status: 0, note: e.name === 'AbortError' ? 'timed out' : e.message });
       continue;
     }
-    const found = status >= 200 && status < 300 ? extractDraft(body) : null;
+    const ok = status >= 200 && status < 300;
+
+    if (bundles.has(url)) {
+      // A JS bundle: harvest the API paths it references and try them keyed.
+      const paths = ok ? mineBundlePaths(body) : [];
+      tried.push({ url, status, note: 'bundle — ' + paths.length + ' paths mined' });
+      for (const p of paths) {
+        try { queueUrl(new URL(p, target.url).toString()); } catch (e) { /* skip */ }
+      }
+      continue;
+    }
+
+    const found = ok ? extractDraft(body) : null;
     tried.push({ url, status, note: found ? found.picks.length + ' picks' : 'no picks found' });
     if (captures.length < 8) captures.push({ url, status, body: String(body).slice(0, 300 * 1024) });
     if (found && found.picks.length >= 4) {
       if (!best || found.score > best.score) best = found;
       if (found.picks.length >= 12) break; // a real board — stop looking
     }
-    // Only the first page (the one the owner pasted) seeds discovery.
-    if (i === 0 && status >= 200 && status < 300) {
+    // Only the first page (the one the owner pasted) seeds discovery: linked
+    // data URLs, the page's own config paths, and its draft-screen bundles.
+    if (i === 0 && ok) {
+      firstBody = body;
+      config = mineConfig(body);
       for (const u of discoverUrls(body, url, target.key, o.allowAnyHost)) queueUrl(u);
+      for (const p of config.urls) {
+        try { queueUrl(new URL(p, url).toString()); } catch (e) { /* skip */ }
+      }
+      for (const b of findBundles(body, url, o.allowAnyHost)) {
+        if (!queued.has(b)) { queued.add(b); bundles.add(b); urls.push(b); }
+      }
     }
   }
 
-  if (!best) return { picks: [], inferredMySlot: null, inferredLeagueSize: null, tried, captures };
-  const leagueSize = best.teamsLen || num(o.leagueSize) || 12;
-  const normalized = toPlaybookPicks(best.picks, { leagueSize, mySlot: o.mySlot });
+  const cfgLeague = config && config.teamCount && config.teamCount >= 4 && config.teamCount <= 24 ? config.teamCount : null;
+  const cfgSlot = config && config.userPos ? config.userPos : null;
+  if (!best) {
+    return { picks: [], inferredMySlot: cfgSlot, inferredLeagueSize: cfgLeague, tried, captures };
+  }
+
+  // Id-only picks: resolve names through the site's PLAYER_DATA file, which
+  // the page itself references (playersArray.jsp).
+  if (best.picks.some((p) => !p.name && p.playerId)) {
+    const m = /["']([^"']*playersArray\.jsp[^"']*)["']|src\s*=\s*['"]([^'"]*playersArray\.jsp[^'"]*)['"]/.exec(firstBody);
+    const playersUrl = m ? (m[1] || m[2]) : null;
+    if (playersUrl) {
+      try {
+        const abs = new URL(playersUrl, target.url).toString();
+        const r = await fetchText(abs, fetchImpl);
+        const map = r.status >= 200 && r.status < 300 ? buildPlayerMap(r.body) : {};
+        tried.push({ url: abs, status: r.status, note: Object.keys(map).length + ' players mapped' });
+        best.picks.forEach((p) => {
+          if (!p.name && p.playerId && map[p.playerId]) {
+            p.name = map[p.playerId].name;
+            p.position = p.position || map[p.playerId].position;
+            p.team = p.team || map[p.playerId].team;
+          }
+        });
+      } catch (e) {
+        tried.push({ url: playersUrl, status: 0, note: 'player map fetch failed: ' + e.message });
+      }
+    }
+    best.picks = best.picks.filter((p) => p.name);
+    if (!best.picks.length) {
+      return { picks: [], inferredMySlot: cfgSlot, inferredLeagueSize: cfgLeague, tried, captures };
+    }
+  }
+  const leagueSize = best.teamsLen || cfgLeague || num(o.leagueSize) || 12;
+  // The page's own userPos is FantasyPros saying which seat was the owner's —
+  // it outranks the form field (which sits at its default most of the time).
+  const normalized = toPlaybookPicks(best.picks, { leagueSize, mySlot: cfgSlot || num(o.mySlot) });
   return {
     picks: normalized.picks,
-    inferredMySlot: normalized.inferredMySlot,
-    inferredLeagueSize: best.teamsLen || null,
+    inferredMySlot: normalized.inferredMySlot || cfgSlot,
+    inferredLeagueSize: best.teamsLen || cfgLeague,
     tried,
     captures,
   };
 }
 
-module.exports = { parseTarget, extractDraft, discoverUrls, toPlaybookPicks, fetchDraft, jsonBlobs };
+module.exports = {
+  parseTarget, extractDraft, discoverUrls, toPlaybookPicks, fetchDraft, jsonBlobs,
+  mineConfig, findBundles, mineBundlePaths,
+};
