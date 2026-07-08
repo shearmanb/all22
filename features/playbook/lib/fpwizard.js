@@ -294,6 +294,69 @@ function huntPicks(root) {
   return { picks: best.picks, teamsLen, score: best.score };
 }
 
+// The Draft Wizard state payload (GET /spaDraft?mockDraftKey=...) has a known
+// shape — parse it DETERMINISTICALLY instead of heuristically:
+//   draftOrder: [[round, pickInRound, seat], ...]  (index = overall pick - 1)
+//   picks:      the drafted players in overall order (ids or objects)
+//   teams:      [{ id: seat, name, players: [...] }, ...]  (fallback source)
+//   userPos:    the owner's 0-based seat
+function parseSpaDraftState(root) {
+  if (!root || typeof root !== 'object' || Array.isArray(root)) return null;
+  if (!Array.isArray(root.draftOrder) || !Array.isArray(root.teams)) return null;
+  if (!root.draftOrder.length || !root.teams.length) return null;
+  const userPos = Number.isInteger(root.userPos) ? root.userPos : null;
+
+  const mk = (pl, overall, round, slot) => {
+    let name = null, playerId = null, position = '', team = '';
+    if (typeof pl === 'number') playerId = num(pl);
+    else if (typeof pl === 'string') { playerId = num(pl); if (!playerId) name = pl.trim() || null; }
+    else if (pl && typeof pl === 'object') {
+      name = pickName(pl);
+      playerId = pickPlayerId(pl);
+      position = normPos(pickField(pl, ['position', 'pos', 'position_id']));
+      const tr = pickField(pl, ['nfl_team', 'team_abbr', 'pro_team', 'team']);
+      team = tr == null ? '' : (teamFromToken(String(tr)) || '');
+    }
+    if (!name && !playerId) return null;
+    return {
+      name, playerId, position, team, overall, round, slot,
+      mine: userPos !== null && slot === userPos + 1 ? true : undefined,
+      hasPickInfo: true,
+    };
+  };
+
+  const picks = [];
+  // Preferred: the top-level picks list, already in overall order.
+  if (Array.isArray(root.picks) && root.picks.length) {
+    root.picks.forEach((pl, i) => {
+      const at = root.draftOrder[i];
+      const p = mk(pl, i + 1, at ? at[0] : null, at ? at[2] : null);
+      if (p) picks.push(p);
+    });
+  }
+  // Fallback: rebuild from per-team rosters — team seat n's k-th player went
+  // at the k-th draftOrder entry belonging to seat n.
+  if (!picks.length) {
+    const bySlot = {};
+    root.draftOrder.forEach((e, i) => {
+      if (Array.isArray(e) && e.length >= 3) (bySlot[e[2]] = bySlot[e[2]] || []).push({ overall: i + 1, round: e[0] });
+    });
+    root.teams.forEach((t, ti) => {
+      const slot = num(t && t.id) || ti + 1;
+      const seq = bySlot[slot] || [];
+      (t && Array.isArray(t.players) ? t.players : []).forEach((pl, pi) => {
+        const at = seq[pi];
+        const p = mk(pl, at ? at.overall : null, at ? at.round : null, slot);
+        if (p) picks.push(p);
+      });
+    });
+    picks.sort((a, b) => (a.overall || Infinity) - (b.overall || Infinity));
+  }
+
+  if (picks.length < 2) return null;
+  return { picks, teamsLen: root.teams.length, score: 100 };
+}
+
 // Extract the best pick list from a response body (JSON or HTML with embedded
 // JSON). Returns { picks: [raw], teamsLen } or null.
 function extractDraft(body) {
@@ -303,6 +366,11 @@ function extractDraft(body) {
   const whole = tryJson(text.trim());
   if (whole && typeof whole === 'object') roots.push(whole);
   else roots.push(...jsonBlobs(text, 40));
+  // A recognized spaDraft state payload beats every heuristic outright.
+  for (const root of roots) {
+    const state = parseSpaDraftState(root);
+    if (state) return state;
+  }
   let best = null;
   for (const root of roots) {
     const found = huntPicks(root);
@@ -520,7 +588,10 @@ async function fetchDraft(target, opts) {
 
     const found = ok ? extractDraft(body) : null;
     tried.push({ url, status, note: found ? found.picks.length + ' picks' : 'no picks found' });
-    if (captures.length < 8) captures.push({ url, status, body: String(body).slice(0, 300 * 1024) });
+    // Keep the first page plus the most recent responses — the interesting
+    // endpoint is usually found late, after the nav pages.
+    captures.push({ url, status, body: String(body).slice(0, 300 * 1024) });
+    if (captures.length > 8) captures.splice(1, 1);
     if (found && found.picks.length >= 4) {
       if (!best || found.score > best.score) best = found;
       if (found.picks.length >= 12) break; // a real board — stop looking
@@ -589,5 +660,5 @@ async function fetchDraft(target, opts) {
 
 module.exports = {
   parseTarget, extractDraft, discoverUrls, toPlaybookPicks, fetchDraft, jsonBlobs,
-  mineConfig, findBundles, mineBundlePaths,
+  mineConfig, findBundles, mineBundlePaths, parseSpaDraftState,
 };

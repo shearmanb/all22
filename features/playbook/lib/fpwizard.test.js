@@ -337,3 +337,95 @@ test('huntPicks union: a duplicated list does not out-vote the single best array
   assert.ok(found);
   assert.equal(found.picks.length, 6);
 });
+
+// ---- Real spaDraft state schema (captured via the diagnostic): the actual
+// GET /spaDraft response for a fresh mock. Filled variants below simulate a
+// completed draft the way FantasyPros populates this same shape.
+const SPA_STATE = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'fp-spadraft-empty.json'), 'utf8'));
+
+test('spaDraft state: an empty draft yields no picks (no false positives)', () => {
+  assert.equal(fpw.parseSpaDraftState(SPA_STATE), null);
+  assert.ok(!fpw.extractDraft(JSON.stringify(SPA_STATE)));
+});
+
+test('spaDraft state: top-level picks (numeric ids) + draftOrder reconstruct the board', () => {
+  const state = JSON.parse(JSON.stringify(SPA_STATE));
+  state.userPos = 5; // seat 6, like the owner's real draft
+  state.isCompleted = true;
+  state.picks = Array.from({ length: 180 }, (_, i) => 20000 + i); // fp ids in overall order
+  const found = fpw.parseSpaDraftState(state);
+  assert.ok(found);
+  assert.equal(found.picks.length, 180);
+  assert.equal(found.teamsLen, 12);
+  // overall 6 = round 1, seat 6 -> the owner's pick (userPos 5, 0-based)
+  assert.equal(found.picks[5].slot, 6);
+  assert.equal(found.picks[5].mine, true);
+  // snake: overall 13 = round 2 first pick = seat 12
+  assert.equal(found.picks[12].slot, 12);
+  assert.equal(found.picks[12].round, 2);
+  assert.equal(found.picks[12].mine, undefined);
+  // owner's round-2 pick: overall 19 (24 - 6 + 1)
+  assert.equal(found.picks[18].slot, 6);
+  assert.equal(found.picks[18].mine, true);
+});
+
+test('spaDraft state: falls back to per-team rosters when picks is empty', () => {
+  const state = JSON.parse(JSON.stringify(SPA_STATE));
+  state.userPos = 0;
+  state.picks = [];
+  // Give each team its round-1 and round-2 players (ids); seat = team.id.
+  state.teams.forEach((t) => {
+    t.players = [30000 + t.id, 31000 + t.id];
+  });
+  const found = fpw.parseSpaDraftState(state);
+  assert.ok(found);
+  assert.equal(found.picks.length, 24);
+  // Round 1 runs seats 1..12 in order; overall 1 belongs to seat 1.
+  assert.equal(found.picks[0].playerId, 30001);
+  assert.equal(found.picks[0].mine, true); // userPos 0 = seat 1
+  // Snake round 2: overall 13 is seat 12's second player.
+  assert.equal(found.picks[12].playerId, 31012);
+  assert.equal(found.picks[12].round, 2);
+});
+
+test('fetchDraft: full spaDraft flow — state ids resolved via PLAYER_DATA', async () => {
+  const state = JSON.parse(JSON.stringify(SPA_STATE));
+  state.userPos = 5;
+  state.picks = Array.from({ length: 24 }, (_, i) => 40000 + i);
+  const playerData = 'window.PLAYER_DATA = ' + JSON.stringify(
+    Array.from({ length: 24 }, (_, i) => ({ player_id: 40000 + i, name: 'Player ' + (i + 1), position: 'RB', team: 'ATL' }))
+  ) + ';';
+  const server = http.createServer((req, res) => {
+    const u = new URL(req.url, 'http://x');
+    if (u.pathname === '/d/secondscreen.jsp') {
+      res.setHeader('Content-Type', 'text/html');
+      res.end(`<html><script src='/files/playersArray.jsp?varName=window.PLAYER_DATA&sport=nfl'></script>
+        <script>window.draftRoomData={config:{url:'/spaDraft',teamCount:12,userPos:5,mockDraftKey:"nfl~spa"}};</script><body></body></html>`);
+    } else if (u.pathname === '/spaDraft' && u.searchParams.get('mockDraftKey') === 'nfl~spa') {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(state));
+    } else if (u.pathname === '/spaDraft') {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(SPA_STATE)); // un-keyed: fresh empty draft
+    } else if (u.pathname === '/files/playersArray.jsp') {
+      res.setHeader('Content-Type', 'text/javascript');
+      res.end(playerData);
+    } else { res.statusCode = 404; res.end('nope'); }
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const base = 'http://127.0.0.1:' + server.address().port;
+  try {
+    const result = await fpw.fetchDraft(
+      { url: base + '/d/secondscreen.jsp?mockDraftKey=nfl~spa', key: 'nfl~spa' },
+      { allowAnyHost: true, leagueSize: 12, mySlot: 1 }
+    );
+    assert.equal(result.picks.length, 24);
+    assert.equal(result.picks[0].playerName, 'Player 1');
+    assert.equal(result.inferredLeagueSize, 12);
+    assert.equal(result.inferredMySlot, 6);
+    // Seat 6 in a 12-team snake: overalls 6 and 19.
+    assert.deepEqual(result.picks.filter((p) => p.isMyPick).map((p) => p.overallPick), [6, 19]);
+  } finally {
+    server.close();
+  }
+});
