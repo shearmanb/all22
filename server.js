@@ -10,6 +10,7 @@ const authRouter = require('./routes/auth');
 const newsRouter = require('./routes/news');
 const settingsRouter = require('./routes/settings');
 const dataHealthRouter = require('./routes/datahealth');
+const playersRouter = require('./routes/players');
 const playersMaster = require('./lib/players-master');
 const adpCollect = require('./features/adp/lib/collect');
 const features = require('./features');
@@ -51,6 +52,7 @@ app.use((req, res, next) => {
 app.use('/api/news', newsRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/datahealth', dataHealthRouter);
+app.use('/api/players', playersRouter);
 
 // Mount each applet from the registry: its API router + its static pages.
 // Feature pages are served at the site root, so links like /combine.html and
