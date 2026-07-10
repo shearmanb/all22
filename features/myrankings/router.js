@@ -16,32 +16,37 @@ const converters = require('../combine/lib/converters');
 const settings = require('../../lib/settings');
 
 const hasDb = () => Boolean(process.env.DATABASE_URL);
-const FORMATS = new Set(['ppr', 'half', 'standard', 'best_ball', 'superflex', 'unknown']);
+// The one scoring vocabulary — Combine's store owns it (CLAUDE.md).
+const FORMATS = combineStore.FORMATS;
 
 // Load the selected sets (meta + rows) in the shape buildEcr wants.
-// selections: [{ set_id, weight }]
+// selections: [{ set_id, weight }]. Sets load in parallel — a blend of many
+// sets is the hot interactive path.
 async function loadSelections(selections) {
   const list = (Array.isArray(selections) ? selections : [])
     .map((s) => ({ set_id: Number(s && s.set_id), weight: s && s.weight }))
     .filter((s) => Number.isInteger(s.set_id) && s.set_id > 0);
   if (!list.length) return { sets: [], missing: [] };
-  const sets = [];
-  const missing = [];
-  for (const sel of list) {
+  const loaded = await Promise.all(list.map(async (sel) => {
     const meta = await combineStore.getSet(sel.set_id);
-    if (!meta) { missing.push(sel.set_id); continue; }
+    if (!meta) return { missing: sel.set_id };
     const rows = await combineStore.getSetRows(sel.set_id);
-    sets.push({
-      id: meta.id,
-      name: meta.name,
-      source: meta.source,
-      native_scoring_format: meta.native_scoring_format,
-      ranking_scope: meta.ranking_scope,
-      weight: sel.weight,
-      rows,
-    });
-  }
-  return { sets, missing };
+    return {
+      set: {
+        id: meta.id,
+        name: meta.name,
+        source: meta.source,
+        native_scoring_format: meta.native_scoring_format,
+        ranking_scope: meta.ranking_scope,
+        weight: sel.weight,
+        rows,
+      },
+    };
+  }));
+  return {
+    sets: loaded.filter((l) => l.set).map((l) => l.set),
+    missing: loaded.filter((l) => l.missing).map((l) => l.missing),
+  };
 }
 
 // Set labels for the run's settings snapshot — so a saved run still names its

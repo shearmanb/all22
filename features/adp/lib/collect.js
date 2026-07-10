@@ -155,6 +155,18 @@ async function collectSleeper({ force, year, index, date }) {
     for (const f of found) byId.set(f.sleeper_id, f.player_id);
   }
 
+  // Resolve each row's identity ONCE (rows are identical across formats):
+  // exact sleeper_id join first, high-confidence name match as fallback.
+  const resolved = new Map();
+  for (const r of rows) {
+    let playerId = byId.get(r.sleeper_id) || null;
+    if (!playerId) {
+      const m = ingest.matchRow({ name: r.name, position: r.position, team: r.team }, index);
+      playerId = (m.player_id && m.confidence === 'high') ? m.player_id : null;
+    }
+    resolved.set(r, playerId);
+  }
+
   const summaries = [];
   for (const f of pending) {
     let unmatched = 0;
@@ -162,11 +174,7 @@ async function collectSleeper({ force, year, index, date }) {
     for (const r of rows) {
       const adp = r.adps[f];
       if (adp === undefined) continue;
-      let playerId = byId.get(r.sleeper_id) || null;
-      if (!playerId) {
-        const m = ingest.matchRow({ name: r.name, position: r.position, team: r.team }, index);
-        playerId = (m.player_id && m.confidence === 'high') ? m.player_id : null;
-      }
+      const playerId = resolved.get(r);
       if (!playerId) unmatched++;
       out.push({
         player_id: playerId,
