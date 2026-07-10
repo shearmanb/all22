@@ -4,6 +4,7 @@
 // history, collector status, and a collect-now trigger. Collection itself
 // lives in lib/collect.js and runs on a boot + interval schedule (server.js).
 const express = require('express');
+const crypto = require('crypto');
 const router = express.Router();
 
 const pool = require('../../db/pool');
@@ -25,7 +26,9 @@ async function sourceUrlFor(site, format, teams) {
     const id = e && e.url && custom.identify(e.url);
     if (id && id.site === site) return id.url;
   }
-  return null;
+  // Bookmarklet-captured boards (e.g. Yahoo) record the page they came from.
+  const urls = (await settings.get('adp.source_urls', {})) || {};
+  return urls[site] || null;
 }
 
 // Pick the best stored snapshot key for a format: exact league size beats
@@ -272,6 +275,32 @@ router.put('/sources', async (req, res) => {
   } catch (err) {
     console.error(`PUT /api/adp/sources: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not save your ADP sources.' });
+  }
+});
+
+// The capture token the Yahoo bookmarklet carries. GET returns it (minting one
+// on first use); POST rotates it (if it ever leaks, the old bookmarklet dies).
+router.get('/capture', async (req, res) => {
+  try {
+    if (!hasDb()) return res.status(400).json({ ok: false, error: 'Capture needs a database.' });
+    let token = await settings.get('adp.ingest_token', null);
+    if (!token) { token = crypto.randomBytes(24).toString('hex'); await settings.set('adp.ingest_token', token); }
+    res.json({ ok: true, data: { token, last_capture: await settings.get('adp.last_capture', null) } });
+  } catch (err) {
+    console.error(`GET /api/adp/capture: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not load the capture token.' });
+  }
+});
+
+router.post('/capture/rotate', async (req, res) => {
+  try {
+    if (!hasDb()) return res.status(400).json({ ok: false, error: 'Capture needs a database.' });
+    const token = crypto.randomBytes(24).toString('hex');
+    await settings.set('adp.ingest_token', token);
+    res.json({ ok: true, data: { token } });
+  } catch (err) {
+    console.error(`POST /api/adp/capture/rotate: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not rotate the capture token.' });
   }
 });
 

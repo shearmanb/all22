@@ -217,6 +217,43 @@ async function collectCustom(entry, { force, index, date }) {
   return Object.assign(summary, { format: result.format, teams: result.teams, inserted, unmatched });
 }
 
+// Ingest a batch of ADP rows captured client-side (the Yahoo bookmarklet):
+// the browser scrapes a logged-in page and POSTs the rows, so no credentials
+// ever reach the server. Same match-high-confidence-only + write path as the
+// server-side feeds; records the page URL so the board gets a "View source".
+async function ingestSnapshot({ site, format, teams, rows, source_url }) {
+  if (!hasDb()) throw new Error('ADP capture needs a database.');
+  const cleanSite = String(site || 'capture').toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || 'capture';
+  const fmt = custom.cleanFormat(format);
+  const t = Number(teams) || 12;
+  const date = today();
+  const index = await master.getIndex();
+  let unmatched = 0;
+  const out = (Array.isArray(rows) ? rows : [])
+    .filter((r) => r && r.name && Number.isFinite(Number(r.adp)) && Number(r.adp) > 0)
+    .map((r) => {
+      const m = ingest.matchRow({ name: r.name, position: r.position, team: r.team }, index);
+      const ok = m.player_id && m.confidence === 'high';
+      if (!ok) unmatched++;
+      return {
+        player_id: ok ? m.player_id : null,
+        raw_name: String(r.name), raw_position: String(r.position || ''), raw_team: String(r.team || ''),
+        bye: null, adp: Number(r.adp), high: null, low: null, stdev: null, times_drafted: null,
+      };
+    });
+  if (!out.length) throw new Error('No usable ADP rows were sent (nothing had a name and a number).');
+  const inserted = await writeSnapshot(cleanSite, fmt, t, date, out);
+  if (source_url) {
+    const map = (await settings.get('adp.source_urls', {})) || {};
+    map[cleanSite] = String(source_url);
+    await settings.set('adp.source_urls', map);
+  }
+  await settings.set('adp.last_capture', {
+    at: new Date().toISOString(), site: cleanSite, format: fmt, teams: t, inserted, unmatched,
+  });
+  return { site: cleanSite, format: fmt, teams: t, inserted, unmatched };
+}
+
 // Collect everything that's due. Never called twice concurrently (inflight guard).
 let inflight = null;
 
@@ -275,4 +312,4 @@ async function ensureCollected() {
   }
 }
 
-module.exports = { collectNow, ensureCollected, ffcTargets };
+module.exports = { collectNow, ensureCollected, ffcTargets, ingestSnapshot };

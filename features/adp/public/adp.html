@@ -13,6 +13,9 @@
     .mover-name { flex: 1; }
     .src-note { font-size: 0.78rem; color: var(--text-dim); }
     #adp-search { max-width: 240px; }
+    a.button { display: inline-block; padding: 9px 14px; border-radius: 8px; font-weight: 700;
+      cursor: grab; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); }
+    a.button:hover { text-decoration: none; border-color: var(--accent); }
   </style>
 </head>
 <body>
@@ -115,6 +118,17 @@
           <button id="src-add" class="secondary" type="button">Add source</button>
         </div>
         <div id="src-hint" class="src-note section-gap"></div>
+      </div>
+
+      <div class="section-gap" style="border-top:1px solid var(--border); padding-top:12px">
+        <div class="field-label">Capture from Yahoo (bookmarklet) <span class="muted" style="font-weight:400">— Yahoo ADP is login-only, so grab it from your own browser</span></div>
+        <p class="src-note">One-time: drag the button below to your bookmarks bar. Then open your Yahoo <a href="https://football.fantasysports.yahoo.com/f1/draftanalysis" target="_blank" rel="noopener noreferrer">Draft Analysis</a> page (set the position filter to <strong>ALL</strong>), and click the bookmark — it reads the table and sends it here. Nothing about your Yahoo login leaves your browser.</p>
+        <div class="row section-gap">
+          <a id="bmk" class="button secondary" style="text-decoration:none">📥 Send Yahoo ADP → All22</a>
+          <button id="bmk-copy" class="link" type="button">Copy as text instead</button>
+          <button id="bmk-rotate" class="link" type="button" title="Invalidate the old bookmarklet and make a new one">Reset token</button>
+        </div>
+        <div id="bmk-status" class="src-note section-gap"></div>
       </div>
     </details>
   </main>
@@ -388,7 +402,76 @@
       searchTimer = setTimeout(renderTable, 250);
     });
 
+    // ---------------- Yahoo capture bookmarklet ----------------
+    // Builds a javascript: bookmarklet that scrapes the logged-in Yahoo Draft
+    // Analysis table (by header text, so it survives markup tweaks) and POSTs
+    // the rows to the token-guarded ingest endpoint. The token + app origin are
+    // baked in; the owner's Yahoo session never leaves their browser.
+    var bmkCode = '';
+    function buildBookmarklet(origin, token) {
+      function grab(APP, TK) {
+        try {
+          var trs = [].slice.call(document.querySelectorAll('tr'));
+          var hdr = null;
+          for (var i = 0; i < trs.length; i++) {
+            var t = [].slice.call(trs[i].children).map(function (c) { return (c.textContent || '').trim(); });
+            if (t.indexOf('All Drafts') >= 0 && t.indexOf('Rank') >= 0) { hdr = t; break; }
+          }
+          if (!hdr) { alert('All22: could not find the ADP table. Open your Yahoo Draft Analysis page first.'); return; }
+          var adpIdx = hdr.indexOf('All Drafts');
+          var playerIdx = hdr.indexOf('Player'); if (playerIdx < 0) playerIdx = 0;
+          var rows = [];
+          for (var j = 0; j < trs.length; j++) {
+            var cs = [].slice.call(trs[j].children);
+            if (cs.length <= adpIdx) continue;
+            var pc = cs[playerIdx]; var link = pc.querySelector('a');
+            var name = link ? (link.textContent || '').trim() : '';
+            if (!name) continue;
+            var sub = (pc.textContent || '').replace(name, '').trim();
+            var mt = sub.match(/([A-Za-z]{2,4})\s*[-–]\s*(QB|RB|WR|TE|K|DEF|DST)/i);
+            var team = mt ? mt[1].toUpperCase() : ''; var pos = mt ? mt[2].toUpperCase() : '';
+            var adp = parseFloat((cs[adpIdx].textContent || '').replace(/[^0-9.]/g, ''));
+            if (name && adp > 0) rows.push({ name: name, team: team, position: pos, adp: adp });
+          }
+          if (!rows.length) { alert('All22: found the table but no players — set the position filter to ALL and retry.'); return; }
+          fetch(APP + '/api/adp/ingest', { method: 'POST', headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify({ token: TK, site: 'yahoo', format: 'standard', teams: 12, source_url: location.href, rows: rows }) })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { alert(d.ok ? ('All22: sent ' + rows.length + ' players — ' + (d.data.inserted || 0) + ' stored, ' + (d.data.unmatched || 0) + ' unmatched. Refresh Edge Rush for the Yahoo board.') : ('All22 error: ' + (d.error || 'unknown'))); })
+            .catch(function (e) { alert('All22 could not reach the app: ' + e); });
+        } catch (e) { alert('All22 capture error: ' + e); }
+      }
+      return 'javascript:(' + grab.toString() + ')(' + JSON.stringify(origin) + ',' + JSON.stringify(token) + ');void 0';
+    }
+
+    function loadCapture() {
+      apiFetch('/api/adp/capture').then(function (d) {
+        bmkCode = buildBookmarklet(location.origin, d.token);
+        $('bmk').href = bmkCode;
+        var lc = d.last_capture;
+        $('bmk-status').textContent = (lc && lc.at)
+          ? ('Last Yahoo capture ' + timeAgo(lc.at) + ' — ' + (lc.inserted || 0) + ' stored' + (lc.unmatched ? (', ' + lc.unmatched + ' unmatched') : '') + '.')
+          : 'Not captured yet. If Yahoo blocks the bookmarklet, use “Copy as text” and make the bookmark manually.';
+      }).catch(function () {});
+    }
+    $('bmk').addEventListener('click', function (e) {
+      // Clicking it here (on the app) would just try to run it against this
+      // page — tell the owner to drag it to their bookmarks instead.
+      e.preventDefault();
+      toast('Drag this button to your bookmarks bar, then click it on your Yahoo page.');
+    });
+    $('bmk-copy').addEventListener('click', function () {
+      if (!bmkCode) return;
+      if (navigator.clipboard) navigator.clipboard.writeText(bmkCode).then(function () { toast('Copied — make a new bookmark and paste this as its URL'); });
+      else window.prompt('Copy this, then make a bookmark with it as the URL:', bmkCode);
+    });
+    $('bmk-rotate').addEventListener('click', function () {
+      if (!confirm('Reset the capture token? Your current bookmarklet stops working and you re-drag a new one.')) return;
+      apiPost('/api/adp/capture/rotate', {}).then(function () { loadCapture(); toast('Token reset — re-drag the bookmarklet'); }).catch(function () {});
+    });
+
     // ---------------- Boot ----------------
+    loadCapture();
     loadStatus().then(function () {
       return apiFetch('/api/settings').then(pickDefaultKey).catch(function () {});
     }).then(loadBoard).catch(function () {});

@@ -27,10 +27,20 @@ app get X automatically?"._
   Parsers are shape-agnostic and fail loudly per source in the collector's
   last-run summary; they were written against known payloads but need one
   real-world confirm on Railway (sandbox blocks the hosts).
-- **Yahoo ADP specifically is NOT addable by link** — Yahoo guards its ADP
-  behind login/OAuth, so there's no clean URL to point at. FantasyPros'
-  consensus is the practical stand-in; a native Yahoo pull would ride on the
-  same OAuth setup as the live-draft feature below.
+- **Yahoo ADP — capture bookmarklet (BUILT).** Yahoo guards its ADP behind
+  login, so it can't be fetched server-side. Instead, Edge Rush → Collector
+  settings → **Capture from Yahoo** generates a one-click bookmarklet: the
+  owner drags it to their bookmarks bar, opens their logged-in Yahoo Draft
+  Analysis page (`football.fantasysports.yahoo.com/f1/draftanalysis`, position
+  filter = ALL), and clicks it. The bookmarklet reads the table by column
+  header ("Player", "All Drafts") and POSTs the rows to a token-guarded
+  `/api/adp/ingest` endpoint (the only route outside the password gate; CORS-
+  open because the token, not a cookie, is the credential — so the Yahoo
+  session never leaves the browser). It lands as a "Yahoo · Standard" board
+  like any other feed. Caveats to confirm live: (1) if Yahoo's page CSP blocks
+  javascript: bookmarklets, use the "Copy as text" fallback to make the bookmark
+  manually; (2) the DOM scraper keys off visible header text, so a Yahoo layout
+  change could need a tweak — it alerts the captured count so a miss is obvious.
 
 ### Expert rankings (Combine → "fetch from a FantasyPros URL")
 - FantasyPros embeds its full consensus payload in every public rankings page
