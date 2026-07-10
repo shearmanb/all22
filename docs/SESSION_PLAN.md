@@ -18,12 +18,13 @@ Yahoo / FantasyPros / Underdog-with-IDs).
 one click; fix any flagged rows in Review; export the Underdog file and upload
 it; confirm the hub's data-health panel shows the new set as fresh.
 
-## Phase 2 — Custom model + dials  ⚠ deep session FIRST
-The blender: per-ranker weights, outlier tamping, target-scoring dial, output
-to `my_rankings` versioned per run; risers/fallers between sets.
-**Before building, settle the open decisions below in a dedicated session with
-the most capable model available — a plausible-but-wrong default here quietly
-corrupts every ranking.**
+## 🟡 Phase 2 — Custom model + dials (v1 BUILT as My Rankings; dials to confirm)
+The mini-ECR blender shipped 2026-07-10: per-ranker weights, unranked-semantics
+dial, trim outlier tamping, min-sets, target format from league profiles,
+versioned runs + compare + exports. The deep-session decisions were NOT
+silently picked — they are visible dials with provisional defaults (unranked =
+no-opinion, outliers = off, cross-format = warn-don't-adjust). **Still owed: a
+session confirming those defaults, and tiers-vs-ordinals remains unbuilt.**
 
 ## Phase 3 — Playbook grows up
 Draft ingestion beyond paste (decide the Yahoo/Underdog extraction path),
@@ -31,9 +32,12 @@ Draft-Wizard-style analysis: value vs. ADP, reaches/steals, positional balance.
 Picks should resolve to `player_id` via players_master (the current pre-rebuild
 pages store raw names).
 
-## Phase 4 — Edge Rush
-Daily ADP scrape (Yahoo, Underdog, ESPN) into `adp_history` — a scheduled job
-in this same Railway service; freshness feeds the hub + risers/fallers.
+## ✅ Phase 4 — Edge Rush (BUILT 2026-07-10, sources differ from the sketch)
+Daily automatic ADP into `adp_history` from FantasyFootballCalculator (free
+documented API, per format + league size, includes the pick distribution
+Phase 5 needs) and Sleeper (exact sleeper_id joins) — not Yahoo/Underdog/ESPN,
+which have no sane free feeds (see docs/INTEGRATIONS.md). Scheduled in this
+Railway service (boot + 6h re-check); risers/fallers + freshness live.
 
 ## Phase 5 — War Room
 Draft/auction strategy simulator: % chance a player is available at your next

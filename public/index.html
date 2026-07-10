@@ -11,9 +11,12 @@
     <span class="brand">All<em>22</em></span>
     <a href="/" class="active">Hub</a>
     <a href="/combine.html">Combine</a>
+    <a href="/myrankings.html">My Rankings</a>
     <a href="/boards.html">Big Board</a>
     <a href="/auction.html">War Chest</a>
     <a href="/drafts.html">Playbook</a>
+    <a href="/adp.html">Edge Rush</a>
+    <a href="/players.html">Player DB</a>
     <a href="/notes.html">Notes</a>
     <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
   </nav>
@@ -59,22 +62,31 @@
         <span class="tile-stat" id="stat-notes"></span>
       </a>
 
+      <a class="tile" href="/myrankings.html">
+        <h2>My Rankings</h2>
+        <p class="muted">The blender — pick the rankers you trust, weight them, and mesh a consensus of your own. Saved runs, risers/fallers over time, export anywhere.</p>
+        <span class="tile-go">Open &rarr;</span>
+        <span class="tile-stat" id="stat-myrankings"></span>
+      </a>
+
+      <a class="tile" href="/adp.html">
+        <h2>Edge Rush</h2>
+        <p class="muted">ADP intelligence — collected automatically every day for each of your league shapes; risers, fallers and freshness.</p>
+        <span class="tile-go">Open &rarr;</span>
+        <span class="tile-stat" id="stat-adp"></span>
+      </a>
+
+      <a class="tile" href="/players.html">
+        <h2>Player DB</h2>
+        <p class="muted">The master player registry — search any player, see the names every site uses for him, teach new aliases.</p>
+        <span class="tile-go">Open &rarr;</span>
+        <span class="tile-stat" id="stat-players"></span>
+      </a>
+
       <div class="tile disabled">
         <h2>War Room</h2>
         <p class="muted">Draft &amp; auction strategy — who to take and when, with % chance a player makes it back to your pick. Built on your rankings + ADP.</p>
         <span class="tile-soon">Phase 5</span>
-      </div>
-
-      <div class="tile disabled">
-        <h2>Edge Rush</h2>
-        <p class="muted">ADP intelligence — daily snapshots from Yahoo, Underdog and ESPN; risers, fallers and freshness.</p>
-        <span class="tile-soon">Phase 4</span>
-      </div>
-
-      <div class="tile disabled">
-        <h2>My Rankings</h2>
-        <p class="muted">The custom model — per-ranker weights, outlier tamping, your league's scoring as the target. Lives inside Combine once the modeling decisions are settled.</p>
-        <span class="tile-soon">Phase 2</span>
       </div>
     </div>
 
@@ -159,11 +171,11 @@
       wrap.appendChild(healthItem('Review queue', rk.review_open ? 'dot-stale' : 'dot-ok',
         rk.review_open ? rk.review_open + ' rows need your eyes' : 'clear'));
       var my = d.my_rankings || {};
-      wrap.appendChild(healthItem('My model', my.runs ? ageDot(my.latest, 7) : 'dot-missing',
-        my.runs ? my.runs + ' runs · newest ' + timeAgo(my.latest) : 'Phase 2 — not built yet'));
+      wrap.appendChild(healthItem('My rankings', my.runs ? ageDot(my.latest, 7) : 'dot-missing',
+        my.runs ? my.runs + ' runs · newest ' + timeAgo(my.latest) : 'no runs yet — open My Rankings'));
       var adp = d.adp || {};
       wrap.appendChild(healthItem('ADP', adp.latest ? ageDot(adp.latest, 2) : 'dot-missing',
-        adp.latest ? adp.sites + ' sites · ' + timeAgo(adp.latest) : 'Phase 4 — not built yet'));
+        adp.latest ? adp.sites + ' sites · ' + timeAgo(adp.latest) : 'collects on next boot — or open Edge Rush'));
       var dr = d.drafts || {};
       wrap.appendChild(healthItem('Drafts', dr.count ? 'dot-ok' : 'dot-missing',
         dr.count ? dr.count + ' logged · newest ' + timeAgo(dr.latest) : 'none logged'));
@@ -182,6 +194,9 @@
       document.getElementById('stat-auction').textContent = au.count ? au.count + (au.count === 1 ? ' auction' : ' auctions') : 'no auctions yet';
       var nt = d.notes || {};
       document.getElementById('stat-notes').textContent = nt.open ? nt.open + ' open notes' : '';
+      document.getElementById('stat-myrankings').textContent = my.runs ? my.runs + (my.runs === 1 ? ' run' : ' runs') + ' saved' : 'no runs yet';
+      document.getElementById('stat-adp').textContent = adp.latest ? 'updated ' + timeAgo(adp.latest) : 'collecting daily';
+      document.getElementById('stat-players').textContent = pm.count ? pm.count.toLocaleString() + ' players' : '';
     }
 
     apiFetch('/api/datahealth').then(renderHealth).catch(function () {
