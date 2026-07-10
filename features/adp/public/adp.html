@@ -53,6 +53,7 @@
           <input id="adp-search" placeholder="player…">
         </label>
         <span class="grow"></span>
+        <a id="view-source" class="pill accent" target="_blank" rel="noopener noreferrer" hidden>View source ↗</a>
         <button id="collect-btn" class="secondary" type="button">Collect now</button>
       </div>
       <div id="freshness" class="src-note section-gap"></div>
@@ -80,7 +81,7 @@
           <tbody id="adp-body"><tr><td colspan="10" class="muted">Loading…</td></tr></tbody>
         </table>
       </div>
-      <p class="src-note section-gap">ADP sources: <a href="https://fantasyfootballcalculator.com/adp" target="_blank" rel="noopener noreferrer">Fantasy Football Calculator</a> (free API — mock-draft ADP per format &amp; league size) and Sleeper (draft-room ADP, all formats, site-wide). Unmatched names keep the site's spelling and are flagged.</p>
+      <p class="src-note section-gap">Built-in ADP: <a href="https://fantasyfootballcalculator.com/adp" target="_blank" rel="noopener noreferrer">Fantasy Football Calculator</a> (mock-draft ADP per format &amp; league size) and Sleeper (draft-room ADP, all formats). Add more sites of your own under <strong>Collector settings → My ADP sources</strong>. Unmatched names keep the site's spelling and are flagged.</p>
     </div>
 
     <details class="card section-gap">
@@ -97,6 +98,24 @@
       </div>
       <div id="cfg-targets" class="src-note section-gap"></div>
       <div id="cfg-lastrun" class="src-note section-gap"></div>
+
+      <div class="section-gap" style="border-top:1px solid var(--border); padding-top:12px">
+        <div class="field-label">My ADP sources <span class="muted" style="font-weight:400">— add a link to pull ADP from another site (collected daily like the built-ins)</span></div>
+        <div id="src-list" class="section-gap"></div>
+        <div class="row section-gap">
+          <input id="src-url" class="grow" placeholder="https://www.fantasypros.com/nfl/adp/ppr-overall.php">
+          <select id="src-format" class="inline">
+            <option value="">auto</option>
+            <option value="ppr">PPR</option>
+            <option value="half">Half-PPR</option>
+            <option value="standard">Standard</option>
+            <option value="superflex">Superflex</option>
+          </select>
+          <input id="src-teams" type="number" class="inline" style="width:80px" value="12" title="League size to file this under">
+          <button id="src-add" class="secondary" type="button">Add source</button>
+        </div>
+        <div id="src-hint" class="src-note section-gap"></div>
+      </div>
     </details>
   </main>
 
@@ -178,6 +197,7 @@
         td.colSpan = 10; tr.appendChild(td); body.appendChild(tr);
         $('freshness').textContent = '';
         $('movers-section').hidden = true;
+        $('view-source').hidden = true;
         return;
       }
       var q = 'format=' + encodeURIComponent(snap.format) + '&teams=' + snap.teams + '&site=' + encodeURIComponent(snap.site);
@@ -185,6 +205,8 @@
         board = d;
         $('freshness').textContent = 'Snapshot ' + d.snapshot_date + ' · ' + d.rows.length + ' players · ' +
           (snap.unmatched ? snap.unmatched + ' unmatched name(s) shown with their site spelling' : 'all names matched');
+        var vs = $('view-source');
+        if (d.source_url) { vs.href = d.source_url; vs.hidden = false; } else { vs.hidden = true; }
         return apiFetch('/api/adp/movers?' + q + '&days=7');
       }).then(function (m) {
         deltas = {};
@@ -276,7 +298,63 @@
       } else {
         lr.textContent = 'Never run yet.';
       }
+      renderCustomSources(d.custom_sources || []);
     }
+
+    // ---------------- Custom ADP sources (add a link) ----------------
+    var customSources = [];
+
+    function renderCustomSources(list) {
+      customSources = Array.isArray(list) ? list : [];
+      var wrap = $('src-list');
+      wrap.textContent = '';
+      if (!customSources.length) {
+        wrap.appendChild(el('div', 'muted small', 'None yet. FantasyPros ADP pages bundle ESPN, Sleeper, CBS & RTSports; MyFantasyLeague works too. (Yahoo needs a login, not a link.)'));
+        return;
+      }
+      customSources.forEach(function (s, i) {
+        var row = el('div', 'row');
+        var cb = document.createElement('input');
+        cb.type = 'checkbox'; cb.style.width = 'auto'; cb.checked = s.enabled !== false; cb.title = 'Enabled';
+        cb.addEventListener('change', function () { customSources[i].enabled = cb.checked; saveSources(); });
+        row.appendChild(cb);
+        var label = el('span', 'grow small', (s.label || 'ADP') + ' · ' + fmtLabel(s.format) + ' · ' + (s.teams || 12) + '-team — ' + s.url);
+        label.style.wordBreak = 'break-all';
+        row.appendChild(label);
+        var del = el('button', 'danger', '×');
+        del.type = 'button'; del.style.padding = '2px 10px'; del.title = 'Remove';
+        del.addEventListener('click', function () { customSources.splice(i, 1); saveSources(); });
+        row.appendChild(del);
+        wrap.appendChild(row);
+      });
+    }
+
+    function saveSources() {
+      apiPost('/api/adp/sources', { sources: customSources }, 'PUT')
+        .then(function (d) { renderCustomSources(d.sources); toast('ADP sources saved'); })
+        .catch(function () { loadStatus(); });
+    }
+
+    $('src-add').addEventListener('click', function () {
+      var url = $('src-url').value.trim();
+      if (!url) { showError('Paste an ADP page link first.'); return; }
+      customSources.push({
+        url: url,
+        format: $('src-format').value || undefined,
+        teams: parseInt($('src-teams').value, 10) || 12,
+        enabled: true,
+      });
+      apiPost('/api/adp/sources', { sources: customSources }, 'PUT')
+        .then(function (d) {
+          renderCustomSources(d.sources);
+          $('src-url').value = '';
+          toast('Source added — collecting now…');
+          return apiPost('/api/adp/collect', { force: true });
+        })
+        .then(function () { return loadStatus(); })
+        .then(loadBoard)
+        .catch(function () { loadStatus(); });
+    });
 
     $('cfg-save').addEventListener('click', function () {
       apiPost('/api/adp/config', {

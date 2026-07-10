@@ -41,6 +41,16 @@ function clampTeams(teams) {
   return best;
 }
 
+// The human-facing FFC ADP page for a board (the "View source ↗" link). FFC's
+// public pages live at /adp/<segment>/<n>-team; falls back to the ADP landing
+// for a format FFC doesn't segment.
+function ffcPageUrl(format, teams) {
+  const segment = FFC_FORMATS[format];
+  if (!segment) return 'https://fantasyfootballcalculator.com/adp';
+  const t = clampTeams(teams);
+  return `https://fantasyfootballcalculator.com/adp/${segment}/${t}-team/all`;
+}
+
 // Fantasy season year: Jan/Feb still belong to the previous season's drafts.
 function seasonYear(now = new Date()) {
   return now.getUTCMonth() >= 2 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
@@ -157,6 +167,7 @@ module.exports = {
   FFC_TEAMS,
   SLEEPER_ADP_KEYS,
   clampTeams,
+  ffcPageUrl,
   seasonYear,
   parseFfc,
   parseSleeper,
