@@ -1072,8 +1072,11 @@
 
     // ---------- auto-pull (daily URL fetches) ----------
     var autopullEntries = [];
+    var autopullLast = null;
 
     function renderAutopull(last) {
+      if (last !== undefined) autopullLast = last;
+      last = autopullLast;
       var panel = $('autopull-panel');
       var list = $('autopull-list');
       list.textContent = '';

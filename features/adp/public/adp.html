@@ -244,7 +244,7 @@
         tr.appendChild(el('td', 'muted', r.bye == null ? '' : String(r.bye)));
         tr.appendChild(el('td', null, String(r.adp)));
         tr.appendChild(el('td', 'muted', roundPick(r.adp, board.teams)));
-        tr.appendChild(el('td', 'muted', r.high == null ? '' : r.high + '–' + r.low));
+        tr.appendChild(el('td', 'muted', (r.high == null || r.low == null) ? '' : r.high + '–' + r.low));
         tr.appendChild(el('td', 'muted', r.stdev == null ? '' : String(r.stdev)));
         var d = deltas[r.player_id || ('raw:' + r.name)];
         tr.appendChild(el('td', d > 0 ? 'delta-up' : (d < 0 ? 'delta-down' : 'delta-flat'),

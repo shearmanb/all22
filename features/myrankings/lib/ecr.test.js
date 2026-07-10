@@ -128,6 +128,10 @@ test('positional sets vote per-position but never overall', () => {
   assert.equal(alphaRb.avg, Math.round((1 + 1 + 2) / 3 * 100) / 100);
   assert.equal(charlieRb.avg, 1.5);
   assert.equal(rb[0].name, 'Alpha'); // 1.33 < 1.5
+  // Denominators the UI can trust: 3 sets voted RB, only 2 voted WR/TE.
+  assert.equal(meta.position_set_counts.RB, 3);
+  assert.equal(meta.position_set_counts.WR, 2);
+  assert.equal(meta.position_set_counts.TE, 1);
 });
 
 test('unmatched rows are skipped but counted, and duplicate votes keep the best rank', () => {

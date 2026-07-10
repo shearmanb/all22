@@ -159,8 +159,9 @@ async function collectSleeper({ force, year, index, date }) {
   // exact sleeper_id join first, high-confidence name match as fallback.
   const resolved = new Map();
   for (const r of rows) {
-    let playerId = byId.get(r.sleeper_id) || null;
-    if (!playerId) {
+    const exact = byId.get(r.sleeper_id);
+    let playerId = exact === undefined ? null : exact;
+    if (playerId === null) {
       const m = ingest.matchRow({ name: r.name, position: r.position, team: r.team }, index);
       playerId = (m.player_id && m.confidence === 'high') ? m.player_id : null;
     }

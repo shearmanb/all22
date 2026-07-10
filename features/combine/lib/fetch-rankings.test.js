@@ -1,7 +1,7 @@
 // Golden tests for the FantasyPros URL fetcher's pure parts.
 const test = require('node:test');
 const assert = require('node:assert');
-const { parseTarget, inferMeta, extractEcrData, rowsFromEcr } = require('./fetch-rankings');
+const { parseTarget, inferMeta, applyPageScoring, extractEcrData, rowsFromEcr } = require('./fetch-rankings');
 
 test('parseTarget accepts fantasypros rankings URLs and rejects everything else', () => {
   assert.ok(parseTarget('https://www.fantasypros.com/nfl/rankings/ppr-cheatsheets.php'));
@@ -50,6 +50,21 @@ test('extractEcrData finds the embedded payload with a balanced-brace scan', () 
   assert.equal(data.players.length, 3);
   assert.equal(data.scoring, 'PPR');
   assert.equal(extractEcrData('<html>no data here</html>'), null);
+});
+
+test('page scoring refines the format but never demotes best_ball/superflex', () => {
+  const bb = inferMeta('https://www.fantasypros.com/nfl/rankings/best-ball-overall.php');
+  assert.equal(bb.format, 'best_ball');
+  // Best-ball pages declare PPR scoring (best ball IS ppr-scored) — the
+  // published-for format must survive (CLAUDE.md: never rewrite it).
+  assert.equal(applyPageScoring(bb.format, 'PPR'), 'best_ball');
+  assert.equal(applyPageScoring('superflex', 'PPR'), 'superflex');
+  assert.equal(applyPageScoring('superflex', 'HALF'), 'superflex');
+  // Non-protected formats do defer to the page's declaration.
+  assert.equal(applyPageScoring('standard', 'PPR'), 'ppr');
+  assert.equal(applyPageScoring('ppr', 'HALF'), 'half');
+  assert.equal(applyPageScoring('unknown', 'STD'), 'standard');
+  assert.equal(applyPageScoring('ppr', ''), 'ppr'); // no declaration -> unchanged
 });
 
 test('rowsFromEcr orders by rank_ecr and normalizes position/team', () => {

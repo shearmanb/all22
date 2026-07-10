@@ -23,9 +23,12 @@ const FORMATS = combineStore.FORMATS;
 // selections: [{ set_id, weight }]. Sets load in parallel — a blend of many
 // sets is the hot interactive path.
 async function loadSelections(selections) {
+  const seen = new Set();
   const list = (Array.isArray(selections) ? selections : [])
     .map((s) => ({ set_id: Number(s && s.set_id), weight: s && s.weight }))
-    .filter((s) => Number.isInteger(s.set_id) && s.set_id > 0);
+    .filter((s) => Number.isInteger(s.set_id) && s.set_id > 0)
+    // Same set twice would double-count that ranker's votes — first one wins.
+    .filter((s) => (seen.has(s.set_id) ? false : (seen.add(s.set_id), true)));
   if (!list.length) return { sets: [], missing: [] };
   const loaded = await Promise.all(list.map(async (sel) => {
     const meta = await combineStore.getSet(sel.set_id);

@@ -331,6 +331,10 @@
       renderWarnings(r);
       renderPosTabs(r);
       var rows = currentScope === 'overall' ? r.overall : (r.positions[currentScope] || []);
+      // Honest denominator: only sets that can actually vote in this scope.
+      var voters = currentScope === 'overall'
+        ? (r.meta.overall_sets || []).length
+        : ((r.meta.position_set_counts || {})[currentScope] || r.sets.length);
       var table = $('result-table');
       table.textContent = '';
       var thead = el('thead'); var hr = el('tr');
@@ -347,7 +351,7 @@
         tr.appendChild(el('td', 'ecr-avg', String(p.avg)));
         tr.appendChild(el('td', 'muted', p.min === p.max ? String(p.min) : p.min + '–' + p.max));
         tr.appendChild(el('td', 'muted', String(p.stdev)));
-        tr.appendChild(el('td', 'muted', p.n + '/' + r.sets.length));
+        tr.appendChild(el('td', 'muted', p.n + '/' + voters));
         r.sets.forEach(function (s) {
           var v = p.votes[s.set_id];
           tr.appendChild(el('td', 'votes-col', v === undefined ? '—' : String(v)));
@@ -466,7 +470,9 @@
             $('run-adp-note').textContent = 'ADP column: ' + adp.site + ' ' + (adp.format || '') + ' ' + teams + '-team, snapshot ' + adp.snapshot_date + '. Δ = ADP − your rank (positive = the room lets you get him later).';
             renderRunTable(currentRun.rows, adp);
           } else {
-            $('run-adp-note').textContent = '';
+            // Say WHY there's no ADP column rather than silently omitting it.
+            $('run-adp-note').textContent = 'No ADP snapshot for “' + (currentRun.run.target_format || 'unknown') +
+              '” yet — Edge Rush collects the formats your leagues use (plus Sleeper site-wide). Best-ball runs have no dedicated feed; check the PPR board on Edge Rush instead.';
           }
         });
         $('run-view').scrollIntoView({ behavior: 'smooth' });

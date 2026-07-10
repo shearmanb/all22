@@ -180,8 +180,10 @@ function buildEcr(sets, options) {
 
   const overall = consensus(overallVoters, identity, opts);
   const positions = {};
+  const positionSetCounts = {};
   for (const [pos, voters] of positionVoters) {
     positions[pos] = consensus(voters, identity, opts);
+    positionSetCounts[pos] = voters.length;
   }
 
   return {
@@ -190,6 +192,10 @@ function buildEcr(sets, options) {
     meta: {
       options: opts,
       overall_sets: overallVoters.map((v) => v.set.id),
+      // Denominator honesty for the UI: how many sets could actually vote in
+      // each scope ("2/2" beats a misleading "2/3" when the third set is
+      // positional-only or lacks the position).
+      position_set_counts: positionSetCounts,
       positional_only_sets: (sets || [])
         .filter((s) => s.ranking_scope === 'positional' && setWeight(s) > 0)
         .map((s) => s.id),

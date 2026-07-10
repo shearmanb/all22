@@ -55,6 +55,19 @@ function inferMeta(url) {
   };
 }
 
+// Trust the page's own scoring declaration over the URL when present — but
+// never demote the URL's superflex/best_ball identity (a best-ball page
+// declares PPR scoring because best ball IS ppr-scored; the format the list
+// was published FOR stays best_ball; same for superflex).
+function applyPageScoring(format, scoring) {
+  if (['superflex', 'best_ball'].includes(format)) return format;
+  const s = String(scoring || '').toUpperCase();
+  if (s === 'PPR') return 'ppr';
+  if (s === 'HALF') return 'half';
+  if (s === 'STD') return 'standard';
+  return format;
+}
+
 // Balanced-brace end scan (same approach as fpwizard's hunter).
 function balancedEnd(src, start) {
   let depth = 0, inStr = false, esc = false;
@@ -132,11 +145,7 @@ async function fetchRankings(input) {
   const rows = rowsFromEcr(data);
   if (!rows.length) throw new Error('The page parsed but held no players — is it an empty/preseason list?');
   const meta = inferMeta(url);
-  // Trust the page's own scoring declaration over the URL when present.
-  const scoring = String(data.scoring || '').toUpperCase();
-  if (scoring === 'PPR') meta.format = meta.format === 'superflex' ? 'superflex' : 'ppr';
-  else if (scoring === 'HALF') meta.format = meta.format === 'superflex' ? 'superflex' : 'half';
-  else if (scoring === 'STD') meta.format = ['superflex', 'best_ball'].includes(meta.format) ? meta.format : 'standard';
+  meta.format = applyPageScoring(meta.format, data.scoring);
   return {
     rows,
     meta: Object.assign(meta, {
@@ -148,4 +157,4 @@ async function fetchRankings(input) {
   };
 }
 
-module.exports = { parseTarget, inferMeta, extractEcrData, rowsFromEcr, fetchRankings };
+module.exports = { parseTarget, inferMeta, applyPageScoring, extractEcrData, rowsFromEcr, fetchRankings };
