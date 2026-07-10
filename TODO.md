@@ -1,7 +1,19 @@
 # All22 — To-Do / Follow-ups
 
-Open items after the PRD rebuild (branch `claude/fantasy-pros-redesign-082rjd`).
-The big phases live in `docs/SESSION_PLAN.md`; this file is the small stuff.
+Open items; the big phases live in `docs/SESSION_PLAN.md`.
+
+## After the 2026-07-10 feature batch (My Rankings / Edge Rush / Player DB / URL fetch)
+- [ ] **Verify live fetches on Railway** (dev sandbox couldn't reach the hosts):
+      Edge Rush → Collect now (FFC + Sleeper), and Combine → fetch a
+      FantasyPros URL. Both fail loudly if blocked — check the messages.
+- [ ] **Owner confirms the My Rankings dials** (deep-session decisions given
+      provisional defaults): unranked = no-opinion, outlier trim off,
+      cross-format = warn only. Change in the UI if wrong, not in code.
+- [ ] Enter every real league in hub → My leagues (drives Edge Rush feeds +
+      My Rankings target default).
+- [ ] Yahoo draft capture: pick bookmarklet vs OAuth polling
+      (docs/INTEGRATIONS.md) before draft season.
+- [ ] Tiers-vs-ordinals (PRD §17.7) still unbuilt — rankers who publish tiers.
 
 ## Deployment
 - [ ] Add `ANTHROPIC_API_KEY` to Railway → Variables (Claude-vision OCR; the

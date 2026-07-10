@@ -11,9 +11,12 @@
     <span class="brand">All<em>22</em></span>
     <a href="/" class="active">Hub</a>
     <a href="/combine.html">Combine</a>
+    <a href="/myrankings.html">My Rankings</a>
     <a href="/boards.html">Big Board</a>
     <a href="/auction.html">War Chest</a>
     <a href="/drafts.html">Playbook</a>
+    <a href="/adp.html">Edge Rush</a>
+    <a href="/players.html">Player DB</a>
     <a href="/notes.html">Notes</a>
     <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
   </nav>
@@ -59,22 +62,31 @@
         <span class="tile-stat" id="stat-notes"></span>
       </a>
 
+      <a class="tile" href="/myrankings.html">
+        <h2>My Rankings</h2>
+        <p class="muted">The blender — pick the rankers you trust, weight them, and mesh a consensus of your own. Saved runs, risers/fallers over time, export anywhere.</p>
+        <span class="tile-go">Open &rarr;</span>
+        <span class="tile-stat" id="stat-myrankings"></span>
+      </a>
+
+      <a class="tile" href="/adp.html">
+        <h2>Edge Rush</h2>
+        <p class="muted">ADP intelligence — collected automatically every day for each of your league shapes; risers, fallers and freshness.</p>
+        <span class="tile-go">Open &rarr;</span>
+        <span class="tile-stat" id="stat-adp"></span>
+      </a>
+
+      <a class="tile" href="/players.html">
+        <h2>Player DB</h2>
+        <p class="muted">The master player registry — search any player, see the names every site uses for him, teach new aliases.</p>
+        <span class="tile-go">Open &rarr;</span>
+        <span class="tile-stat" id="stat-players"></span>
+      </a>
+
       <div class="tile disabled">
         <h2>War Room</h2>
         <p class="muted">Draft &amp; auction strategy — who to take and when, with % chance a player makes it back to your pick. Built on your rankings + ADP.</p>
         <span class="tile-soon">Phase 5</span>
-      </div>
-
-      <div class="tile disabled">
-        <h2>Edge Rush</h2>
-        <p class="muted">ADP intelligence — daily snapshots from Yahoo, Underdog and ESPN; risers, fallers and freshness.</p>
-        <span class="tile-soon">Phase 4</span>
-      </div>
-
-      <div class="tile disabled">
-        <h2>My Rankings</h2>
-        <p class="muted">The custom model — per-ranker weights, outlier tamping, your league's scoring as the target. Lives inside Combine once the modeling decisions are settled.</p>
-        <span class="tile-soon">Phase 2</span>
       </div>
     </div>
 
@@ -85,30 +97,21 @@
     </section>
 
     <section class="section-gap">
-      <details class="card">
-        <summary style="cursor:pointer"><strong>Global settings</strong> <span class="muted small">— your league's profile (feeds the Phase-2 model's target-scoring dial)</span></summary>
-        <div class="row section-gap">
-          <label>
-            <span class="field-label">League scoring</span>
-            <select id="lg-scoring" class="inline">
-              <option value="ppr">PPR</option>
-              <option value="half">Half-PPR</option>
-              <option value="standard">Standard</option>
-            </select>
-          </label>
-          <label>
-            <span class="field-label">Teams</span>
-            <input id="lg-teams" type="number" min="4" max="20" class="inline" style="width:80px">
-          </label>
-          <label class="row" style="align-self:end; gap:6px">
-            <input id="lg-superflex" type="checkbox" style="width:auto"> Superflex
-          </label>
-          <label class="row" style="align-self:end; gap:6px">
-            <input id="lg-tep" type="checkbox" style="width:auto"> TE premium
-          </label>
+      <details class="card" id="leagues-card">
+        <summary style="cursor:pointer"><strong>My leagues</strong> <span class="muted small">— every league you play in, each with its own size, scoring and roster shape. Features that care about league shape ask which league, never assume.</span></summary>
+        <div class="table-wrap section-gap">
+          <table class="data" id="leagues-table">
+            <thead>
+              <tr>
+                <th>Default</th><th>League name</th><th>Teams</th><th>Scoring</th><th>Flex spots</th><th>Superflex</th><th>TE prem.</th><th>Auction</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="leagues-body"></tbody>
+          </table>
         </div>
         <div class="row section-gap">
-          <button id="lg-save">Save league profile</button>
+          <button id="lg-add" class="secondary" type="button">+ Add league</button>
+          <button id="lg-save">Save leagues</button>
           <span id="lg-status" class="muted small"></span>
         </div>
       </details>
@@ -168,11 +171,11 @@
       wrap.appendChild(healthItem('Review queue', rk.review_open ? 'dot-stale' : 'dot-ok',
         rk.review_open ? rk.review_open + ' rows need your eyes' : 'clear'));
       var my = d.my_rankings || {};
-      wrap.appendChild(healthItem('My model', my.runs ? ageDot(my.latest, 7) : 'dot-missing',
-        my.runs ? my.runs + ' runs · newest ' + timeAgo(my.latest) : 'Phase 2 — not built yet'));
+      wrap.appendChild(healthItem('My rankings', my.runs ? ageDot(my.latest, 7) : 'dot-missing',
+        my.runs ? my.runs + ' runs · newest ' + timeAgo(my.latest) : 'no runs yet — open My Rankings'));
       var adp = d.adp || {};
       wrap.appendChild(healthItem('ADP', adp.latest ? ageDot(adp.latest, 2) : 'dot-missing',
-        adp.latest ? adp.sites + ' sites · ' + timeAgo(adp.latest) : 'Phase 4 — not built yet'));
+        adp.latest ? adp.sites + ' sites · ' + timeAgo(adp.latest) : 'collects on next boot — or open Edge Rush'));
       var dr = d.drafts || {};
       wrap.appendChild(healthItem('Drafts', dr.count ? 'dot-ok' : 'dot-missing',
         dr.count ? dr.count + ' logged · newest ' + timeAgo(dr.latest) : 'none logged'));
@@ -191,33 +194,122 @@
       document.getElementById('stat-auction').textContent = au.count ? au.count + (au.count === 1 ? ' auction' : ' auctions') : 'no auctions yet';
       var nt = d.notes || {};
       document.getElementById('stat-notes').textContent = nt.open ? nt.open + ' open notes' : '';
+      document.getElementById('stat-myrankings').textContent = my.runs ? my.runs + (my.runs === 1 ? ' run' : ' runs') + ' saved' : 'no runs yet';
+      document.getElementById('stat-adp').textContent = adp.latest ? 'updated ' + timeAgo(adp.latest) : 'collecting daily';
+      document.getElementById('stat-players').textContent = pm.count ? pm.count.toLocaleString() + ' players' : '';
     }
 
     apiFetch('/api/datahealth').then(renderHealth).catch(function () {
       document.getElementById('health').textContent = '';
     });
 
-    // ---------------- Global settings (league profile) ----------------
+    // ---------------- Global settings (league profiles) ----------------
+    // The owner plays in SEVERAL leagues (different sizes, scoring, rosters).
+    // league.profiles is the list; league.active is the default league's id.
+    // The legacy single league.profile seeds the first profile on upgrade.
+    var leagues = [];
+    var activeLeagueId = null;
+
+    function leagueRow(lg) {
+      var tr = el('tr');
+      function cell(child) { var td = el('td'); td.appendChild(child); return td; }
+      function input(type, value, width) {
+        var i = document.createElement('input');
+        i.type = type;
+        if (type === 'checkbox') { i.style.width = 'auto'; i.checked = !!value; }
+        else { i.value = value == null ? '' : value; if (width) i.style.width = width; }
+        return i;
+      }
+      var def = input('radio', lg.id === activeLeagueId);
+      def.name = 'lg-default';
+      def.checked = lg.id === activeLeagueId;
+      def.addEventListener('change', function () { activeLeagueId = lg.id; });
+      var name = input('text', lg.name, '160px');
+      name.placeholder = 'Home league';
+      name.addEventListener('input', function () { lg.name = name.value; });
+      var teams = input('number', lg.teams || 12, '70px');
+      teams.min = 4; teams.max = 20;
+      teams.addEventListener('input', function () { lg.teams = parseInt(teams.value, 10) || 12; });
+      var scoring = document.createElement('select');
+      scoring.style.width = 'auto';
+      [['ppr', 'PPR'], ['half', 'Half-PPR'], ['standard', 'Standard']].forEach(function (o) {
+        var opt = el('option', null, o[1]); opt.value = o[0]; scoring.appendChild(opt);
+      });
+      scoring.value = lg.scoring || 'half';
+      scoring.addEventListener('change', function () { lg.scoring = scoring.value; });
+      var flex = input('number', lg.flex == null ? 1 : lg.flex, '70px');
+      flex.min = 0; flex.max = 4;
+      flex.title = 'W/R/T flex roster spots';
+      flex.addEventListener('input', function () { lg.flex = parseInt(flex.value, 10) || 0; });
+      var sf = input('checkbox', lg.superflex);
+      sf.addEventListener('change', function () { lg.superflex = sf.checked; });
+      var tep = input('checkbox', lg.te_premium);
+      tep.addEventListener('change', function () { lg.te_premium = tep.checked; });
+      var auc = input('checkbox', lg.auction);
+      auc.addEventListener('change', function () { lg.auction = auc.checked; });
+      var del = el('button', 'danger', '×');
+      del.type = 'button';
+      del.style.padding = '2px 10px';
+      del.title = 'Remove this league';
+      del.addEventListener('click', function () {
+        leagues = leagues.filter(function (x) { return x.id !== lg.id; });
+        if (activeLeagueId === lg.id) activeLeagueId = leagues.length ? leagues[0].id : null;
+        renderLeagues();
+      });
+      [def, name, teams, scoring, flex, sf, tep, auc, del].forEach(function (c) { tr.appendChild(cell(c)); });
+      return tr;
+    }
+
+    function renderLeagues() {
+      var body = document.getElementById('leagues-body');
+      body.textContent = '';
+      leagues.forEach(function (lg) { body.appendChild(leagueRow(lg)); });
+      if (!leagues.length) {
+        var tr = el('tr');
+        var td = el('td', 'muted', 'No leagues yet — add the ones you play in.');
+        td.colSpan = 9;
+        tr.appendChild(td);
+        body.appendChild(tr);
+      }
+    }
+
+    function newLeague(seed) {
+      return Object.assign({
+        id: 'lg-' + Date.now() + '-' + Math.floor(Math.random() * 1e4),
+        name: '', teams: 12, scoring: 'half', flex: 1,
+        superflex: false, te_premium: false, auction: false,
+      }, seed || {});
+    }
+
     var settingsCache = {};
     apiFetch('/api/settings').then(function (s) {
       settingsCache = s || {};
-      var p = settingsCache['league.profile'] || {};
-      if (p.scoring) document.getElementById('lg-scoring').value = p.scoring;
-      document.getElementById('lg-teams').value = p.teams || 12;
-      document.getElementById('lg-superflex').checked = !!p.superflex;
-      document.getElementById('lg-tep').checked = !!p.te_premium;
+      leagues = Array.isArray(settingsCache['league.profiles']) ? settingsCache['league.profiles'] : [];
+      activeLeagueId = settingsCache['league.active'] || null;
+      if (!leagues.length && settingsCache['league.profile']) {
+        var p = settingsCache['league.profile'];
+        leagues = [newLeague({ name: 'My league', teams: p.teams || 12, scoring: p.scoring || 'half', superflex: !!p.superflex, te_premium: !!p.te_premium })];
+      }
+      if (leagues.length && !leagues.some(function (l) { return l.id === activeLeagueId; })) {
+        activeLeagueId = leagues[0].id;
+      }
+      renderLeagues();
     }).catch(function () { /* banner shown */ });
 
+    document.getElementById('lg-add').addEventListener('click', function () {
+      leagues.push(newLeague());
+      renderLeagues();
+    });
+
     document.getElementById('lg-save').addEventListener('click', function () {
-      var profile = {
-        scoring: document.getElementById('lg-scoring').value,
-        teams: parseInt(document.getElementById('lg-teams').value, 10) || 12,
-        superflex: document.getElementById('lg-superflex').checked,
-        te_premium: document.getElementById('lg-tep').checked,
-      };
-      apiPost('/api/settings', { entries: { 'league.profile': profile } }, 'PUT').then(function () {
+      var bad = leagues.filter(function (l) { return !String(l.name || '').trim(); });
+      if (bad.length) { showError('Give every league a name before saving.'); return; }
+      apiPost('/api/settings', { entries: {
+        'league.profiles': leagues,
+        'league.active': activeLeagueId,
+      } }, 'PUT').then(function () {
         document.getElementById('lg-status').textContent = 'Saved.';
-        toast('League profile saved');
+        toast('Leagues saved');
       }).catch(function () { /* banner shown */ });
     });
 

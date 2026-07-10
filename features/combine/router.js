@@ -10,6 +10,8 @@ const vision = require('./lib/vision');
 const ocr = require('./lib/ocr');
 const textParser = require('./lib/rankings');
 const csvImport = require('./lib/csv-import');
+const fetchRankings = require('./lib/fetch-rankings');
+const autopull = require('./lib/autopull');
 const ingest = require('./lib/ingest');
 const store = require('./lib/store');
 const converters = require('./lib/converters');
@@ -123,6 +125,77 @@ router.post('/parse', async (req, res) => {
   } catch (err) {
     console.error(`POST /api/combine/parse: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not parse that text.' });
+  }
+});
+
+// Fetch rankings straight from a supported URL (FantasyPros consensus pages).
+// Returns matched rows + the set identity the URL implies — nothing is saved;
+// the client reviews and saves through the normal POST /sets flow.
+router.post('/fetch', async (req, res) => {
+  try {
+    const { url } = req.body || {};
+    if (!url || !String(url).trim()) return res.status(400).json({ ok: false, error: 'Paste a rankings URL first.' });
+    const { rows, meta } = await fetchRankings.fetchRankings(String(url));
+    const index = await master.getIndex();
+    const matched = ingest.matchRows(rows, index);
+    res.json({
+      ok: true,
+      data: {
+        rows: matched,
+        engine: 'url',
+        unparsed: [],
+        meta,
+        review: ingest.reviewSummary(matched),
+      },
+    });
+  } catch (err) {
+    console.error(`POST /api/combine/fetch: ${err.message}`);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Auto-pull config + status: which URLs get pulled daily, and how the last
+// sweep went. Entries live in settings 'combine.auto_pull'.
+router.get('/autopull', async (req, res) => {
+  try {
+    const [entries, last] = await Promise.all([
+      settings.get('combine.auto_pull', []),
+      settings.get('combine.auto_pull.last', null),
+    ]);
+    res.json({ ok: true, data: { entries: Array.isArray(entries) ? entries : [], last } });
+  } catch (err) {
+    console.error(`GET /api/combine/autopull: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not load the auto-pull list.' });
+  }
+});
+
+router.put('/autopull', async (req, res) => {
+  try {
+    if (!hasDb()) return res.status(400).json({ ok: false, error: 'Auto-pull needs a database.' });
+    const entries = req.body && req.body.entries;
+    if (!Array.isArray(entries)) return res.status(400).json({ ok: false, error: 'entries must be a list.' });
+    for (const e of entries) {
+      if (!e || !e.url || !fetchRankings.parseTarget(e.url)) {
+        return res.status(400).json({ ok: false, error: `Not a supported rankings URL: ${e && e.url ? e.url : '(empty)'}` });
+      }
+    }
+    await settings.set('combine.auto_pull', entries);
+    res.json({ ok: true, data: { entries } });
+  } catch (err) {
+    console.error(`PUT /api/combine/autopull: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not save the auto-pull list.' });
+  }
+});
+
+// Pull everything on the list right now (force = re-pull even if captured today).
+router.post('/autopull/run', async (req, res) => {
+  try {
+    if (!hasDb()) return res.status(400).json({ ok: false, error: 'Auto-pull needs a database.' });
+    const results = await autopull.runPulls({ force: !!(req.body && req.body.force) });
+    res.json({ ok: true, data: { results } });
+  } catch (err) {
+    console.error(`POST /api/combine/autopull/run: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Auto-pull failed.' });
   }
 });
 

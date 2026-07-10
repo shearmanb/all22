@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My Rankings — All22</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .set-weight { width: 64px; padding: 5px 7px; }
+    .dial { max-width: 200px; }
+    .votes-col { color: var(--text-dim); }
+    .ecr-avg { font-weight: 700; }
+    .warn-list { margin: 6px 0 0; padding-left: 18px; font-size: 0.85rem; }
+    .run-dials { font-size: 0.82rem; color: var(--text-dim); }
+    #save-name { max-width: 280px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">All<em>22</em></span>
+    <a href="/">Hub</a>
+    <a href="/combine.html">Combine</a>
+    <a href="/myrankings.html" class="active">My Rankings</a>
+    <a href="/boards.html">Big Board</a>
+    <a href="/auction.html">War Chest</a>
+    <a href="/drafts.html">Playbook</a>
+    <a href="/adp.html">Edge Rush</a>
+    <a href="/players.html">Player DB</a>
+    <a href="/notes.html">Notes</a>
+    <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
+  </nav>
+  <div id="error-banner"></div>
+
+  <main>
+    <h1>My Rankings <span class="muted small">— blend the rankers you trust into your own consensus</span></h1>
+
+    <div class="tabs">
+      <button id="tab-build" class="active" type="button">Build</button>
+      <button id="tab-runs" type="button">Saved runs <span id="runs-badge" class="tab-badge zero">0</span></button>
+    </div>
+
+    <!-- ================= BUILD ================= -->
+    <section id="panel-build">
+      <div class="card">
+        <h2>1 · Pick the rankings to blend</h2>
+        <p class="muted small">Every set you've ingested in Combine. Weight = how much you trust that ranker (1 = normal, 2 = double, 0.5 = half). Positional sets vote inside their position only — they can't vote on an overall order.</p>
+        <div class="table-wrap section-gap">
+          <table class="data">
+            <thead><tr><th></th><th>Set</th><th>Source</th><th>Format</th><th>Scope</th><th>Rows</th><th>Needs review</th><th>Updated</th><th>Weight</th></tr></thead>
+            <tbody id="sets-body"><tr><td colspan="9" class="muted">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card section-gap">
+        <h2>2 · Dials</h2>
+        <p class="muted small">These are the open modeling decisions (PRD §17) as dials, not code — change them and re-preview. Saved with “Save dials” as your defaults.</p>
+        <div class="row section-gap">
+          <label class="dial">
+            <span class="field-label">When a ranker omits a player</span>
+            <select id="dial-unranked">
+              <option value="exclude">No opinion — skip that ranker</option>
+              <option value="penalty">Very low — counts as past list end</option>
+            </select>
+          </label>
+          <label class="dial" id="dial-penalty-wrap">
+            <span class="field-label">…how far past the end</span>
+            <input id="dial-penalty" type="number" min="0" max="100" value="10">
+          </label>
+          <label class="dial">
+            <span class="field-label">Hide players ranked by fewer than</span>
+            <input id="dial-minsets" type="number" min="1" max="20" value="1">
+          </label>
+          <label class="dial">
+            <span class="field-label">Outlier tamping</span>
+            <select id="dial-outlier">
+              <option value="none">Off — plain weighted average</option>
+              <option value="trim">Trim — drop best &amp; worst vote (4+ sets)</option>
+            </select>
+          </label>
+          <label class="dial">
+            <span class="field-label">Target format (what these are FOR)</span>
+            <select id="dial-format">
+              <option value="ppr">PPR</option>
+              <option value="half">Half-PPR</option>
+              <option value="standard">Standard</option>
+              <option value="superflex">Superflex</option>
+              <option value="best_ball">Best Ball</option>
+              <option value="unknown">—</option>
+            </select>
+          </label>
+        </div>
+        <div class="row section-gap">
+          <button id="dials-save" class="secondary" type="button">Save dials as my defaults</button>
+          <span id="dials-status" class="muted small"></span>
+        </div>
+      </div>
+
+      <div class="row section-gap">
+        <button id="preview-btn" class="big" type="button">Blend&nbsp;→&nbsp;preview my consensus</button>
+        <span id="preview-status" class="muted"></span>
+      </div>
+
+      <section id="result-section" hidden>
+        <div id="result-warnings" class="notice-banner"></div>
+        <div class="card section-gap">
+          <div class="row">
+            <h2 style="margin:0">Consensus preview</h2>
+            <div class="tabs" id="pos-tabs" style="margin:0; border-bottom:none"></div>
+          </div>
+          <div class="table-wrap section-gap">
+            <table class="data" id="result-table"></table>
+          </div>
+        </div>
+        <div class="card section-gap">
+          <h2>Save as a run</h2>
+          <p class="muted small">A run is a frozen, versioned copy — compare runs over time, export to Underdog/Yahoo/FantasyPros, use it on draft day.</p>
+          <div class="row">
+            <input id="save-name" placeholder="e.g. Draft prep v1">
+            <button id="save-run" type="button">Save run</button>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <!-- ================= RUNS ================= -->
+    <section id="panel-runs" hidden>
+      <div class="card">
+        <h2>Saved runs</h2>
+        <div class="table-wrap section-gap">
+          <table class="data">
+            <thead><tr><th>Run</th><th>Target</th><th>Players</th><th>Created</th><th></th></tr></thead>
+            <tbody id="runs-body"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card section-gap">
+        <h2>Compare two runs <span class="muted small">— your own risers &amp; fallers over time</span></h2>
+        <div class="row section-gap">
+          <select id="cmp-a" class="inline"></select>
+          <span class="muted">→</span>
+          <select id="cmp-b" class="inline"></select>
+          <button id="cmp-btn" class="secondary" type="button">Compare</button>
+        </div>
+        <div id="cmp-out" class="section-gap"></div>
+      </div>
+
+      <section id="run-view" class="section-gap" hidden>
+        <div class="card">
+          <div class="row">
+            <h2 id="run-title" style="margin:0"></h2>
+            <span id="run-meta" class="muted small"></span>
+            <span class="grow"></span>
+            <select id="run-export-fmt" class="inline"></select>
+            <button id="run-export" class="secondary" type="button">Export</button>
+          </div>
+          <div id="run-dials" class="run-dials section-gap"></div>
+          <div id="run-adp-note" class="muted small section-gap"></div>
+          <div class="table-wrap section-gap">
+            <table class="data" id="run-table"></table>
+          </div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    function el(tag, className, text) {
+      var n = document.createElement(tag);
+      if (className) n.className = className;
+      if (text != null) n.textContent = text;
+      return n;
+    }
+    function posBadge(pos) {
+      var s = el('span', 'pos-badge' + (pos ? ' pos-' + pos : ''), pos || '—');
+      return s;
+    }
+    function fmtPill(f) {
+      var labels = { ppr: 'PPR', half: 'Half', standard: 'Std', best_ball: 'BB', superflex: 'SF', unknown: '?' };
+      return el('span', 'pill' + (f === 'unknown' ? ' warn' : ''), labels[f] || f || '?');
+    }
+
+    // ---------------- Tabs ----------------
+    function showPanel(which) {
+      $('panel-build').hidden = which !== 'build';
+      $('panel-runs').hidden = which !== 'runs';
+      $('tab-build').classList.toggle('active', which === 'build');
+      $('tab-runs').classList.toggle('active', which === 'runs');
+    }
+    $('tab-build').addEventListener('click', function () { showPanel('build'); });
+    $('tab-runs').addEventListener('click', function () { showPanel('runs'); loadRuns(); });
+
+    // ---------------- Sets picker ----------------
+    var sets = [];          // from API
+    var picked = {};        // set_id -> { checked, weight }
+
+    function renderSets() {
+      var body = $('sets-body');
+      body.textContent = '';
+      if (!sets.length) {
+        var tr = el('tr'); var td = el('td', 'muted', 'No ranking sets yet — ingest some in Combine first.');
+        td.colSpan = 9; tr.appendChild(td); body.appendChild(tr);
+        return;
+      }
+      sets.forEach(function (s) {
+        var st = picked[s.id] || (picked[s.id] = { checked: false, weight: 1 });
+        var tr = el('tr');
+        var cbTd = el('td');
+        var cb = document.createElement('input');
+        cb.type = 'checkbox'; cb.style.width = 'auto'; cb.checked = st.checked;
+        cb.addEventListener('change', function () { st.checked = cb.checked; w.disabled = !cb.checked; });
+        cbTd.appendChild(cb); tr.appendChild(cbTd);
+        tr.appendChild(el('td', null, s.name));
+        tr.appendChild(el('td', 'muted', s.source || '—'));
+        var fTd = el('td'); fTd.appendChild(fmtPill(s.native_scoring_format)); tr.appendChild(fTd);
+        var scTd = el('td'); scTd.appendChild(el('span', 'pill' + (s.ranking_scope === 'positional' ? ' accent' : ''), s.ranking_scope)); tr.appendChild(scTd);
+        tr.appendChild(el('td', 'muted', String(s.row_count)));
+        var revTd = el('td');
+        var open = (s.unmatched || 0) + (s.uncertain || 0);
+        revTd.appendChild(el('span', 'pill' + (open ? ' warn' : ' ok'), open ? open + ' open' : 'clean'));
+        tr.appendChild(revTd);
+        tr.appendChild(el('td', 'muted small', timeAgo(s.updated_at || s.created_at)));
+        var wTd = el('td');
+        var w = document.createElement('input');
+        w.type = 'number'; w.step = '0.5'; w.min = '0'; w.className = 'set-weight';
+        w.value = st.weight; w.disabled = !st.checked;
+        w.addEventListener('input', function () { st.weight = parseFloat(w.value); });
+        wTd.appendChild(w); tr.appendChild(wTd);
+        body.appendChild(tr);
+      });
+    }
+
+    function selections() {
+      return Object.keys(picked)
+        .filter(function (id) { return picked[id].checked; })
+        .map(function (id) {
+          var w = parseFloat(picked[id].weight);
+          return { set_id: parseInt(id, 10), weight: isNaN(w) ? 1 : w };
+        });
+    }
+
+    // ---------------- Dials ----------------
+    function readDials() {
+      return {
+        unranked: $('dial-unranked').value,
+        penalty_extra: parseInt($('dial-penalty').value, 10) || 0,
+        min_sets: parseInt($('dial-minsets').value, 10) || 1,
+        outlier: $('dial-outlier').value,
+      };
+    }
+    function applyDials(o) {
+      $('dial-unranked').value = o.unranked || 'exclude';
+      $('dial-penalty').value = o.penalty_extra == null ? 10 : o.penalty_extra;
+      $('dial-minsets').value = o.min_sets || 1;
+      $('dial-outlier').value = o.outlier || 'none';
+      togglePenalty();
+    }
+    function togglePenalty() {
+      $('dial-penalty-wrap').style.opacity = $('dial-unranked').value === 'penalty' ? '1' : '0.45';
+    }
+    $('dial-unranked').addEventListener('change', togglePenalty);
+    $('dials-save').addEventListener('click', function () {
+      apiPost('/api/myrankings/options', readDials(), 'PUT').then(function () {
+        $('dials-status').textContent = 'Saved as defaults.';
+        toast('Dials saved');
+      }).catch(function () {});
+    });
+
+    // ---------------- Preview ----------------
+    var lastResult = null;
+    var currentScope = 'overall';
+
+    $('preview-btn').addEventListener('click', function () {
+      var sel = selections();
+      if (!sel.length) { showError('Tick at least one ranking set first.'); return; }
+      $('preview-status').innerHTML = '<span class="spinner"></span>blending…';
+      apiPost('/api/myrankings/preview', { selections: sel, options: readDials() })
+        .then(function (data) {
+          lastResult = data;
+          currentScope = 'overall';
+          renderResult();
+          $('result-section').hidden = false;
+          $('result-section').scrollIntoView({ behavior: 'smooth' });
+        })
+        .catch(function () {})
+        .finally(function () { $('preview-status').textContent = ''; });
+    });
+
+    function renderWarnings(r) {
+      var box = $('result-warnings');
+      var items = [];
+      if (r.meta.mixed_formats) {
+        items.push('You are blending different native formats (' + r.meta.formats.join(', ') + '). Rank averages across formats are approximate — the PRD flags exact cross-format adjustment as an open decision. If it matters, blend sets published in your league’s format.');
+      }
+      if (r.meta.positional_only_sets.length) {
+        var names = r.sets.filter(function (s) { return r.meta.positional_only_sets.indexOf(s.set_id) >= 0; }).map(function (s) { return s.name; });
+        items.push('Positional sets (' + names.join(', ') + ') vote inside their position only — they are not part of the overall order.');
+      }
+      var skipped = Object.keys(r.meta.unmatched_skipped || {});
+      if (skipped.length) {
+        var total = skipped.reduce(function (a, k) { return a + r.meta.unmatched_skipped[k]; }, 0);
+        items.push(total + ' unmatched row(s) were skipped — resolve them in Combine’s Review queue and re-blend to include them.');
+      }
+      if (!items.length) { box.classList.remove('visible'); return; }
+      box.textContent = '';
+      var ul = el('ul', 'warn-list');
+      items.forEach(function (t) { ul.appendChild(el('li', null, t)); });
+      box.appendChild(ul);
+      box.classList.add('visible');
+    }
+
+    function renderPosTabs(r) {
+      var tabs = $('pos-tabs');
+      tabs.textContent = '';
+      var scopes = ['overall'].concat(Object.keys(r.positions).sort());
+      scopes.forEach(function (sc) {
+        var b = el('button', sc === currentScope ? 'active' : '', sc === 'overall' ? 'Overall' : sc);
+        b.type = 'button';
+        b.addEventListener('click', function () { currentScope = sc; renderResult(); });
+        tabs.appendChild(b);
+      });
+    }
+
+    function renderResult() {
+      var r = lastResult;
+      if (!r) return;
+      renderWarnings(r);
+      renderPosTabs(r);
+      var rows = currentScope === 'overall' ? r.overall : (r.positions[currentScope] || []);
+      // Honest denominator: only sets that can actually vote in this scope.
+      var voters = currentScope === 'overall'
+        ? (r.meta.overall_sets || []).length
+        : ((r.meta.position_set_counts || {})[currentScope] || r.sets.length);
+      var table = $('result-table');
+      table.textContent = '';
+      var thead = el('thead'); var hr = el('tr');
+      ['#', 'Player', 'Pos', 'Team', 'Avg', 'Best–Worst', 'σ', 'Sets'].forEach(function (h) { hr.appendChild(el('th', null, h)); });
+      r.sets.forEach(function (s) { hr.appendChild(el('th', 'votes-col', s.source || s.name)); });
+      thead.appendChild(hr); table.appendChild(thead);
+      var tbody = el('tbody');
+      rows.forEach(function (p) {
+        var tr = el('tr');
+        tr.appendChild(el('td', 'num', String(p.rank)));
+        tr.appendChild(el('td', null, p.name));
+        var pTd = el('td'); pTd.appendChild(posBadge(p.position)); tr.appendChild(pTd);
+        tr.appendChild(el('td', 'muted', p.team || ''));
+        tr.appendChild(el('td', 'ecr-avg', String(p.avg)));
+        tr.appendChild(el('td', 'muted', p.min === p.max ? String(p.min) : p.min + '–' + p.max));
+        tr.appendChild(el('td', 'muted', String(p.stdev)));
+        tr.appendChild(el('td', 'muted', p.n + '/' + voters));
+        r.sets.forEach(function (s) {
+          var v = p.votes[s.set_id];
+          tr.appendChild(el('td', 'votes-col', v === undefined ? '—' : String(v)));
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+    }
+
+    // ---------------- Save run ----------------
+    $('save-run').addEventListener('click', function () {
+      var sel = selections();
+      if (!sel.length) { showError('Tick at least one ranking set first.'); return; }
+      apiPost('/api/myrankings/runs', {
+        name: $('save-name').value,
+        target_format: $('dial-format').value,
+        selections: sel,
+        options: readDials(),
+      }).then(function (data) {
+        toast('Run saved — ' + data.players + ' players');
+        $('save-name').value = '';
+        showPanel('runs');
+        loadRuns().then(function () { viewRun(data.run.id); });
+      }).catch(function () {});
+    });
+
+    // ---------------- Runs ----------------
+    var runs = [];
+    var exportFormats = [];
+
+    function loadRuns() {
+      return apiFetch('/api/myrankings/runs').then(function (data) {
+        runs = data;
+        var badge = $('runs-badge');
+        badge.textContent = String(runs.length);
+        badge.classList.toggle('zero', !runs.length);
+        var body = $('runs-body');
+        body.textContent = '';
+        if (!runs.length) {
+          var tr = el('tr'); var td = el('td', 'muted', 'No saved runs yet — build one in the Build tab.');
+          td.colSpan = 5; tr.appendChild(td); body.appendChild(tr);
+        }
+        runs.forEach(function (r) {
+          var tr = el('tr');
+          var nameTd = el('td');
+          var a = el('a', null, r.name || ('Run #' + r.id));
+          a.href = '#'; a.addEventListener('click', function (e) { e.preventDefault(); viewRun(r.id); });
+          nameTd.appendChild(a); tr.appendChild(nameTd);
+          var fTd = el('td'); fTd.appendChild(fmtPill(r.target_format)); tr.appendChild(fTd);
+          tr.appendChild(el('td', 'muted', String(r.player_count)));
+          tr.appendChild(el('td', 'muted small', timeAgo(r.created_at)));
+          var act = el('td');
+          var del = el('button', 'danger', '×');
+          del.type = 'button'; del.style.padding = '2px 10px'; del.title = 'Delete this run';
+          del.addEventListener('click', function () {
+            if (!confirm('Delete run “' + (r.name || r.id) + '”? This cannot be undone.')) return;
+            apiPost('/api/myrankings/runs/' + r.id, {}, 'DELETE').then(function () {
+              toast('Run deleted');
+              $('run-view').hidden = true;
+              loadRuns();
+            }).catch(function () {});
+          });
+          act.appendChild(del); tr.appendChild(act);
+          body.appendChild(tr);
+        });
+        // compare selects: default a = second-newest, b = newest
+        ['cmp-a', 'cmp-b'].forEach(function (id) {
+          var sel = $(id); sel.textContent = '';
+          runs.forEach(function (r) {
+            var o = el('option', null, (r.name || ('Run #' + r.id)) + ' · ' + new Date(r.created_at).toLocaleDateString());
+            o.value = r.id; sel.appendChild(o);
+          });
+        });
+        if (runs.length > 1) { $('cmp-a').value = runs[1].id; $('cmp-b').value = runs[0].id; }
+      });
+    }
+
+    // ---------------- Run view (with ADP delta when available) ----------------
+    var currentRun = null;
+
+    function loadAdpFor(format, cb) {
+      // Try the latest ADP snapshot in this format for the active league's size;
+      // quietly skip the column when Edge Rush has nothing yet.
+      apiFetch('/api/settings').then(function (s) {
+        var profiles = Array.isArray(s['league.profiles']) ? s['league.profiles'] : [];
+        var active = profiles.filter(function (l) { return l.id === s['league.active']; })[0] || profiles[0] || {};
+        var teams = active.teams || 12;
+        fetch('/api/adp/latest?format=' + encodeURIComponent(format) + '&teams=' + teams)
+          .then(function (res) { return res.json(); })
+          .then(function (body) {
+            if (body && body.ok && body.data && body.data.rows && body.data.rows.length) cb(body.data, teams);
+            else cb(null, teams);
+          })
+          .catch(function () { cb(null, teams); });
+      }).catch(function () { cb(null, 12); });
+    }
+
+    function viewRun(id) {
+      apiFetch('/api/myrankings/runs/' + id).then(function (data) {
+        currentRun = data;
+        $('run-view').hidden = false;
+        $('run-title').textContent = data.run.name || ('Run #' + data.run.id);
+        $('run-meta').textContent = data.rows.length + ' players · ' + timeAgo(data.run.created_at);
+        var st = data.run.settings || {};
+        var dialBits = [];
+        if (st.options) {
+          dialBits.push('omissions: ' + (st.options.unranked === 'penalty' ? 'count as very low (+' + st.options.penalty_extra + ')' : 'no opinion'));
+          dialBits.push('outliers: ' + (st.options.outlier === 'trim' ? 'trimmed' : 'off'));
+          if (st.options.min_sets > 1) dialBits.push('min sets: ' + st.options.min_sets);
+        }
+        if (st.sets) dialBits.push('inputs: ' + st.sets.map(function (s) { return (s.source || s.name) + (s.weight !== 1 ? ' ×' + s.weight : ''); }).join(', '));
+        $('run-dials').textContent = dialBits.join(' · ');
+        renderRunTable(data.rows, null);
+        loadAdpFor(data.run.target_format, function (adp, teams) {
+          if (adp) {
+            $('run-adp-note').textContent = 'ADP column: ' + adp.site + ' ' + (adp.format || '') + ' ' + teams + '-team, snapshot ' + adp.snapshot_date + '. Δ = ADP − your rank (positive = the room lets you get him later).';
+            renderRunTable(currentRun.rows, adp);
+          } else {
+            // Say WHY there's no ADP column rather than silently omitting it.
+            $('run-adp-note').textContent = 'No ADP snapshot for “' + (currentRun.run.target_format || 'unknown') +
+              '” yet — Edge Rush collects the formats your leagues use (plus Sleeper site-wide). Best-ball runs have no dedicated feed; check the PPR board on Edge Rush instead.';
+          }
+        });
+        $('run-view').scrollIntoView({ behavior: 'smooth' });
+      }).catch(function () {});
+    }
+
+    function renderRunTable(rows, adp) {
+      var byPlayer = {};
+      if (adp) adp.rows.forEach(function (r) { if (r.player_id) byPlayer[r.player_id] = r; });
+      var table = $('run-table');
+      table.textContent = '';
+      var thead = el('thead'); var hr = el('tr');
+      var heads = ['#', 'Player', 'Pos', 'Team', 'Avg', 'Best–Worst', 'σ', 'Sets'];
+      if (adp) heads = heads.concat(['ADP', 'Δ']);
+      heads.forEach(function (h) { hr.appendChild(el('th', null, h)); });
+      thead.appendChild(hr); table.appendChild(thead);
+      var tbody = el('tbody');
+      rows.forEach(function (p) {
+        var tr = el('tr');
+        tr.appendChild(el('td', 'num', String(p.rank)));
+        tr.appendChild(el('td', null, p.name));
+        var pTd = el('td'); pTd.appendChild(posBadge(p.position)); tr.appendChild(pTd);
+        tr.appendChild(el('td', 'muted', p.team || ''));
+        tr.appendChild(el('td', 'ecr-avg', p.avg == null ? '—' : String(p.avg)));
+        tr.appendChild(el('td', 'muted', p.min == null ? '—' : (p.min === p.max ? String(p.min) : p.min + '–' + p.max)));
+        tr.appendChild(el('td', 'muted', p.stdev == null ? '—' : String(p.stdev)));
+        tr.appendChild(el('td', 'muted', p.n == null ? '—' : String(p.n)));
+        if (adp) {
+          var a = byPlayer[p.player_id];
+          tr.appendChild(el('td', 'muted', a ? String(a.adp) : '—'));
+          if (a) {
+            var d = Math.round((Number(a.adp) - p.rank) * 10) / 10;
+            tr.appendChild(el('td', d > 0 ? 'delta-up' : (d < 0 ? 'delta-down' : 'delta-flat'), (d > 0 ? '+' : '') + d));
+          } else {
+            tr.appendChild(el('td', 'delta-flat', '—'));
+          }
+        }
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+    }
+
+    // Export
+    $('run-export').addEventListener('click', function () {
+      if (!currentRun) { showError('Open a run first.'); return; }
+      apiDownload('/api/myrankings/runs/' + currentRun.run.id + '/export/' + $('run-export-fmt').value);
+    });
+
+    // ---------------- Compare ----------------
+    $('cmp-btn').addEventListener('click', function () {
+      var a = $('cmp-a').value, b = $('cmp-b').value;
+      if (!a || !b) { showError('Save at least two runs to compare.'); return; }
+      apiFetch('/api/myrankings/compare?a=' + a + '&b=' + b).then(function (d) {
+        var out = $('cmp-out');
+        out.textContent = '';
+        out.appendChild(el('p', 'muted small', d.a.name + ' → ' + d.b.name + ' · Δ = movement into the newer run (▲ = risen)'));
+        var wrap = el('div', 'table-wrap');
+        var table = el('table', 'data');
+        var thead = el('thead'); var hr = el('tr');
+        ['Player', 'Pos', 'Was', 'Now', 'Δ'].forEach(function (h) { hr.appendChild(el('th', null, h)); });
+        thead.appendChild(hr); table.appendChild(thead);
+        var tbody = el('tbody');
+        d.pairs.slice(0, 40).forEach(function (p) {
+          var tr = el('tr');
+          tr.appendChild(el('td', null, p.name));
+          var pTd = el('td'); pTd.appendChild(posBadge(p.position)); tr.appendChild(pTd);
+          tr.appendChild(el('td', 'muted', String(p.rank_a)));
+          tr.appendChild(el('td', 'muted', String(p.rank_b)));
+          var d1 = p.delta; // rank_a - rank_b: positive = climbed
+          tr.appendChild(el('td', d1 > 0 ? 'delta-up' : (d1 < 0 ? 'delta-down' : 'delta-flat'),
+            d1 > 0 ? '▲ ' + d1 : (d1 < 0 ? '▼ ' + Math.abs(d1) : '—')));
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+        out.appendChild(wrap);
+        if (d.onlyA.length) out.appendChild(el('p', 'muted small', 'Dropped out: ' + d.onlyA.slice(0, 15).map(function (p) { return p.name; }).join(', ') + (d.onlyA.length > 15 ? '…' : '')));
+        if (d.onlyB.length) out.appendChild(el('p', 'muted small', 'New: ' + d.onlyB.slice(0, 15).map(function (p) { return p.name; }).join(', ') + (d.onlyB.length > 15 ? '…' : '')));
+      }).catch(function () {});
+    });
+
+    // ---------------- Boot ----------------
+    apiFetch('/api/myrankings/sets').then(function (data) { sets = data; renderSets(); }).catch(function () {});
+    apiFetch('/api/myrankings/options').then(applyDials).catch(function () {});
+    apiFetch('/api/myrankings/formats').then(function (fmts) {
+      exportFormats = fmts;
+      var sel = $('run-export-fmt');
+      sel.textContent = '';
+      fmts.forEach(function (f) {
+        var o = el('option', null, f.label); o.value = f.id; sel.appendChild(o);
+      });
+    }).catch(function () {});
+    // Default target format from the active league profile (multi-league rule:
+    // suggest from the chosen league, never assume).
+    apiFetch('/api/settings').then(function (s) {
+      var profiles = Array.isArray(s['league.profiles']) ? s['league.profiles'] : [];
+      var active = profiles.filter(function (l) { return l.id === s['league.active']; })[0] || profiles[0];
+      if (active) {
+        $('dial-format').value = active.superflex ? 'superflex' : (active.scoring || 'half');
+      }
+    }).catch(function () {});
+    loadRuns();
+  })();
+  </script>
+</body>
+</html>

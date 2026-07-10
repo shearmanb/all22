@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Player DB — All22</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .alias-site { color: var(--text-dim); font-size: 0.78rem; margin-right: 4px; }
+    .alias-line { white-space: normal; }
+    .alias-x { background: none; border: none; color: var(--error-text); cursor: pointer; padding: 0 4px; width: auto; font-size: 0.9rem; }
+    .name-key { color: var(--text-dim); font-size: 0.75rem; }
+    .alias-form input { padding: 5px 7px; width: 130px; }
+    #pl-search { max-width: 260px; }
+    td.alias-cell { white-space: normal; min-width: 220px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">All<em>22</em></span>
+    <a href="/">Hub</a>
+    <a href="/combine.html">Combine</a>
+    <a href="/myrankings.html">My Rankings</a>
+    <a href="/boards.html">Big Board</a>
+    <a href="/auction.html">War Chest</a>
+    <a href="/drafts.html">Playbook</a>
+    <a href="/adp.html">Edge Rush</a>
+    <a href="/players.html" class="active">Player DB</a>
+    <a href="/notes.html">Notes</a>
+    <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
+  </nav>
+  <div id="error-banner"></div>
+
+  <main>
+    <h1>Player DB <span class="muted small">— the canonical registry everything joins on, and what each site calls a player</span></h1>
+    <div class="row">
+      <span id="pl-stats" class="muted small">Loading…</span>
+      <span class="grow"></span>
+      <button id="pl-sync" class="secondary" type="button">Sync from Sleeper</button>
+    </div>
+
+    <div class="card section-gap">
+      <div class="row">
+        <label class="grow">
+          <span class="field-label">Search (name, or any site's spelling)</span>
+          <input id="pl-search" placeholder="hollywood brown…">
+        </label>
+        <label>
+          <span class="field-label">Position</span>
+          <select id="pl-pos" class="inline">
+            <option value="">All</option>
+            <option>QB</option><option>RB</option><option>WR</option><option>TE</option><option>K</option><option>DST</option>
+          </select>
+        </label>
+        <label>
+          <span class="field-label">Source</span>
+          <select id="pl-source" class="inline">
+            <option value="">All</option>
+            <option value="sleeper">Sleeper</option>
+            <option value="manual">Added by hand</option>
+          </select>
+        </label>
+        <label class="row" style="align-self:end; gap:6px">
+          <input id="pl-active" type="checkbox" style="width:auto" checked> Active only
+        </label>
+        <label class="row" style="align-self:end; gap:6px">
+          <input id="pl-aliased" type="checkbox" style="width:auto"> Has aliases
+        </label>
+      </div>
+    </div>
+
+    <div class="card section-gap">
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr><th>Player</th><th>Pos</th><th>Team</th><th>Status</th><th>Site aliases</th><th></th></tr>
+          </thead>
+          <tbody id="pl-body"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="row section-gap">
+        <span id="pl-count" class="muted small"></span>
+        <span class="grow"></span>
+        <button id="pl-more" class="secondary" type="button" hidden>Load more</button>
+      </div>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    function el(tag, className, text) {
+      var n = document.createElement(tag);
+      if (className) n.className = className;
+      if (text != null) n.textContent = text;
+      return n;
+    }
+    function posBadge(pos) { return el('span', 'pos-badge' + (pos ? ' pos-' + pos : ''), pos || '—'); }
+
+    var LIMIT = 100;
+    var offset = 0;
+    var total = 0;
+    var loaded = 0;
+
+    function query() {
+      var p = new URLSearchParams();
+      var q = $('pl-search').value.trim();
+      if (q) p.set('q', q);
+      if ($('pl-pos').value) p.set('pos', $('pl-pos').value);
+      if ($('pl-source').value) p.set('source', $('pl-source').value);
+      if ($('pl-active').checked) p.set('active', '1');
+      if ($('pl-aliased').checked) p.set('aliased', '1');
+      p.set('limit', LIMIT);
+      p.set('offset', offset);
+      return p.toString();
+    }
+
+    function aliasCell(player) {
+      var td = el('td', 'alias-cell');
+      var sites = Object.keys(player.aliases || {}).sort();
+      sites.forEach(function (site) {
+        var line = el('div', 'alias-line');
+        line.appendChild(el('span', 'alias-site', site + ':'));
+        (player.aliases[site] || []).forEach(function (variant, i) {
+          if (i) line.appendChild(document.createTextNode(', '));
+          line.appendChild(el('span', null, variant));
+          var x = el('button', 'alias-x', '×');
+          x.type = 'button';
+          x.title = 'Forget this alias';
+          x.addEventListener('click', function () {
+            if (!confirm('Forget that ' + site + ' calls him “' + variant + '”?')) return;
+            apiFetch('/api/players/' + player.player_id + '/alias', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ variant: variant, site: site }),
+            }).then(function (d) {
+              player.aliases = d.aliases;
+              toast('Alias forgotten');
+              var fresh = aliasCell(player);
+              td.replaceWith(fresh);
+            }).catch(function () {});
+          });
+          line.appendChild(x);
+        });
+        td.appendChild(line);
+      });
+      if (!sites.length) td.appendChild(el('span', 'muted small', '—'));
+      return td;
+    }
+
+    function addAliasCell(player) {
+      var td = el('td');
+      var btn = el('button', 'link', '+ alias');
+      btn.type = 'button';
+      btn.title = 'Teach a name a site uses for this player';
+      btn.addEventListener('click', function () {
+        var form = el('span', 'alias-form');
+        var variant = document.createElement('input');
+        variant.placeholder = 'name the site uses';
+        var site = document.createElement('input');
+        site.placeholder = 'site (e.g. underdog)';
+        var save = el('button', null, 'Save');
+        save.type = 'button';
+        save.style.padding = '5px 10px';
+        var cancel = el('button', 'secondary', '×');
+        cancel.type = 'button';
+        cancel.style.padding = '5px 10px';
+        cancel.addEventListener('click', function () { form.replaceWith(btn); });
+        save.addEventListener('click', function () {
+          apiPost('/api/players/' + player.player_id + '/alias', {
+            variant: variant.value, site: site.value || 'common',
+          }).then(function (d) {
+            player.aliases = d.aliases;
+            toast('Alias saved — future ingests will match it');
+            var row = form.closest('tr');
+            row.children[4].replaceWith(aliasCell(player));
+            form.replaceWith(btn);
+          }).catch(function () {});
+        });
+        [variant, site, save, cancel].forEach(function (c) { form.appendChild(c); });
+        btn.replaceWith(form);
+        variant.focus();
+      });
+      td.appendChild(btn);
+      return td;
+    }
+
+    function renderRows(rows, append) {
+      var body = $('pl-body');
+      if (!append) body.textContent = '';
+      if (!rows.length && !append) {
+        var tr = el('tr'); var td = el('td', 'muted', 'No players match.');
+        td.colSpan = 6; tr.appendChild(td); body.appendChild(tr);
+        return;
+      }
+      rows.forEach(function (p) {
+        var tr = el('tr');
+        var nameTd = el('td');
+        nameTd.appendChild(el('div', null, p.name));
+        nameTd.appendChild(el('div', 'name-key', p.name_key));
+        tr.appendChild(nameTd);
+        var posTd = el('td'); posTd.appendChild(posBadge(p.position)); tr.appendChild(posTd);
+        tr.appendChild(el('td', 'muted', p.team || ''));
+        var stTd = el('td');
+        stTd.appendChild(el('span', 'pill' + (p.active ? ' ok' : ''), p.active ? 'active' : 'inactive'));
+        if (p.source === 'manual') {
+          stTd.appendChild(document.createTextNode(' '));
+          stTd.appendChild(el('span', 'pill accent', 'manual'));
+        }
+        tr.appendChild(stTd);
+        tr.appendChild(aliasCell(p));
+        tr.appendChild(addAliasCell(p));
+        body.appendChild(tr);
+      });
+    }
+
+    function load(append) {
+      if (!append) { offset = 0; loaded = 0; }
+      apiFetch('/api/players?' + query()).then(function (d) {
+        total = d.total;
+        loaded += d.rows.length;
+        renderRows(d.rows, append);
+        $('pl-count').textContent = 'Showing ' + loaded + ' of ' + total.toLocaleString();
+        $('pl-more').hidden = loaded >= total;
+      }).catch(function () {});
+    }
+
+    $('pl-more').addEventListener('click', function () {
+      offset += LIMIT;
+      load(true);
+    });
+
+    var timer = null;
+    $('pl-search').addEventListener('input', function () {
+      clearTimeout(timer);
+      timer = setTimeout(function () { load(false); }, 300);
+    });
+    ['pl-pos', 'pl-source', 'pl-active', 'pl-aliased'].forEach(function (id) {
+      $(id).addEventListener('change', function () { load(false); });
+    });
+
+    function loadStats() {
+      apiFetch('/api/players/stats').then(function (s) {
+        $('pl-stats').textContent =
+          (s.total || 0).toLocaleString() + ' players · ' +
+          (s.active || 0).toLocaleString() + ' active · ' +
+          (s.manual || 0) + ' added by hand · ' +
+          (s.alias_variants || 0) + ' aliases on ' + (s.with_aliases || 0) + ' players · synced ' +
+          (s.synced_at ? timeAgo(s.synced_at) : 'never');
+      }).catch(function () {});
+    }
+
+    $('pl-sync').addEventListener('click', function () {
+      var btn = $('pl-sync');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Syncing…';
+      apiPost('/api/combine/master/sync', {})
+        .then(function (d) {
+          toast('Synced ' + (d.synced || 0).toLocaleString() + ' players from Sleeper');
+          loadStats();
+          load(false);
+        })
+        .catch(function () {})
+        .finally(function () { btn.disabled = false; btn.textContent = 'Sync from Sleeper'; });
+    });
+
+    loadStats();
+    load(false);
+  })();
+  </script>
+</body>
+</html>

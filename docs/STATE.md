@@ -1,43 +1,48 @@
 # All22 Session State
 
-_Last updated: 2026-07-05_
+_Last updated: 2026-07-10_
 
 ## Branch
-- Working branch: `claude/fantasy-pros-redesign-082rjd` (the full rebuild)
+- Working branch: `claude/fantasy-league-features-zmlgcn`
 - Railway auto-deploys from `main` — merge the branch to deploy.
 
-## What just happened: the rebuild
-The app was torn down and rebuilt around `docs/PRD.md` (gospel). What changed:
+## What just happened: the overnight feature batch
+Built on top of the PRD rebuild (see git history for the rebuild notes):
 
-- **New schema (012):** `players_master` (the linchpin registry, synced daily
-  from Sleeper), `rankings_raw` + `rankings_normalized` under the existing
-  `ranking_sets` (extended with `native_scoring_format` / `captured_on`),
-  plus `my_rankings`, `adp_history`, `notes`, `settings` created for later
-  phases. Pre-rebuild saved sets were backfilled into `rankings_raw` — open
-  each old set once and hit "Re-match names" to resolve them.
-- **Combine** replaced the Rankings Converter (`/combine.html`, `/api/combine`):
-  one-click screenshot→OCR→match→save, review queue, set compare, all the old
-  exports including Underdog-with-IDs. OCR is Claude vision when
-  `ANTHROPIC_API_KEY` is set on Railway, Tesseract fallback otherwise.
-- **Playbook** is the renamed draft tracker (same pages, same `/api/drafts`,
-  same data). It becomes the PRD's Playbook in Phase 3.
-- **Notes** is new (`/notes.html`).
-- **Hub** redesigned: launcher cards with live stats, per-dataset data-health
-  panel, global league-profile settings, news aggregator retained.
-- Kept verbatim: `lib/players.js` matcher + tests, `lib/aliases.js`, export
-  converters, underdog-ids, text parser, news, auth/health, db plumbing.
-- Dormant legacy tables (kept, unread): `roster_cache`,
-  `converter_corrections`. `converter_aliases` is still read into the alias
-  map; new learned aliases go to `players_master.aliases`.
+- **Multi-league profiles** — hub "My leagues" manages `league.profiles`
+  (teams / scoring / flex spots / superflex / TE premium / auction) with
+  `league.active` as default. CLAUDE.md now forbids hardcoding league shape.
+- **My Rankings** (`/myrankings.html`) — the mini-ECR blender: weighted
+  consensus of selected sets, overall + per-position, with the open-decision
+  dials in the UI (unranked semantics, trim outlier tamping, min-sets, target
+  format from the active league). Saved runs (frozen snapshots), run-vs-run
+  risers/fallers, ADP-delta column, exports via the existing converters.
+- **Edge Rush** (`/adp.html`) — automatic daily ADP: FantasyFootballCalculator
+  (per format + league size, with spread) + Sleeper (all formats, exact
+  `sleeper_id` joins). Boot + 6h re-check schedule; 7-day movers; collector
+  settings; league-aware defaults.
+- **Player DB** (`/players.html`) — browse/search `players_master`, see and
+  edit per-site aliases, sync button, stats.
+- **Combine URL fetch + auto-pull** — pull FantasyPros consensus pages by URL
+  (embedded `ecrData`, balanced-brace extraction), with an optional daily
+  auto-pull list that saves fresh dated sets automatically.
+- **Migration 018** — adp_history dimensions, `players_master.sleeper_id`
+  (+ forced resync), run names, my_rankings `detail` JSONB.
+- Docs: `docs/INTEGRATIONS.md` answers the Yahoo-live-draft question and the
+  "how do we auto-get rankings" question.
 
-## To finish deployment
-1. Merge to `main`; Railway builds and runs migration 012 at boot (verified
-   locally against a scratch Postgres, including the legacy backfill).
-2. Add `ANTHROPIC_API_KEY` in Railway → Variables for Claude-vision OCR
-   (optional but strongly recommended; the UI nags until it's set).
-3. First boot seeds `players_master` from Sleeper automatically; check the
-   hub's data-health panel.
+## To verify after deploy (owner or next session)
+1. Merge to `main`; watch `/health` for migration 018.
+2. Hub → My leagues: enter every real league (this drives Edge Rush's feeds
+   and My Rankings' target default).
+3. Edge Rush → Collect now: confirm FFC + Sleeper feeds fetch from Railway
+   (this sandbox couldn't reach them — proxy). Check unmatched counts.
+4. Combine → Ingest → fetch a FantasyPros URL end-to-end; optionally add it
+   to the daily auto-pull list.
+5. My Rankings → blend 2+ sets, save a run, export, compare.
+6. **Confirm the model dials** (unranked = no-opinion default, outlier trim
+   off by default, min-sets 1) — the deep-session decisions are provisional.
 
 ## Next sessions
-See `docs/SESSION_PLAN.md` — Phase 2 (the model) needs its deep-session
-decisions settled first; TODO.md carries the small follow-ups.
+War Room (Phase 5) now has its ADP distribution data accumulating. Yahoo
+draft capture: decide bookmarklet vs OAuth polling (docs/INTEGRATIONS.md).
