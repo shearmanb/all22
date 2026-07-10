@@ -22,6 +22,13 @@ module.exports = [
     publicDir: path.join(__dirname, 'combine', 'public'),
   },
   {
+    name: 'myrankings',
+    label: 'My Rankings',
+    apiMount: '/api/myrankings',
+    router: require('./myrankings/router'),
+    publicDir: path.join(__dirname, 'myrankings', 'public'),
+  },
+  {
     name: 'boards',
     label: 'Big Board',
     apiMount: '/api/boards',
