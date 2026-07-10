@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Edge Rush — All22</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .movers-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+    @media (min-width: 700px) { .movers-grid { grid-template-columns: 1fr 1fr; } }
+    .mover-row { display: flex; gap: 8px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+    .mover-row:last-child { border-bottom: none; }
+    .mover-name { flex: 1; }
+    .src-note { font-size: 0.78rem; color: var(--text-dim); }
+    #adp-search { max-width: 240px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">All<em>22</em></span>
+    <a href="/">Hub</a>
+    <a href="/combine.html">Combine</a>
+    <a href="/myrankings.html">My Rankings</a>
+    <a href="/boards.html">Big Board</a>
+    <a href="/auction.html">War Chest</a>
+    <a href="/drafts.html">Playbook</a>
+    <a href="/adp.html" class="active">Edge Rush</a>
+    <a href="/players.html">Player DB</a>
+    <a href="/notes.html">Notes</a>
+    <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
+  </nav>
+  <div id="error-banner"></div>
+
+  <main>
+    <h1>Edge Rush <span class="muted small">— ADP intelligence, collected for you daily</span></h1>
+    <p class="muted small">Snapshots are pulled automatically once a day for every league shape you play in (see “My leagues” on the hub). Risers and fallers compare today to about a week ago.</p>
+
+    <div class="card">
+      <div class="row">
+        <label>
+          <span class="field-label">Board</span>
+          <select id="key-select" class="inline"></select>
+        </label>
+        <label>
+          <span class="field-label">Position</span>
+          <select id="pos-filter" class="inline">
+            <option value="">All</option>
+            <option>QB</option><option>RB</option><option>WR</option><option>TE</option><option>K</option><option>DST</option>
+          </select>
+        </label>
+        <label class="grow">
+          <span class="field-label">Search</span>
+          <input id="adp-search" placeholder="player…">
+        </label>
+        <span class="grow"></span>
+        <button id="collect-btn" class="secondary" type="button">Collect now</button>
+      </div>
+      <div id="freshness" class="src-note section-gap"></div>
+    </div>
+
+    <section id="movers-section" class="section-gap" hidden>
+      <div class="movers-grid">
+        <div class="card">
+          <h2>Risers <span id="movers-window" class="muted small"></span></h2>
+          <div id="risers"></div>
+        </div>
+        <div class="card">
+          <h2>Fallers</h2>
+          <div id="fallers"></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="card section-gap">
+      <div class="table-wrap">
+        <table class="data" id="adp-table">
+          <thead>
+            <tr><th>#</th><th>Player</th><th>Pos</th><th>Team</th><th>Bye</th><th>ADP</th><th>Rd.Pick</th><th>High–Low</th><th>σ</th><th>Δ7d</th></tr>
+          </thead>
+          <tbody id="adp-body"><tr><td colspan="10" class="muted">Loading…</td></tr></tbody>
+        </table>
+      </div>
+      <p class="src-note section-gap">ADP sources: <a href="https://fantasyfootballcalculator.com/adp" target="_blank" rel="noopener noreferrer">Fantasy Football Calculator</a> (free API — mock-draft ADP per format &amp; league size) and Sleeper (draft-room ADP, all formats, site-wide). Unmatched names keep the site's spelling and are flagged.</p>
+    </div>
+
+    <details class="card section-gap">
+      <summary style="cursor:pointer"><strong>Collector settings</strong> <span class="muted small">— what gets pulled, and when it last ran</span></summary>
+      <div class="row section-gap">
+        <label class="row" style="gap:6px">
+          <input id="cfg-auto" type="checkbox" style="width:auto"> Collect automatically (daily)
+        </label>
+        <label>
+          <span class="field-label">Season year override</span>
+          <input id="cfg-year" type="number" class="inline" style="width:110px" placeholder="auto">
+        </label>
+        <button id="cfg-save" class="secondary" type="button">Save</button>
+      </div>
+      <div id="cfg-targets" class="src-note section-gap"></div>
+      <div id="cfg-lastrun" class="src-note section-gap"></div>
+    </details>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    function el(tag, className, text) {
+      var n = document.createElement(tag);
+      if (className) n.className = className;
+      if (text != null) n.textContent = text;
+      return n;
+    }
+    function posBadge(pos) { return el('span', 'pos-badge' + (pos ? ' pos-' + pos : ''), pos || '—'); }
+    function fmtLabel(f) {
+      return { ppr: 'PPR', half: 'Half-PPR', standard: 'Standard', superflex: 'Superflex/2QB' }[f] || f;
+    }
+    function roundPick(adp, teams) {
+      if (!teams) return '';
+      var pick = Math.round(adp);
+      var rd = Math.floor((pick - 1) / teams) + 1;
+      var p = ((pick - 1) % teams) + 1;
+      return rd + '.' + (p < 10 ? '0' : '') + p;
+    }
+
+    var status = null;
+    var board = null;       // /latest payload
+    var deltas = {};        // player key -> delta
+
+    function keyOf(snap) { return snap.site + '|' + snap.format + '|' + snap.teams; }
+
+    function loadStatus() {
+      return apiFetch('/api/adp/status').then(function (d) {
+        status = d;
+        var sel = $('key-select');
+        var prev = sel.value;
+        sel.textContent = '';
+        (d.snapshots || []).forEach(function (s) {
+          var label = (s.site === 'ffc' ? 'FFC' : s.site.charAt(0).toUpperCase() + s.site.slice(1)) +
+            ' · ' + fmtLabel(s.format) + (s.teams ? ' · ' + s.teams + '-team' : ' · site-wide');
+          var o = el('option', null, label);
+          o.value = keyOf(s);
+          sel.appendChild(o);
+        });
+        if (prev && Array.prototype.some.call(sel.options, function (o) { return o.value === prev; })) sel.value = prev;
+        renderConfig(d);
+        return d;
+      });
+    }
+
+    function pickDefaultKey(settingsData) {
+      // Prefer the active league's shape (multi-league rule: never assume).
+      if (!status || !status.snapshots || !status.snapshots.length) return;
+      var profiles = Array.isArray(settingsData['league.profiles']) ? settingsData['league.profiles'] : [];
+      var active = profiles.filter(function (l) { return l.id === settingsData['league.active']; })[0] || profiles[0];
+      if (!active) return;
+      var wantFmt = active.superflex ? 'superflex' : (active.scoring || 'half');
+      var best = null;
+      status.snapshots.forEach(function (s) {
+        if (s.format !== wantFmt) return;
+        if (!best) { best = s; return; }
+        if (s.teams === (active.teams || 12) && best.teams !== (active.teams || 12)) best = s;
+      });
+      if (best) $('key-select').value = keyOf(best);
+    }
+
+    function selectedSnap() {
+      if (!status) return null;
+      var v = $('key-select').value;
+      return (status.snapshots || []).filter(function (s) { return keyOf(s) === v; })[0] || null;
+    }
+
+    function loadBoard() {
+      var snap = selectedSnap();
+      var body = $('adp-body');
+      if (!snap) {
+        body.textContent = '';
+        var tr = el('tr'); var td = el('td', 'muted', 'No ADP collected yet — hit “Collect now”.');
+        td.colSpan = 10; tr.appendChild(td); body.appendChild(tr);
+        $('freshness').textContent = '';
+        $('movers-section').hidden = true;
+        return;
+      }
+      var q = 'format=' + encodeURIComponent(snap.format) + '&teams=' + snap.teams + '&site=' + encodeURIComponent(snap.site);
+      apiFetch('/api/adp/latest?' + q).then(function (d) {
+        board = d;
+        $('freshness').textContent = 'Snapshot ' + d.snapshot_date + ' · ' + d.rows.length + ' players · ' +
+          (snap.unmatched ? snap.unmatched + ' unmatched name(s) shown with their site spelling' : 'all names matched');
+        return apiFetch('/api/adp/movers?' + q + '&days=7');
+      }).then(function (m) {
+        deltas = {};
+        (m.pairs || []).forEach(function (p) { deltas[p.player_id || ('raw:' + p.name)] = p.delta; });
+        renderMovers(m);
+        renderTable();
+      }).catch(function () {});
+    }
+
+    function moverLine(p, up) {
+      var row = el('div', 'mover-row');
+      row.appendChild(el('span', up ? 'delta-up' : 'delta-down', (up ? '▲ ' : '▼ ') + Math.abs(p.delta)));
+      var name = el('span', 'mover-name');
+      name.appendChild(el('span', null, p.name + ' '));
+      name.appendChild(posBadge(p.position));
+      row.appendChild(name);
+      row.appendChild(el('span', 'muted small', p.prev_adp + ' → ' + p.adp));
+      return row;
+    }
+
+    function renderMovers(m) {
+      var sec = $('movers-section');
+      if (!m.prev || !m.pairs || !m.pairs.length) { sec.hidden = true; return; }
+      sec.hidden = false;
+      $('movers-window').textContent = m.prev + ' → ' + m.latest;
+      var risers = m.pairs.filter(function (p) { return p.delta > 0; }).slice(0, 10);
+      var fallers = m.pairs.filter(function (p) { return p.delta < 0; }).slice(0, 10);
+      var rEl = $('risers'), fEl = $('fallers');
+      rEl.textContent = ''; fEl.textContent = '';
+      risers.forEach(function (p) { rEl.appendChild(moverLine(p, true)); });
+      fallers.forEach(function (p) { fEl.appendChild(moverLine(p, false)); });
+      if (!risers.length) rEl.appendChild(el('div', 'muted small', 'No meaningful movement.'));
+      if (!fallers.length) fEl.appendChild(el('div', 'muted small', 'No meaningful movement.'));
+    }
+
+    function renderTable() {
+      if (!board) return;
+      var pos = $('pos-filter').value;
+      var q = $('adp-search').value.trim().toLowerCase();
+      var body = $('adp-body');
+      body.textContent = '';
+      var shown = 0;
+      board.rows.forEach(function (r, i) {
+        if (pos && r.position !== pos) return;
+        if (q && r.name.toLowerCase().indexOf(q) < 0 && (r.raw_name || '').toLowerCase().indexOf(q) < 0) return;
+        shown++;
+        var tr = el('tr');
+        tr.appendChild(el('td', 'num', String(i + 1)));
+        var nameTd = el('td', null, r.name);
+        if (!r.matched) {
+          nameTd.appendChild(el('span', 'pill warn', 'unmatched'));
+          nameTd.title = 'The site calls him “' + r.raw_name + '” and no confident match was found. Add or alias him in Player DB.';
+        }
+        tr.appendChild(nameTd);
+        var pTd = el('td'); pTd.appendChild(posBadge(r.position)); tr.appendChild(pTd);
+        tr.appendChild(el('td', 'muted', r.team || ''));
+        tr.appendChild(el('td', 'muted', r.bye == null ? '' : String(r.bye)));
+        tr.appendChild(el('td', null, String(r.adp)));
+        tr.appendChild(el('td', 'muted', roundPick(r.adp, board.teams)));
+        tr.appendChild(el('td', 'muted', r.high == null ? '' : r.high + '–' + r.low));
+        tr.appendChild(el('td', 'muted', r.stdev == null ? '' : String(r.stdev)));
+        var d = deltas[r.player_id || ('raw:' + r.name)];
+        tr.appendChild(el('td', d > 0 ? 'delta-up' : (d < 0 ? 'delta-down' : 'delta-flat'),
+          d === undefined ? '' : (d > 0 ? '▲ ' + d : (d < 0 ? '▼ ' + Math.abs(d) : '—'))));
+        body.appendChild(tr);
+      });
+      if (!shown) {
+        var tr2 = el('tr'); var td = el('td', 'muted', 'Nothing matches that filter.');
+        td.colSpan = 10; tr2.appendChild(td); body.appendChild(tr2);
+      }
+    }
+
+    // ---------------- Collector settings ----------------
+    function renderConfig(d) {
+      $('cfg-auto').checked = d.auto !== false;
+      $('cfg-year').value = d.year || '';
+      var t = $('cfg-targets');
+      t.textContent = 'Collecting from FFC: ' + (d.ffc_targets || []).map(function (x) {
+        return fmtLabel(x.format) + ' ' + x.teams + '-team';
+      }).join(', ') + ' (derived from “My leagues” on the hub — edit leagues there to change this) · plus Sleeper site-wide, all formats.';
+      var lr = $('cfg-lastrun');
+      if (d.last_run && d.last_run.at) {
+        var bits = (d.last_run.summary || []).map(function (s) {
+          if (s.error) return (s.site || '?') + ' ' + (s.format || '') + ': FAILED — ' + s.error;
+          if (s.skipped) return (s.site || '?') + ' ' + (s.format || '') + ': skipped (' + s.skipped + ')';
+          return (s.site || '?') + ' ' + (s.format || '') + (s.teams ? '/' + s.teams : '') + ': ' + s.inserted + ' rows' + (s.unmatched ? ' (' + s.unmatched + ' unmatched)' : '');
+        });
+        lr.textContent = 'Last run ' + timeAgo(d.last_run.at) + ' — ' + bits.join(' · ');
+      } else {
+        lr.textContent = 'Never run yet.';
+      }
+    }
+
+    $('cfg-save').addEventListener('click', function () {
+      apiPost('/api/adp/config', {
+        auto: $('cfg-auto').checked,
+        year: $('cfg-year').value ? parseInt($('cfg-year').value, 10) : null,
+      }, 'PUT').then(function () { toast('Collector settings saved'); }).catch(function () {});
+    });
+
+    $('collect-btn').addEventListener('click', function () {
+      var btn = $('collect-btn');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Collecting…';
+      apiPost('/api/adp/collect', { force: true })
+        .then(function (d) {
+          var ok = d.summary.filter(function (s) { return s.inserted; }).length;
+          var bad = d.summary.filter(function (s) { return s.error; });
+          toast(ok + ' snapshot(s) collected' + (bad.length ? ' · ' + bad.length + ' failed' : ''));
+          if (bad.length) showError('Some feeds failed: ' + bad.map(function (s) { return (s.site || '?') + ' ' + (s.format || '') + ' — ' + s.error; }).join(' · '));
+          return loadStatus();
+        })
+        .then(loadBoard)
+        .catch(function () {})
+        .finally(function () { btn.disabled = false; btn.textContent = 'Collect now'; });
+    });
+
+    $('key-select').addEventListener('change', loadBoard);
+    $('pos-filter').addEventListener('change', renderTable);
+    var searchTimer = null;
+    $('adp-search').addEventListener('input', function () {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(renderTable, 250);
+    });
+
+    // ---------------- Boot ----------------
+    loadStatus().then(function () {
+      return apiFetch('/api/settings').then(pickDefaultKey).catch(function () {});
+    }).then(loadBoard).catch(function () {});
+  })();
+  </script>
+</body>
+</html>

@@ -11,6 +11,7 @@ const newsRouter = require('./routes/news');
 const settingsRouter = require('./routes/settings');
 const dataHealthRouter = require('./routes/datahealth');
 const playersMaster = require('./lib/players-master');
+const adpCollect = require('./features/adp/lib/collect');
 const features = require('./features');
 
 const app = express();
@@ -93,6 +94,10 @@ async function start() {
   // boot; a failure just means matching runs on the previous roster).
   playersMaster.ensureSeeded();
   setInterval(() => playersMaster.ensureSeeded(), 24 * 60 * 60 * 1000).unref();
+  // Edge Rush's daily ADP snapshots: collect on boot, then re-check every 6h
+  // (it no-ops once today's snapshots exist, so failures self-heal same-day).
+  adpCollect.ensureCollected();
+  setInterval(() => adpCollect.ensureCollected(), 6 * 60 * 60 * 1000).unref();
   app.listen(port, () => console.log(`all22 listening on port ${port}`));
 }
 

@@ -50,6 +50,13 @@ module.exports = [
     publicDir: path.join(__dirname, 'playbook', 'public'),
   },
   {
+    name: 'adp',
+    label: 'Edge Rush',
+    apiMount: '/api/adp',
+    router: require('./adp/router'),
+    publicDir: path.join(__dirname, 'adp', 'public'),
+  },
+  {
     name: 'notes',
     label: 'Notes',
     apiMount: '/api/notes',
