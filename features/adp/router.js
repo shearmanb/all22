@@ -10,8 +10,23 @@ const pool = require('../../db/pool');
 const settings = require('../../lib/settings');
 const collect = require('./lib/collect');
 const sources = require('./lib/sources');
+const custom = require('./lib/custom');
 
 const hasDb = () => Boolean(process.env.DATABASE_URL);
+
+// The "View source ↗" link for a board (PRD §11 provenance). Built-ins map to
+// the site's own ADP page; a custom source links back to the URL the owner
+// added.
+async function sourceUrlFor(site, format, teams) {
+  if (site === 'ffc') return sources.ffcPageUrl(format, teams);
+  if (site === 'sleeper') return 'https://sleeper.com/';
+  const list = await settings.get('adp.custom_sources', []);
+  for (const e of (Array.isArray(list) ? list : [])) {
+    const id = e && e.url && custom.identify(e.url);
+    if (id && id.site === site) return id.url;
+  }
+  return null;
+}
 
 // Pick the best stored snapshot key for a format: exact league size beats
 // Sleeper's sitewide (teams = 0) beats whatever is freshest.
@@ -79,7 +94,8 @@ router.get('/latest', async (req, res) => {
     const key = await resolveKey({ site: req.query.site, format, teams: req.query.teams });
     if (!key) return res.json({ ok: true, data: { rows: [], format } });
     const rows = await snapshotRows(key, key.latest);
-    res.json({ ok: true, data: { site: key.site, format: key.format, teams: key.teams, snapshot_date: key.latest, rows } });
+    const source_url = await sourceUrlFor(key.site, key.format, key.teams);
+    res.json({ ok: true, data: { site: key.site, format: key.format, teams: key.teams, snapshot_date: key.latest, source_url, rows } });
   } catch (err) {
     console.error(`GET /api/adp/latest: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not load ADP.' });
@@ -172,13 +188,14 @@ router.get('/status', async (req, res) => {
     const snapshots = Array.from(latestByKey.values())
       .map((g) => ({ site: g.site, format: g.format, teams: Number(g.teams), latest: g.date, rows: g.rows, unmatched: g.unmatched }))
       .sort((a, b) => a.site.localeCompare(b.site) || a.format.localeCompare(b.format) || a.teams - b.teams);
-    const [auto, year, lastRun, targets] = await Promise.all([
+    const [auto, year, lastRun, targets, customSources] = await Promise.all([
       settings.get('adp.auto', true),
       settings.get('adp.year', null),
       settings.get('adp.last_run', null),
       collect.ffcTargets(),
+      settings.get('adp.custom_sources', []),
     ]);
-    res.json({ ok: true, data: { db: true, snapshots, auto: auto !== false, year, last_run: lastRun, ffc_targets: targets } });
+    res.json({ ok: true, data: { db: true, snapshots, auto: auto !== false, year, last_run: lastRun, ffc_targets: targets, custom_sources: Array.isArray(customSources) ? customSources : [] } });
   } catch (err) {
     console.error(`GET /api/adp/status: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not load the ADP collector status.' });
@@ -217,6 +234,44 @@ router.put('/config', async (req, res) => {
   } catch (err) {
     console.error(`PUT /api/adp/config: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not save the collector settings.' });
+  }
+});
+
+// Custom ADP sources the owner added by URL. GET lists them; PUT replaces the
+// list (each entry validated against a known adapter so a bad link is rejected
+// loudly, not saved to silently fail every night).
+router.get('/sources', async (req, res) => {
+  try {
+    const list = await settings.get('adp.custom_sources', []);
+    res.json({ ok: true, data: { sources: Array.isArray(list) ? list : [], hint: custom.SUPPORTED_HINT } });
+  } catch (err) {
+    console.error(`GET /api/adp/sources: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not load your ADP sources.' });
+  }
+});
+
+router.put('/sources', async (req, res) => {
+  try {
+    if (!hasDb()) return res.status(400).json({ ok: false, error: 'ADP sources need a database.' });
+    const entries = req.body && req.body.sources;
+    if (!Array.isArray(entries)) return res.status(400).json({ ok: false, error: 'sources must be a list.' });
+    const cleaned = [];
+    for (const e of entries) {
+      const id = e && e.url && custom.identify(e.url);
+      if (!id) return res.status(400).json({ ok: false, error: `That link can't be read as an ADP source. ${custom.SUPPORTED_HINT}` });
+      cleaned.push({
+        url: id.url,
+        label: (e.label && String(e.label).trim()) || id.label,
+        format: custom.cleanFormat(e.format || custom.inferFormat(id.url)),
+        teams: Number(e.teams) || 12,
+        enabled: e.enabled !== false,
+      });
+    }
+    await settings.set('adp.custom_sources', cleaned);
+    res.json({ ok: true, data: { sources: cleaned } });
+  } catch (err) {
+    console.error(`PUT /api/adp/sources: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not save your ADP sources.' });
   }
 });
 

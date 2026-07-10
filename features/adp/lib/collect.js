@@ -16,6 +16,7 @@ const settings = require('../../../lib/settings');
 const master = require('../../../lib/players-master');
 const ingest = require('../../combine/lib/ingest');
 const sources = require('./sources');
+const custom = require('./custom');
 
 const hasDb = () => Boolean(process.env.DATABASE_URL);
 
@@ -192,6 +193,30 @@ async function collectSleeper({ force, year, index, date }) {
   return summaries;
 }
 
+// User-added sources (settings 'adp.custom_sources'): each is fetched through
+// the custom adapter dispatcher, name-matched high-confidence-only, and stored
+// under its own site slug so it appears as its own board.
+async function collectCustom(entry, { force, index, date }) {
+  const summary = { site: custom.identify(entry.url) ? custom.identify(entry.url).site : 'custom', url: entry.url };
+  const result = await custom.fetchCustom(entry);
+  if (!force && await haveSnapshot(result.site, result.format, result.teams, date)) {
+    return Object.assign(summary, { format: result.format, teams: result.teams, skipped: 'already collected today' });
+  }
+  let unmatched = 0;
+  const out = result.rows.map((r) => {
+    const m = ingest.matchRow({ name: r.name, position: r.position, team: r.team }, index);
+    const ok = m.player_id && m.confidence === 'high';
+    if (!ok) unmatched++;
+    return {
+      player_id: ok ? m.player_id : null,
+      raw_name: r.name, raw_position: r.position, raw_team: r.team,
+      bye: r.bye, adp: r.adp, high: r.high, low: r.low, stdev: r.stdev, times_drafted: r.times_drafted,
+    };
+  });
+  const inserted = await writeSnapshot(result.site, result.format, result.teams, date, out);
+  return Object.assign(summary, { format: result.format, teams: result.teams, inserted, unmatched });
+}
+
 // Collect everything that's due. Never called twice concurrently (inflight guard).
 let inflight = null;
 
@@ -217,6 +242,16 @@ async function collectNow({ force = false } = {}) {
     } catch (err) {
       console.error(`adp: sleeper collect failed: ${err.message}`);
       summaries.push({ site: 'sleeper', error: err.message });
+    }
+    const customSources = await settings.get('adp.custom_sources', []);
+    for (const entry of (Array.isArray(customSources) ? customSources : [])) {
+      if (!entry || !entry.url || entry.enabled === false) continue;
+      try {
+        summaries.push(await collectCustom(entry, { force, index, date }));
+      } catch (err) {
+        console.error(`adp: custom source ${entry.url} failed: ${err.message}`);
+        summaries.push({ site: 'custom', url: entry.url, error: err.message });
+      }
     }
     try {
       await settings.set('adp.last_run', { at: new Date().toISOString(), summary: summaries });

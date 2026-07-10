@@ -18,6 +18,19 @@ app get X automatically?"._
 - Both are collected at boot + re-checked every 6h (no-op once today's
   snapshots exist). **Verify the first collection on Railway after deploy** —
   this dev sandbox couldn't reach either host (its proxy, not the APIs).
+- **Add-your-own sources (Edge Rush → Collector settings → My ADP sources):**
+  paste a link and it's collected daily like the built-ins, with a "View
+  source" link on every board. Supported hosts: **FantasyPros ADP pages**
+  (`fantasypros.com/nfl/adp/ppr-overall.php`, half-point-ppr, standard,
+  superflex) — which are themselves a blend of **ESPN, Sleeper, CBS and
+  RTSports**, so one link brings several sites — and **MyFantasyLeague**.
+  Parsers are shape-agnostic and fail loudly per source in the collector's
+  last-run summary; they were written against known payloads but need one
+  real-world confirm on Railway (sandbox blocks the hosts).
+- **Yahoo ADP specifically is NOT addable by link** — Yahoo guards its ADP
+  behind login/OAuth, so there's no clean URL to point at. FantasyPros'
+  consensus is the practical stand-in; a native Yahoo pull would ride on the
+  same OAuth setup as the live-draft feature below.
 
 ### Expert rankings (Combine → "fetch from a FantasyPros URL")
 - FantasyPros embeds its full consensus payload in every public rankings page
