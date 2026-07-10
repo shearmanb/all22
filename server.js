@@ -13,6 +13,7 @@ const dataHealthRouter = require('./routes/datahealth');
 const playersRouter = require('./routes/players');
 const playersMaster = require('./lib/players-master');
 const adpCollect = require('./features/adp/lib/collect');
+const rankingsAutopull = require('./features/combine/lib/autopull');
 const features = require('./features');
 
 const app = express();
@@ -100,6 +101,10 @@ async function start() {
   // (it no-ops once today's snapshots exist, so failures self-heal same-day).
   adpCollect.ensureCollected();
   setInterval(() => adpCollect.ensureCollected(), 6 * 60 * 60 * 1000).unref();
+  // Combine's daily rankings auto-pulls (settings-driven; no-op when the
+  // list is empty or today's sets are already captured).
+  rankingsAutopull.ensurePulled();
+  setInterval(() => rankingsAutopull.ensurePulled(), 6 * 60 * 60 * 1000).unref();
   app.listen(port, () => console.log(`all22 listening on port ${port}`));
 }
 

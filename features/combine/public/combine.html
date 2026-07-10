@@ -91,6 +91,26 @@
           <div id="csv-chip" class="muted small section-gap" hidden></div>
         </details>
 
+        <details class="section-gap" id="url-details">
+          <summary class="muted">…or fetch from a FantasyPros URL — no pasting at all</summary>
+          <p class="muted small" style="margin:8px 0 6px">Paste a fantasypros.com rankings link (e.g. <code>…/nfl/rankings/ppr-cheatsheets.php</code>) and the list is pulled and matched automatically. Source, format and scope fill themselves from the page. If FantasyPros blocks the fetch, paste-as-text still works.</p>
+          <div class="row">
+            <input id="in-url" class="grow" placeholder="https://www.fantasypros.com/nfl/rankings/half-point-ppr-cheatsheets.php">
+          </div>
+          <div class="row section-gap">
+            <button id="autopull-add" class="secondary" type="button">Also pull this URL every day</button>
+            <span class="muted small">Daily pulls save a fresh dated set automatically (skipped if you already captured that source today).</span>
+          </div>
+          <div id="autopull-panel" class="section-gap" hidden>
+            <div class="field-label">Daily auto-pulls</div>
+            <div id="autopull-list"></div>
+            <div class="row section-gap">
+              <button id="autopull-run" class="secondary" type="button">Pull all now</button>
+              <span id="autopull-last" class="muted small"></span>
+            </div>
+          </div>
+        </details>
+
         <div id="engine-note" class="notice-banner"></div>
         <div class="row section-gap">
           <button id="ingest-btn" class="big">Ingest &amp; Save</button>
@@ -433,12 +453,26 @@
       var btn = $('ingest-btn');
       var source = $('in-source').value.trim();
       var text = $('in-text').value.trim();
+      var url = $('in-url') ? $('in-url').value.trim() : '';
       $('ingest-unparsed').textContent = '';
-      if (!state.appendMode && !source) { showError('Tag the set with its source (who made these rankings) first.'); return; }
-      if (!state.images.length && !text && !(state.csv && state.csv.text)) { showError('Add a screenshot, paste text, or choose a CSV file first.'); return; }
+      // A URL brings its own source name (filled from the page below).
+      if (!state.appendMode && !source && !url) { showError('Tag the set with its source (who made these rankings) first.'); return; }
+      if (!state.images.length && !text && !url && !(state.csv && state.csv.text)) { showError('Add a screenshot, paste text, fetch a URL, or choose a CSV file first.'); return; }
       btn.disabled = true;
 
       var rows = [], unparsed = [], warning = '';
+      if (url) {
+        setIngestStatus('Fetching rankings from FantasyPros…', true);
+        var fdata = await apiPost('/api/combine/fetch', { url: url });
+        rows = rows.concat(fdata.rows);
+        // The page knows what it is — fill anything the owner left on defaults.
+        if (fdata.meta) {
+          if (!source) { source = fdata.meta.source; $('in-source').value = source; }
+          if (!state.appendMode && fdata.meta.format && fdata.meta.format !== 'unknown') $('in-format').value = fdata.meta.format;
+          if (!state.appendMode && fdata.meta.scope) $('in-scope').value = fdata.meta.scope;
+          setIngestStatus(fdata.rows.length + ' players fetched (' + (fdata.meta.total_experts ? fdata.meta.total_experts + ' experts, ' : '') + (fdata.meta.format || '') + ')…', true);
+        }
+      }
       for (var i = 0; i < state.images.length; i++) {
         setIngestStatus('Reading screenshot ' + (i + 1) + ' of ' + state.images.length + '…', true);
         var data = await apiPost('/api/combine/ocr', { image: state.images[i].dataUrl });
@@ -514,6 +548,7 @@
       $('csv-input').value = '';
       $('csv-chip').hidden = true;
       $('in-text').value = '';
+      if ($('in-url')) $('in-url').value = '';
       $('in-name').value = '';
       // Back to the safe default — position headers in the next paste flip it
       // again automatically, and screenshots of positional lists get it set by
@@ -1032,7 +1067,84 @@
       }
     });
 
+    // ---------- auto-pull (daily URL fetches) ----------
+    var autopullEntries = [];
+
+    function renderAutopull(last) {
+      var panel = $('autopull-panel');
+      var list = $('autopull-list');
+      list.textContent = '';
+      if (!autopullEntries.length) { panel.hidden = true; return; }
+      panel.hidden = false;
+      autopullEntries.forEach(function (e, i) {
+        var row = el('div', 'row');
+        var cb = document.createElement('input');
+        cb.type = 'checkbox'; cb.style.width = 'auto';
+        cb.checked = e.enabled !== false;
+        cb.title = 'Enabled';
+        cb.addEventListener('change', function () {
+          autopullEntries[i].enabled = cb.checked;
+          saveAutopull();
+        });
+        row.appendChild(cb);
+        var label = el('span', 'grow small', (e.source || 'FantasyPros ECR') + ' — ' + e.url);
+        label.style.wordBreak = 'break-all';
+        row.appendChild(label);
+        var del = el('button', 'danger', '×');
+        del.type = 'button'; del.style.padding = '2px 10px'; del.title = 'Remove from daily pulls';
+        del.addEventListener('click', function () {
+          autopullEntries.splice(i, 1);
+          saveAutopull();
+        });
+        row.appendChild(del);
+        list.appendChild(row);
+      });
+      if (last && last.at) {
+        var bits = (last.results || []).map(function (r) {
+          if (r.error) return 'FAILED: ' + r.error;
+          if (r.skipped) return 'skipped (' + r.skipped + ')';
+          return 'saved set #' + r.set_id + ' (' + r.rows + ' players' + (r.unmatched ? ', ' + r.unmatched + ' to review' : '') + ')';
+        });
+        $('autopull-last').textContent = 'Last run ' + timeAgo(last.at) + (bits.length ? ' — ' + bits.join(' · ') : '');
+      } else {
+        $('autopull-last').textContent = 'Runs automatically once a day while the app is up.';
+      }
+    }
+
+    function saveAutopull() {
+      apiPost('/api/combine/autopull', { entries: autopullEntries }, 'PUT')
+        .then(function (d) { autopullEntries = d.entries; renderAutopull(); toast('Daily pulls updated'); })
+        .catch(function () {});
+    }
+
+    function loadAutopull() {
+      apiFetch('/api/combine/autopull').then(function (d) {
+        autopullEntries = d.entries || [];
+        renderAutopull(d.last);
+      }).catch(function () {});
+    }
+
+    $('autopull-add').addEventListener('click', function () {
+      var url = $('in-url').value.trim();
+      if (!url) { showError('Paste the rankings URL above first.'); return; }
+      if (autopullEntries.some(function (e) { return e.url === url; })) { toast('Already on the daily list'); return; }
+      autopullEntries.push({ url: url, source: $('in-source').value.trim() || undefined, enabled: true });
+      saveAutopull();
+      $('url-details').open = true;
+    });
+
+    $('autopull-run').addEventListener('click', function () {
+      var btn = $('autopull-run');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Pulling…';
+      apiPost('/api/combine/autopull/run', { force: true })
+        .then(function () { loadAutopull(); loadReviewCount(); toast('Pulls finished'); })
+        .catch(function () {})
+        .finally(function () { btn.disabled = false; btn.textContent = 'Pull all now'; });
+    });
+
     // ---------- boot ----------
+    loadAutopull();
     $('in-date').value = new Date().toISOString().slice(0, 10);
     apiPost('/api/combine/warmup', {}).catch(function () { /* best-effort */ });
     apiFetch('/api/combine/formats').then(function (f) { state.formats = f; }).catch(function () { state.formats = []; });
