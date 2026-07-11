@@ -455,25 +455,37 @@
       function diag() {
         try {
           function txt(e) { return (e.textContent || '').trim(); }
+          function clip(s, n) { return (s || '').replace(/\s+/g, ' ').slice(0, n); }
           var out = [];
           out.push('url: ' + location.href);
-          out.push('tables: ' + document.querySelectorAll('table').length);
-          var leaves = [].slice.call(document.querySelectorAll('*')).filter(function (e) { return e.children.length === 0; });
-          var adEl = leaves.filter(function (e) { return txt(e) === 'All Drafts'; })[0];
-          var posEl = leaves.filter(function (e) { return /\s[-–]\s(QB|RB|WR|TE|K|DEF)\b/i.test(txt(e)); })[0];
-          out.push('AllDrafts el: ' + (adEl ? adEl.tagName : 'NONE') + ' | player-marker el: ' + (posEl ? posEl.tagName + ' "' + txt(posEl).slice(0, 24) + '"' : 'NONE'));
-          if (adEl && posEl) {
-            var set = new Set(); var a = adEl; while (a) { set.add(a); a = a.parentElement; }
-            var common = null, p = posEl; while (p) { if (set.has(p)) { common = p; break; } p = p.parentElement; }
-            out.push('common ancestor: ' + (common ? common.tagName + '.' + (typeof common.className === 'string' ? common.className : '').slice(0, 50) : 'NONE'));
-            if (common) out.push('SAMPLE:\n' + common.outerHTML.replace(/\s+/g, ' ').slice(0, 3500));
+          var tables = [].slice.call(document.querySelectorAll('table'));
+          out.push('tables: ' + tables.length);
+          var tbl = tables[0];
+          if (tbl) {
+            var trs = [].slice.call(tbl.querySelectorAll('tr'));
+            out.push('table rows: ' + trs.length);
+            var hi = -1;
+            for (var i = 0; i < trs.length; i++) { if (txt(trs[i]).indexOf('All Drafts') >= 0) { hi = i; break; } }
+            out.push('header row index: ' + hi);
+            if (hi >= 0) out.push('HEADER: ' + clip(trs[hi].outerHTML, 1600));
+            var got = false;
+            for (var j = hi + 1; j < trs.length; j++) {
+              if ([].slice.call(trs[j].children).length >= 4 && /\d/.test(txt(trs[j]))) { out.push('DATAROW: ' + clip(trs[j].outerHTML, 2400)); got = true; break; }
+            }
+            if (!got) out.push('DATAROW: none found; TABLE: ' + clip(tbl.outerHTML, 3000));
+          } else {
+            var rr = [].slice.call(document.querySelectorAll('[role=row]'));
+            out.push('role=row count: ' + rr.length);
+            if (rr[1]) out.push('ROWSAMPLE: ' + clip(rr[1].outerHTML, 2600));
           }
-          var pag = [].slice.call(document.querySelectorAll('a,button')).filter(function (n) {
-            var t = txt(n); return /^\d+$/.test(t) || /next|»|›|last|more/i.test(t) || /next|page/i.test(n.getAttribute('aria-label') || '');
-          }).slice(0, 14);
-          out.push('pager controls: ' + pag.map(function (n) { return '[' + n.tagName + ':' + txt(n) + ']=' + (n.getAttribute('href') || '').slice(0, 130); }).join('  '));
-          var report = '=== ALL22 YAHOO DIAGNOSTIC ===\n' + out.join('\n');
-          if (navigator.clipboard) navigator.clipboard.writeText(report).then(function () { alert('All22: diagnostic copied — paste it to Claude.'); }, function () { window.prompt('Copy this and paste to Claude:', report); });
+          var links = [].slice.call(document.querySelectorAll('a')).map(function (a) { return a.getAttribute('href') || ''; })
+            .filter(function (h) { return /draftanalysis|count=|[?&]pos=|sort=|start=|page=/i.test(h); });
+          var uniq = []; links.forEach(function (h) { if (uniq.indexOf(h) < 0) uniq.push(h); });
+          out.push('data-ish links: ' + (uniq.slice(0, 18).join('  ') || 'none'));
+          var sels = [].slice.call(document.querySelectorAll('select')).map(function (s) { return clip(s.outerHTML, 260); });
+          out.push('selects: ' + (sels.join(' || ') || 'none'));
+          var report = '=== ALL22 YAHOO DIAG v2 ===\n' + out.join('\n');
+          if (navigator.clipboard) navigator.clipboard.writeText(report).then(function () { alert('All22: diagnostic v2 copied — paste it to Claude.'); }, function () { window.prompt('Copy this and paste to Claude:', report); });
           else window.prompt('Copy this and paste to Claude:', report);
         } catch (e) { alert('All22 diagnostic error: ' + e); }
       }
