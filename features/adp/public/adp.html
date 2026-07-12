@@ -469,21 +469,23 @@
           function clip(s, n) { return (s || '').replace(/\s+/g, ' ').slice(0, n); }
           var out = [];
           out.push('url: ' + location.href);
+          var tbl = document.querySelector('table');
           out.push('data-rows: ' + document.querySelectorAll('tr[data-tst^="table-row"]').length);
-          var dts = {};
-          [].slice.call(document.querySelectorAll('[data-tst]')).forEach(function (e) { var v = e.getAttribute('data-tst'); dts[v] = (dts[v] || 0) + 1; });
-          out.push('data-tst: ' + Object.keys(dts).map(function (k) { return k + '(' + dts[k] + ')'; }).slice(0, 60).join(', '));
-          var btns = [].slice.call(document.querySelectorAll('button')).map(function (b) {
-            return '[' + clip(txt(b), 16) + '|' + (b.getAttribute('aria-label') || '') + '|' + (b.getAttribute('data-tst') || '') + '|' + (b.disabled ? 'off' : 'on') + ']';
-          });
-          out.push('buttons(' + btns.length + '): ' + btns.slice(0, 45).join(' '));
           var pg = [].slice.call(document.querySelectorAll('a,button,div,span,li')).filter(function (n) {
-            var t = txt(n); return n.children.length === 0 && (/^\d{1,3}$/.test(t) || /^(next|prev|previous|»|«|›|‹|>|<)$/i.test(t));
-          }).slice(0, 30);
-          out.push('page-ish: ' + (pg.map(function (n) { return n.tagName + ':' + txt(n) + (n.getAttribute('data-tst') ? ('#' + n.getAttribute('data-tst')) : '') + (n.getAttribute('aria-label') ? ('@' + n.getAttribute('aria-label')) : ''); }).join(' ') || 'none'));
-          var scr = [].slice.call(document.querySelectorAll('script')).filter(function (s) { var x = s.textContent || ''; return x.indexOf('player-name') >= 0 || x.indexOf('draftAnalysis') >= 0 || x.indexOf('"adp"') >= 0; });
-          out.push('data-scripts: ' + scr.length + (scr[0] ? (' len=' + scr[0].textContent.length) : ''));
-          var report = '=== ALL22 YAHOO DIAG v3 ===\n' + out.join('\n');
+            var t = txt(n); if (n.children.length !== 0) return false;
+            if (tbl && tbl.contains(n)) return false;
+            return /^\d{1,3}$/.test(t) || /^(next|prev|previous|»|«|›|‹|>|<|page)$/i.test(t) || /page|next|prev/i.test(n.getAttribute('aria-label') || '');
+          }).slice(0, 40);
+          out.push('OUTSIDE-table clickables: ' + (pg.map(function (n) { return n.tagName + ':"' + txt(n) + '"' + (n.getAttribute('aria-label') ? ('@' + n.getAttribute('aria-label')) : '') + '.' + (typeof n.className === 'string' ? n.className.slice(0, 20) : ''); }).join('  ') || 'none'));
+          var btns = [].slice.call(document.querySelectorAll('button,a[role="button"],[role="button"]')).filter(function (b) {
+            var t = txt(b); var al = b.getAttribute('aria-label') || '';
+            return !(t === '' && (al === '' || al === 'Y! Sites')) && t !== 'Close' && t !== 'Back' && al !== 'Close' && al !== 'Back';
+          }).map(function (b) { return '[' + clip(txt(b), 20) + '|' + (b.getAttribute('aria-label') || '') + ']'; });
+          out.push('non-modal buttons(' + btns.length + '): ' + btns.slice(0, 30).join(' '));
+          var after = []; var node = tbl;
+          while (node && after.length < 5) { if (node.nextElementSibling) after.push(clip(node.nextElementSibling.outerHTML, 900)); node = node.parentElement; }
+          out.push('AFTER-table HTML: ' + (after.join('  <<|>>  ') || 'none'));
+          var report = '=== ALL22 YAHOO DIAG v4 ===\n' + out.join('\n');
           try {
             var b = document.createElement('div');
             b.textContent = 'All22 diagnostic ready — copy the text in the box and paste it to Claude.';
