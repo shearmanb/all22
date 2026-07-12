@@ -174,7 +174,8 @@
         sel.textContent = '';
         (d.snapshots || []).forEach(function (s) {
           var label = (s.site === 'ffc' ? 'FFC' : s.site.charAt(0).toUpperCase() + s.site.slice(1)) +
-            ' · ' + fmtLabel(s.format) + (s.teams ? ' · ' + s.teams + '-team' : ' · site-wide');
+            ' · ' + fmtLabel(s.format) + (s.teams ? ' · ' + s.teams + '-team' : ' · site-wide') +
+            (s.captured ? ' · ' + timeAgo(s.captured) : '');
           var o = el('option', null, label);
           o.value = keyOf(s);
           sel.appendChild(o);
@@ -222,7 +223,9 @@
       var q = 'format=' + encodeURIComponent(snap.format) + '&teams=' + snap.teams + '&site=' + encodeURIComponent(snap.site);
       apiFetch('/api/adp/latest?' + q).then(function (d) {
         board = d;
-        $('freshness').textContent = 'Snapshot ' + d.snapshot_date + ' · ' + d.rows.length + ' players · ' +
+        var when = d.captured_at ? new Date(d.captured_at) : null;
+        var stamp = when ? (when.toLocaleString() + ' (' + timeAgo(d.captured_at) + ')') : ('snapshot ' + d.snapshot_date);
+        $('freshness').textContent = 'Captured ' + stamp + ' · ' + d.rows.length + ' players · ' +
           (snap.unmatched ? snap.unmatched + ' unmatched name(s) shown with their site spelling' : 'all names matched');
         var vs = $('view-source');
         if (d.source_url) { vs.href = d.source_url; vs.hidden = false; } else { vs.hidden = true; }
