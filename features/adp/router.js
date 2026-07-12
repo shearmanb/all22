@@ -98,7 +98,13 @@ router.get('/latest', async (req, res) => {
     if (!key) return res.json({ ok: true, data: { rows: [], format } });
     const rows = await snapshotRows(key, key.latest);
     const source_url = await sourceUrlFor(key.site, key.format, key.teams);
-    res.json({ ok: true, data: { site: key.site, format: key.format, teams: key.teams, snapshot_date: key.latest, source_url, rows } });
+    // Real capture/collection time (adp_history.created_at), not just the
+    // snapshot DATE — so the owner sees exactly how fresh a board is.
+    const { rows: capRows } = await pool.query(
+      'SELECT MAX(created_at) AS at FROM adp_history WHERE site = $1 AND format = $2 AND teams = $3 AND snapshot_date = $4',
+      [key.site, key.format, key.teams, key.latest]
+    );
+    res.json({ ok: true, data: { site: key.site, format: key.format, teams: key.teams, snapshot_date: key.latest, captured_at: capRows[0] && capRows[0].at, source_url, rows } });
   } catch (err) {
     console.error(`GET /api/adp/latest: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not load ADP.' });
@@ -178,7 +184,8 @@ router.get('/status', async (req, res) => {
     const { rows: groups } = await pool.query(
       `SELECT site, format, teams, snapshot_date::text AS date,
               COUNT(*)::int AS rows,
-              COUNT(*) FILTER (WHERE player_id IS NULL)::int AS unmatched
+              COUNT(*) FILTER (WHERE player_id IS NULL)::int AS unmatched,
+              MAX(created_at) AS captured
        FROM adp_history
        GROUP BY site, format, teams, snapshot_date`
     );
@@ -189,7 +196,7 @@ router.get('/status', async (req, res) => {
       if (!cur || g.date > cur.date) latestByKey.set(k, g);
     }
     const snapshots = Array.from(latestByKey.values())
-      .map((g) => ({ site: g.site, format: g.format, teams: Number(g.teams), latest: g.date, rows: g.rows, unmatched: g.unmatched }))
+      .map((g) => ({ site: g.site, format: g.format, teams: Number(g.teams), latest: g.date, captured: g.captured, rows: g.rows, unmatched: g.unmatched }))
       .sort((a, b) => a.site.localeCompare(b.site) || a.format.localeCompare(b.format) || a.teams - b.teams);
     const [auto, year, lastRun, targets, customSources] = await Promise.all([
       settings.get('adp.auto', true),
