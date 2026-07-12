@@ -221,7 +221,32 @@ async function collectCustom(entry, { force, index, date }) {
 // the browser scrapes a logged-in page and POSTs the rows, so no credentials
 // ever reach the server. Same match-high-confidence-only + write path as the
 // server-side feeds; records the page URL so the board gets a "View source".
-async function ingestSnapshot({ site, format, teams, rows, source_url }) {
+// Merge rows into a day's snapshot without clearing it first (ON CONFLICT
+// upsert). Used by accumulate mode so a paginated source captured page-by-page
+// adds up into one board instead of each click replacing the last.
+async function writeSnapshotMerge(site, format, teams, date, rows) {
+  const byName = new Map();
+  for (const r of rows) { const prev = byName.get(r.raw_name); if (!prev || r.adp < prev.adp) byName.set(r.raw_name, r); }
+  const deduped = Array.from(byName.values());
+  await pool.query(
+    `INSERT INTO adp_history (site, format, teams, snapshot_date,
+                              player_id, raw_name, raw_position, raw_team,
+                              bye, adp, high, low, stdev, times_drafted)
+     SELECT $1, $2, $3, $4::date,
+            (r->>'player_id')::int, r->>'raw_name',
+            COALESCE(r->>'raw_position', ''), COALESCE(r->>'raw_team', ''),
+            (r->>'bye')::int, (r->>'adp')::numeric, (r->>'high')::numeric,
+            (r->>'low')::numeric, (r->>'stdev')::numeric, (r->>'times_drafted')::int
+     FROM jsonb_array_elements($5::jsonb) r
+     ON CONFLICT (site, format, teams, snapshot_date, raw_name) DO UPDATE
+       SET player_id = EXCLUDED.player_id, adp = EXCLUDED.adp,
+           raw_position = EXCLUDED.raw_position, raw_team = EXCLUDED.raw_team`,
+    [site, format, teams, date, JSON.stringify(deduped)]
+  );
+  return deduped.length;
+}
+
+async function ingestSnapshot({ site, format, teams, rows, source_url, accumulate }) {
   if (!hasDb()) throw new Error('ADP capture needs a database.');
   const cleanSite = String(site || 'capture').toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || 'capture';
   const fmt = custom.cleanFormat(format);
@@ -242,16 +267,25 @@ async function ingestSnapshot({ site, format, teams, rows, source_url }) {
       };
     });
   if (!out.length) throw new Error('No usable ADP rows were sent (nothing had a name and a number).');
-  const inserted = await writeSnapshot(cleanSite, fmt, t, date, out);
+  // accumulate = merge into today's board (paginated captures, page by page);
+  // otherwise replace the day's slice like the server-side feeds.
+  const inserted = accumulate
+    ? await writeSnapshotMerge(cleanSite, fmt, t, date, out)
+    : await writeSnapshot(cleanSite, fmt, t, date, out);
+  const { rows: cnt } = await pool.query(
+    'SELECT COUNT(*)::int AS n FROM adp_history WHERE site = $1 AND format = $2 AND teams = $3 AND snapshot_date = $4',
+    [cleanSite, fmt, t, date]
+  );
+  const total = cnt[0].n;
   if (source_url) {
     const map = (await settings.get('adp.source_urls', {})) || {};
     map[cleanSite] = String(source_url);
     await settings.set('adp.source_urls', map);
   }
   await settings.set('adp.last_capture', {
-    at: new Date().toISOString(), site: cleanSite, format: fmt, teams: t, inserted, unmatched,
+    at: new Date().toISOString(), site: cleanSite, format: fmt, teams: t, inserted, unmatched, total,
   });
-  return { site: cleanSite, format: fmt, teams: t, inserted, unmatched };
+  return { site: cleanSite, format: fmt, teams: t, inserted, unmatched, total };
 }
 
 // Collect everything that's due. Never called twice concurrently (inflight guard).
