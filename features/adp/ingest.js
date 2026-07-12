@@ -40,6 +40,7 @@ router.post('/api/adp/ingest', async (req, res) => {
       teams: body.teams,
       rows: body.rows,
       source_url: body.source_url,
+      accumulate: !!body.accumulate,
     });
     res.json({ ok: true, data: result });
   } catch (err) {
