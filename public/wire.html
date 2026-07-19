@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The Wire — All22</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    /* Two-up on a wide screen, single column on a phone. Cards stay top-aligned
+       so a tall source doesn't stretch its neighbour. */
+    @media (min-width: 900px) {
+      #news { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+    }
+    .wire-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+    .wire-head .grow { flex: 1; }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">All<em>22</em></span>
+    <a href="/">Hub</a>
+    <a href="/combine.html">Combine</a>
+    <a href="/myrankings.html">My Rankings</a>
+    <a href="/boards.html">Big Board</a>
+    <a href="/auction.html">War Chest</a>
+    <a href="/drafts.html">Playbook</a>
+    <a href="/adp.html">Edge Rush</a>
+    <a href="/players.html">Player DB</a>
+    <a href="/notes.html">Notes</a>
+    <a href="/wire.html" class="active">The Wire</a>
+    <a href="/settings.html">Settings</a>
+    <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
+  </nav>
+  <div id="error-banner"></div>
+
+  <main>
+    <div class="wire-head">
+      <h1>The Wire</h1>
+      <span class="grow"></span>
+      <span id="news-updated" class="muted small"></span>
+      <button id="news-refresh" class="secondary" type="button">Refresh</button>
+    </div>
+    <p class="muted">Headlines from the sites you follow — skim here, click through only if it's worth your time.
+      Sites without a feed show a link out. <a href="/settings.html">Manage sources →</a></p>
+    <div id="news" class="news-loading">Loading…</div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    function el(tag, className, text) {
+      var n = document.createElement(tag);
+      if (className) n.className = className;
+      if (text != null) n.textContent = text; // textContent, never innerHTML: feed data is untrusted
+      return n;
+    }
+
+    var newsEl = $('news');
+    var updatedEl = $('news-updated');
+    var refreshBtn = $('news-refresh');
+
+    function extLink(node, href) {
+      node.href = href;
+      node.target = '_blank';
+      node.rel = 'noopener noreferrer';
+      return node;
+    }
+
+    function renderItem(item) {
+      var wrap = el('div', 'news-item');
+      var title = el(item.url ? 'a' : 'span', 'news-title', item.title || '(untitled)');
+      if (item.url) extLink(title, item.url);
+      wrap.appendChild(title);
+      var meta = [];
+      if (item.publishedAt) meta.push(timeAgo(item.publishedAt));
+      if (item.author) meta.push(item.author);
+      if (meta.length) wrap.appendChild(el('div', 'news-meta', meta.join(' · ')));
+      if (item.summary) wrap.appendChild(el('div', 'news-summary', item.summary));
+      return wrap;
+    }
+
+    function renderSource(src) {
+      var card = el('div', 'card news-source');
+      var head = el('div', 'news-source-head');
+      var h2 = el('h2');
+      h2.appendChild(extLink(el('a', null, src.name), src.siteUrl));
+      head.appendChild(h2);
+      if (src.lastOk && src.lastFetchedAt) {
+        head.appendChild(el('span', 'news-source-note', 'updated ' + timeAgo(src.lastFetchedAt)));
+      }
+      card.appendChild(head);
+      if (src.lastError) {
+        card.appendChild(el('div', 'news-source-error', "Couldn't refresh: " + src.lastError));
+      }
+      if (src.kind === 'link') {
+        var tile = el('div', 'news-link-tile');
+        tile.appendChild(extLink(el('a', null, 'Open ' + src.name + ' →'), src.siteUrl));
+        tile.appendChild(el('div', 'muted', 'No feed for this site — open it for the latest.'));
+        card.appendChild(tile);
+      } else if (src.items && src.items.length) {
+        src.items.forEach(function (it) { card.appendChild(renderItem(it)); });
+      } else if (!src.lastError) {
+        card.appendChild(el('div', 'muted', 'No recent items yet.'));
+      }
+      return card;
+    }
+
+    function renderNews(sources) {
+      newsEl.className = '';
+      newsEl.textContent = '';
+      if (!sources || !sources.length) {
+        var empty = el('div', 'muted');
+        empty.appendChild(document.createTextNode('No sources yet. '));
+        var link = el('a', null, 'Add some in Settings →');
+        link.href = '/settings.html';
+        empty.appendChild(link);
+        newsEl.appendChild(empty);
+        updatedEl.textContent = '';
+        return;
+      }
+      var newest = null;
+      sources.forEach(function (s) {
+        if (s.lastOk && s.lastFetchedAt) {
+          var t = new Date(s.lastFetchedAt).getTime();
+          if (!newest || t > newest) newest = t;
+        }
+        newsEl.appendChild(renderSource(s));
+      });
+      updatedEl.textContent = newest ? 'updated ' + timeAgo(newest) : '';
+    }
+
+    refreshBtn.addEventListener('click', function () {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = 'Refreshing…';
+      apiFetch('/api/news/refresh', { method: 'POST' })
+        .then(renderNews)
+        .catch(function () { /* apiFetch already surfaced the error banner */ })
+        .finally(function () { refreshBtn.disabled = false; refreshBtn.textContent = 'Refresh'; });
+    });
+
+    apiFetch('/api/news')
+      .then(renderNews)
+      .catch(function () {
+        newsEl.className = '';
+        newsEl.textContent = '';
+      });
+  })();
+  </script>
+</body>
+</html>

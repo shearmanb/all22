@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings — All22</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .src-card { margin-top: 12px; }
+    .src-card .field-label { margin-top: 8px; }
+    .src-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    .src-foot .grow { flex: 1; }
+    .src-kind { font-size: 0.8rem; }
+    .src-kind.rss { color: var(--ok-text, var(--accent)); }
+    .test-result { font-size: 0.82rem; }
+    .test-result.ok { color: var(--ok-text, var(--accent)); }
+    .test-result.bad { color: var(--error-text); }
+    .settings-section { max-width: 720px; }
+    .settings-section input[type="text"], .settings-section input[type="url"] { width: 100%; }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">All<em>22</em></span>
+    <a href="/">Hub</a>
+    <a href="/combine.html">Combine</a>
+    <a href="/myrankings.html">My Rankings</a>
+    <a href="/boards.html">Big Board</a>
+    <a href="/auction.html">War Chest</a>
+    <a href="/drafts.html">Playbook</a>
+    <a href="/adp.html">Edge Rush</a>
+    <a href="/players.html">Player DB</a>
+    <a href="/notes.html">Notes</a>
+    <a href="/wire.html">The Wire</a>
+    <a href="/settings.html" class="active">Settings</a>
+    <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
+  </nav>
+  <div id="error-banner"></div>
+
+  <main>
+    <h1>Settings <span class="muted small">— app-wide dials, tweaked here, never in code</span></h1>
+
+    <section class="section-gap settings-section">
+      <div class="row">
+        <h2 class="grow">News sources</h2>
+        <button id="src-add" class="secondary" type="button">+ Add source</button>
+      </div>
+      <p class="muted small">
+        The sites <a href="/wire.html">The Wire</a> follows. Give a site an RSS/Atom feed URL to list its
+        headlines; leave the feed blank to show a simple link-out tile instead. Use “Test” to check a feed
+        before you save.
+      </p>
+      <div id="src-list"><p class="muted">Loading…</p></div>
+      <div class="src-foot section-gap">
+        <button id="src-save" type="button">Save sources</button>
+        <span id="src-status" class="muted small"></span>
+      </div>
+    </section>
+
+    <section class="section-gap settings-section">
+      <h2>League profiles</h2>
+      <p class="muted small">
+        Your leagues — sizes, scoring, roster shape — live on the <a href="/">Hub</a> under “My leagues”.
+        Features that care about league shape read them from there.
+      </p>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    function el(tag, className, text) {
+      var n = document.createElement(tag);
+      if (className) n.className = className;
+      if (text != null) n.textContent = text;
+      return n;
+    }
+    function field(labelText, input) {
+      var wrap = el('label');
+      wrap.appendChild(el('span', 'field-label', labelText));
+      wrap.appendChild(input);
+      return wrap;
+    }
+    function textInput(value, placeholder) {
+      var i = document.createElement('input');
+      i.type = 'text';
+      i.value = value == null ? '' : value;
+      if (placeholder) i.placeholder = placeholder;
+      return i;
+    }
+
+    var sources = [];
+    var listEl = $('src-list');
+
+    function kindLabel(hasFeed) {
+      return hasFeed ? 'Lists headlines from the feed' : 'Link tile only (no feed)';
+    }
+
+    function sourceCard(src) {
+      var card = el('div', 'card src-card');
+
+      var name = textInput(src.name, 'e.g. Rotoworld');
+      name.addEventListener('input', function () { src.name = name.value; });
+
+      var site = textInput(src.siteUrl, 'https://example.com');
+      site.addEventListener('input', function () { src.siteUrl = site.value; });
+
+      var feed = textInput(src.feedUrl, 'https://example.com/feed  (optional)');
+      var kind = el('span', 'src-kind' + (src.feedUrl ? ' rss' : ''), kindLabel(!!(src.feedUrl && src.feedUrl.trim())));
+      var result = el('span', 'test-result');
+      feed.addEventListener('input', function () {
+        src.feedUrl = feed.value;
+        var has = !!feed.value.trim();
+        kind.textContent = kindLabel(has);
+        kind.className = 'src-kind' + (has ? ' rss' : '');
+        result.textContent = '';
+      });
+
+      card.appendChild(field('Name', name));
+      card.appendChild(field('Site URL', site));
+      card.appendChild(field('Feed URL', feed));
+
+      var foot = el('div', 'src-foot');
+      foot.appendChild(kind);
+      foot.appendChild(el('span', 'grow'));
+      foot.appendChild(result);
+
+      var test = el('button', 'secondary', 'Test');
+      test.type = 'button';
+      test.addEventListener('click', function () {
+        var url = feed.value.trim();
+        if (!url) { result.className = 'test-result bad'; result.textContent = 'Add a feed URL to test.'; return; }
+        test.disabled = true;
+        result.className = 'test-result';
+        result.textContent = 'Testing…';
+        apiPost('/api/news/sources/test', { feedUrl: url })
+          .then(function (d) {
+            result.className = 'test-result ok';
+            result.textContent = '✓ ' + d.count + (d.count === 1 ? ' headline' : ' headlines');
+          })
+          .catch(function () {
+            // apiPost put the real reason in the banner; leave a short inline flag.
+            result.className = 'test-result bad';
+            result.textContent = '✗ no feed found';
+          })
+          .finally(function () { test.disabled = false; });
+      });
+      foot.appendChild(test);
+
+      var remove = el('button', 'danger', 'Remove');
+      remove.type = 'button';
+      remove.addEventListener('click', function () {
+        sources = sources.filter(function (x) { return x !== src; });
+        render();
+      });
+      foot.appendChild(remove);
+
+      card.appendChild(foot);
+      return card;
+    }
+
+    function render() {
+      listEl.textContent = '';
+      if (!sources.length) {
+        listEl.appendChild(el('p', 'muted', 'No sources yet — add one, or The Wire will be empty.'));
+        return;
+      }
+      sources.forEach(function (src) { listEl.appendChild(sourceCard(src)); });
+    }
+
+    $('src-add').addEventListener('click', function () {
+      sources.push({ name: '', siteUrl: '', feedUrl: '' });
+      render();
+      // focus the new card's name field
+      var cards = listEl.querySelectorAll('.src-card input');
+      if (cards.length) cards[cards.length - 3] && cards[cards.length - 3].focus();
+    });
+
+    $('src-save').addEventListener('click', function () {
+      var btn = $('src-save');
+      btn.disabled = true;
+      $('src-status').textContent = '';
+      apiPost('/api/news/sources', { sources: sources }, 'PUT')
+        .then(function (saved) {
+          sources = saved || [];
+          render();
+          $('src-status').textContent = 'Saved.';
+          toast('News sources saved');
+        })
+        .catch(function () { /* banner shows the validation error */ })
+        .finally(function () { btn.disabled = false; });
+    });
+
+    apiFetch('/api/news/sources')
+      .then(function (list) { sources = Array.isArray(list) ? list : []; render(); })
+      .catch(function () { listEl.textContent = ''; });
+  })();
+  </script>
+</body>
+</html>

@@ -18,6 +18,8 @@
     <a href="/adp.html">Edge Rush</a>
     <a href="/players.html">Player DB</a>
     <a href="/notes.html">Notes</a>
+    <a href="/wire.html">The Wire</a>
+    <a href="/settings.html">Settings</a>
     <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
   </nav>
   <div id="error-banner"></div>
@@ -83,6 +85,13 @@
         <span class="tile-stat" id="stat-players"></span>
       </a>
 
+      <a class="tile" href="/wire.html">
+        <h2>The Wire</h2>
+        <p class="muted">News desk — headlines from every site you follow in one place, with a link out when there's no feed. Add or drop sources in Settings.</p>
+        <span class="tile-go">Open &rarr;</span>
+        <span class="tile-stat" id="stat-wire"></span>
+      </a>
+
       <div class="tile disabled">
         <h2>War Room</h2>
         <p class="muted">Draft &amp; auction strategy — who to take and when, with % chance a player makes it back to your pick. Built on your rankings + ADP.</p>
@@ -117,13 +126,6 @@
       </details>
     </section>
 
-    <section class="news-head">
-      <h2>What's New</h2>
-      <span id="news-updated" class="muted"></span>
-      <button id="news-refresh" class="news-refresh secondary" type="button">Refresh</button>
-    </section>
-    <p class="muted">Latest from the sites you follow — skim here, click through only if it's worth your time.</p>
-    <div id="news" class="news-loading">Loading…</div>
   </main>
 
   <script src="/app.js"></script>
@@ -313,93 +315,12 @@
       }).catch(function () { /* banner shown */ });
     });
 
-    // ---------------- News ----------------
-    var newsEl = document.getElementById('news');
-    var updatedEl = document.getElementById('news-updated');
-    var refreshBtn = document.getElementById('news-refresh');
-
-    function extLink(node, href) {
-      node.href = href;
-      node.target = '_blank';
-      node.rel = 'noopener noreferrer';
-      return node;
-    }
-
-    function renderItem(item) {
-      var wrap = el('div', 'news-item');
-      var title = el(item.url ? 'a' : 'span', 'news-title', item.title || '(untitled)');
-      if (item.url) extLink(title, item.url);
-      wrap.appendChild(title);
-      var meta = [];
-      if (item.publishedAt) meta.push(timeAgo(item.publishedAt));
-      if (item.author) meta.push(item.author);
-      if (meta.length) wrap.appendChild(el('div', 'news-meta', meta.join(' · ')));
-      if (item.summary) wrap.appendChild(el('div', 'news-summary', item.summary));
-      return wrap;
-    }
-
-    function renderSource(src) {
-      var card = el('div', 'card news-source');
-      var head = el('div', 'news-source-head');
-      var h2 = el('h2');
-      h2.appendChild(extLink(el('a', null, src.name), src.siteUrl));
-      head.appendChild(h2);
-      if (src.lastOk && src.lastFetchedAt) {
-        head.appendChild(el('span', 'news-source-note', 'updated ' + timeAgo(src.lastFetchedAt)));
-      }
-      card.appendChild(head);
-      if (src.lastError) {
-        card.appendChild(el('div', 'news-source-error', "Couldn't refresh: " + src.lastError));
-      }
-      if (src.kind === 'link') {
-        var tile = el('div', 'news-link-tile');
-        tile.appendChild(extLink(el('a', null, 'Open ' + src.name + ' →'), src.siteUrl));
-        tile.appendChild(el('div', 'muted', src.key === 'fantasypoints'
-          ? 'Subscription site — open to read the latest articles.'
-          : 'Open for the latest player news.'));
-        card.appendChild(tile);
-      } else if (src.items && src.items.length) {
-        src.items.forEach(function (it) { card.appendChild(renderItem(it)); });
-      } else if (!src.lastError) {
-        card.appendChild(el('div', 'muted', 'No recent items yet.'));
-      }
-      return card;
-    }
-
-    function renderNews(sources) {
-      newsEl.className = '';
-      newsEl.textContent = '';
-      if (!sources || !sources.length) {
-        newsEl.appendChild(el('div', 'muted', 'No sources configured.'));
-        updatedEl.textContent = '';
-        return;
-      }
-      var newest = null;
-      sources.forEach(function (s) {
-        if (s.lastOk && s.lastFetchedAt) {
-          var t = new Date(s.lastFetchedAt).getTime();
-          if (!newest || t > newest) newest = t;
-        }
-        newsEl.appendChild(renderSource(s));
-      });
-      updatedEl.textContent = newest ? 'updated ' + timeAgo(newest) : '';
-    }
-
-    refreshBtn.addEventListener('click', function () {
-      refreshBtn.disabled = true;
-      refreshBtn.textContent = 'Refreshing…';
-      apiFetch('/api/news/refresh', { method: 'POST' })
-        .then(renderNews)
-        .catch(function () { /* apiFetch already surfaced the error banner */ })
-        .finally(function () { refreshBtn.disabled = false; refreshBtn.textContent = 'Refresh'; });
-    });
-
-    apiFetch('/api/news')
-      .then(renderNews)
-      .catch(function () {
-        newsEl.className = '';
-        newsEl.textContent = '';
-      });
+    // ---------------- The Wire (news) tile stat ----------------
+    apiFetch('/api/news/sources').then(function (list) {
+      var n = Array.isArray(list) ? list.length : 0;
+      document.getElementById('stat-wire').textContent =
+        n ? n + (n === 1 ? ' source' : ' sources') : 'no sources yet';
+    }).catch(function () { /* banner shown */ });
   })();
   </script>
 </body>
