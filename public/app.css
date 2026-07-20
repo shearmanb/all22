@@ -4,15 +4,29 @@
    controls all live here so the portal reads as one product. */
 
 :root {
-  --bg: #0f1318;
-  --surface: #171d25;
-  --surface-2: #1e2631;
-  --border: #2a3441;
-  --border-strong: #3a4757;
-  --text: #e8ecf1;
-  --text-dim: #97a3b4;
-  --accent: #4f9cf9;
-  --accent-strong: #77b4fb;
+  /* ---- Team-theme interface -------------------------------------------------
+     public/theme.js sets the team vars (--pg, --cd, --pop, --ab, --tx, …) on
+     <html> at runtime — one set per NFL team × Balanced/Takeover mode. The
+     design tokens below are DEFINED in terms of those team vars, with the
+     original dark values kept as pre-init fallbacks. Net effect: the whole app
+     re-skins by changing team vars alone, and still renders (dark) if theme.js
+     hasn't run. See public/theme.js for how each var is computed. */
+  --bg: var(--pg, #0f1318);            /* page background (a gradient in Takeover) */
+  --field: var(--pg-solid, #0f1318);   /* SOLID page color — inputs, sticky heads, popovers
+                                          (must stay solid because --bg can be a gradient) */
+  --surface: var(--cd, #171d25);       /* card / panel background */
+  --surface-2: var(--chip, #1e2631);   /* subtle team-tinted fill (chips, secondary buttons) */
+  --border: var(--cdb, #2a3441);
+  --border-strong: var(--cdb, #3a4757);
+  --text: var(--tx, #e8ecf1);          /* strong text (headings, emphasis) */
+  --text-body: var(--tb, #e8ecf1);     /* body text */
+  --text-dim: var(--tm, #97a3b4);      /* muted text */
+  --accent: var(--pop-solid, #4f9cf9); /* vivid team accent, kept legible on light + dark */
+  --accent-strong: var(--pop, #77b4fb);
+  --radius: 10px;
+
+  /* Semantic status colors + position colors stay FIXED across teams — they
+     encode meaning (error/ok, QB/RB/WR/…), not brand identity. */
   --green: #3ecf8e;
   --amber: #f0b34f;
   --red: #f06a7a;
@@ -25,8 +39,7 @@
   --ok-bg: #16321f;
   --ok-border: #2f7d4f;
   --ok-text: #8fe0b0;
-  --radius: 10px;
-  /* Position colors (FantasyPros-style, tuned for dark) */
+  /* Position colors (FantasyPros-style) */
   --pos-qb: #e0567a;
   --pos-rb: #3ecf8e;
   --pos-wr: #5aa2f7;
@@ -44,8 +57,9 @@
 html, body {
   margin: 0;
   padding: 0;
+  min-height: 100dvh;             /* Takeover gradient always covers the viewport */
   background: var(--bg);
-  color: var(--text);
+  color: var(--text-body);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 16px;
   line-height: 1.5;
@@ -57,10 +71,10 @@ main {
   padding: 16px;
 }
 
-a { color: var(--accent); text-decoration: none; }
+a { color: var(--link, var(--accent)); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-h1, h2, h3 { line-height: 1.2; }
+h1, h2, h3 { line-height: 1.2; color: var(--text); }
 h1 { font-size: 1.45rem; margin: 18px 0 6px; }
 h2 { font-size: 1.15rem; }
 h3 { font-size: 1rem; }
@@ -68,10 +82,11 @@ h3 { font-size: 1rem; }
 .muted { color: var(--text-dim); }
 .small { font-size: 0.85rem; }
 
-/* ===== Nav ===== */
+/* ===== Nav (the team app bar — background/text driven by --ab/--abi) ===== */
 nav {
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  background: var(--ab, var(--surface));
+  border-bottom: 1px solid rgba(0, 0, 0, 0.16);
+  box-shadow: 0 1px 10px rgba(0, 0, 0, 0.14);
   padding: 10px 16px;
   display: flex;
   flex-wrap: wrap;
@@ -84,14 +99,14 @@ nav {
 nav .brand {
   font-weight: 800;
   letter-spacing: 0.02em;
-  color: var(--text);
+  color: var(--abi, var(--text));
   margin-right: 6px;
 }
-nav .brand em { color: var(--accent); font-style: normal; }
-nav a { color: var(--text-dim); padding: 2px 0; white-space: nowrap; }
-nav a.active { color: var(--text); border-bottom: 2px solid var(--accent); }
-nav a:hover { color: var(--text); text-decoration: none; }
-nav form { margin-left: auto; }
+nav .brand em { color: var(--abi, var(--accent)); font-style: normal; opacity: 0.72; }
+nav a { color: var(--abi, var(--text-dim)); opacity: 0.74; padding: 2px 0; white-space: nowrap; }
+nav a.active { color: var(--abi, var(--text)); opacity: 1; border-bottom: 2px solid currentColor; }
+nav a:hover { color: var(--abi, var(--text)); opacity: 1; text-decoration: none; }
+nav form { margin-left: 10px; }
 
 /* ===== Banners ===== */
 #error-banner {
@@ -131,7 +146,7 @@ nav form { margin-left: auto; }
 input, select, textarea, button {
   font: inherit;
   color: var(--text);
-  background: var(--bg);
+  background: var(--field);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 9px 12px;
@@ -151,9 +166,11 @@ label { display: block; }
 }
 
 button {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #0b1220;
+  background: var(--tp, var(--accent));
+  border-color: var(--pop, var(--accent));   /* team-accent edge: keeps the button
+                                                 visible even when --tp ≈ page (e.g. a
+                                                 near-black primary in Takeover) */
+  color: var(--tink, #0b1220);
   font-weight: 700;
   cursor: pointer;
   width: auto;
@@ -326,11 +343,11 @@ table.data th {
   letter-spacing: 0.04em;
   position: sticky;
   top: 0;
-  background: var(--surface);
+  background: var(--field);   /* solid: sticky header must mask rows scrolling under it */
   z-index: 1;
 }
 table.data td.num { color: var(--text-dim); width: 46px; }
-table.data tr:hover td { background: rgba(79, 156, 249, 0.05); }
+table.data tr:hover td { background: var(--chip); }
 table.data td .raw-note { color: var(--text-dim); font-size: 0.78rem; }
 .editable-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .editable-table th, .editable-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
@@ -353,7 +370,7 @@ table.data td .raw-note { color: var(--text-dim); font-size: 0.78rem; }
   text-align: center;
   color: var(--text-dim);
   cursor: pointer;
-  background: var(--bg);
+  background: var(--field);
 }
 .dropzone.drag { border-color: var(--accent); color: var(--text); }
 .dropzone strong { color: var(--text); }
@@ -382,7 +399,7 @@ table.data td .raw-note { color: var(--text-dim); font-size: 0.78rem; }
 .suggest-list {
   position: absolute;
   left: 0; right: 0; top: 100%;
-  background: var(--surface-2);
+  background: var(--field);   /* solid: popover must not show content through it */
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   margin-top: 4px;
@@ -391,7 +408,7 @@ table.data td .raw-note { color: var(--text-dim); font-size: 0.78rem; }
   z-index: 30;
 }
 .suggest-list div { padding: 8px 12px; cursor: pointer; }
-.suggest-list div:hover, .suggest-list div.hover { background: rgba(79, 156, 249, 0.15); }
+.suggest-list div:hover, .suggest-list div.hover { background: var(--chip); }
 
 /* ===== Hub: data health ===== */
 .health-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
@@ -424,8 +441,8 @@ table.data td .raw-note { color: var(--text-dim); font-size: 0.78rem; }
 ul.unparsed { margin: 6px 0 0; padding-left: 18px; color: var(--warn-text); font-size: 0.85rem; }
 .spinner {
   display: inline-block; width: 14px; height: 14px;
-  border: 2px solid rgba(255,255,255,0.3);
-  border-top-color: var(--text);
+  border: 2px solid var(--cdb, rgba(255,255,255,0.3));
+  border-top-color: var(--pop, var(--text));
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
   vertical-align: -2px;
@@ -490,4 +507,127 @@ img.preview-img { max-width: 100%; border: 1px solid var(--border); border-radiu
   padding: 6px 10px;
   font-size: 0.85rem;
   margin-top: 6px;
+}
+
+/* =========================================================================
+   TEAM THEME  —  hero band, helmet-stripe footer, and the nav theme picker.
+   All colors flow from the team vars set by public/theme.js.
+   ========================================================================= */
+
+/* ---- Hero band: team gradient + faint emblem watermark ---- */
+.hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  padding: 26px 24px;
+  margin: 18px 0 10px;
+  background: linear-gradient(130deg, var(--hero1, var(--surface)), var(--hero2, var(--bg)));
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+}
+.hero::after {                       /* watermark emblem (--wm), always the light glyph */
+  content: "";
+  position: absolute;
+  top: -24px; bottom: -24px; right: -8px;
+  width: 230px;
+  background-image: var(--wm);
+  background-repeat: no-repeat;
+  background-position: right center;
+  background-size: contain;
+  opacity: 0.15;
+  pointer-events: none;
+}
+.hero > * { position: relative; }    /* keep text above the watermark */
+.hero h1 { margin: 0 0 6px; color: var(--tink, var(--text)); }
+.hero p { margin: 0; color: var(--tink, var(--text)); opacity: 0.82; max-width: 62ch; }
+
+/* ---- Helmet-stripe footer accent (equal segments of the team's colors) ---- */
+.helmet-stripe {
+  display: flex;
+  width: 100%;
+  height: 6px;
+  margin-top: 34px;
+}
+.helmet-stripe > span { flex: 1 1 0; }
+
+/* ---- Theme picker (injected into <nav> by theme.js) ---- */
+.theme-controls { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.theme-controls button { width: auto; }
+
+.mode-toggle {
+  display: inline-flex;
+  border: 1px solid rgba(255, 255, 255, 0.30);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.mode-toggle button {
+  background: transparent; border: none; border-radius: 0;
+  color: var(--abi, var(--text)); opacity: 0.72;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em;
+  padding: 5px 11px;
+}
+.mode-toggle button.active { background: rgba(255, 255, 255, 0.18); opacity: 1; }
+.mode-toggle button:hover { filter: none; opacity: 1; }
+
+.reroll {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  color: var(--abi, var(--text));
+  border-radius: 9px; padding: 4px 9px; font-size: 1rem; line-height: 1;
+}
+.reroll:hover { background: rgba(255, 255, 255, 0.22); filter: none; }
+
+.team-picker { position: relative; }
+.team-trigger {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  color: var(--abi, var(--text));
+  border-radius: 999px; padding: 4px 12px 4px 5px; font-weight: 700;
+}
+.team-trigger:hover { background: rgba(255, 255, 255, 0.22); filter: none; }
+.team-badge {
+  width: 26px; height: 26px; border-radius: 8px; flex: none;
+  background-size: cover; background-position: center;
+}
+.team-trigger .team-name { font-size: 0.9rem; }
+.team-trigger .tt-city { opacity: 0.78; font-weight: 600; }
+.team-trigger .caret { opacity: 0.7; font-size: 0.7rem; }
+
+.team-panel {
+  position: absolute; top: calc(100% + 8px); right: 0;
+  width: 306px; max-height: 72vh; overflow-y: auto;
+  background: var(--ab, var(--surface));   /* solid dark team surface in both modes */
+  color: var(--abi, var(--text));
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px; padding: 6px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.40);
+  z-index: 55;
+}
+.team-panel.hidden { display: none; }
+.team-panel .panel-sep { height: 1px; background: rgba(255, 255, 255, 0.14); margin: 5px 6px; }
+.team-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 8px; border-radius: 9px; cursor: pointer;
+  color: var(--abi, var(--text));
+}
+.team-row:hover { background: rgba(255, 255, 255, 0.12); }
+.team-row.active { background: rgba(255, 255, 255, 0.18); }
+.team-row .team-badge { width: 30px; height: 30px; }
+.team-row .tr-name { flex: 1 1 auto; font-size: 0.9rem; font-weight: 500; }
+.team-row .tr-name b { font-weight: 800; }
+.team-row .tr-swatches { display: flex; gap: 3px; }
+.team-row .sw { width: 12px; height: 12px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25); }
+.team-row .tr-check { width: 14px; text-align: center; opacity: 0; font-size: 0.85rem; }
+.team-row.active .tr-check { opacity: 1; }
+.team-row.random .rnd-chip {
+  width: 30px; height: 30px; border-radius: 8px; flex: none;
+  display: grid; place-items: center; font-size: 1rem;
+  background: conic-gradient(from 0deg, #e0567a, #f0b34f, #3ecf8e, #5aa2f7, #b98af7, #e0567a);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.5);
+}
+
+@media (max-width: 620px) {
+  .team-trigger .tt-city { display: none; }
+  .mode-toggle button { padding: 5px 8px; }
 }

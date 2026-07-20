@@ -46,6 +46,7 @@ app.use(adpIngestRouter);
 // CSS/JS contain nothing sensitive.
 app.get('/app.css', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.css')));
 app.get('/app.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.js')));
+app.get('/theme.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'theme.js')));
 
 // Password gate: everything below requires a session.
 app.use((req, res, next) => {
