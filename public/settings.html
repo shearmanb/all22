@@ -40,7 +40,7 @@
   <main>
     <h1>Settings <span class="muted small">— app-wide dials, tweaked here, never in code</span></h1>
 
-    <section class="section-gap settings-section">
+    <section class="section-gap settings-section" id="news-sources">
       <div class="row">
         <h2 class="grow">News sources</h2>
         <button id="src-add" class="secondary" type="button">+ Add source</button>
@@ -169,13 +169,15 @@
       sources.forEach(function (src) { listEl.appendChild(sourceCard(src)); });
     }
 
-    $('src-add').addEventListener('click', function () {
+    function addBlankSource() {
       sources.push({ name: '', siteUrl: '', feedUrl: '' });
       render();
       // focus the new card's name field
       var cards = listEl.querySelectorAll('.src-card input');
       if (cards.length) cards[cards.length - 3] && cards[cards.length - 3].focus();
-    });
+    }
+
+    $('src-add').addEventListener('click', addBlankSource);
 
     $('src-save').addEventListener('click', function () {
       var btn = $('src-save');
@@ -193,7 +195,15 @@
     });
 
     apiFetch('/api/news/sources')
-      .then(function (list) { sources = Array.isArray(list) ? list : []; render(); })
+      .then(function (list) {
+        sources = Array.isArray(list) ? list : [];
+        render();
+        // Arrived from The Wire's "+ Add site" button — jump straight into a blank row.
+        if (new URLSearchParams(location.search).get('add') === '1') {
+          addBlankSource();
+          history.replaceState(null, '', location.pathname + location.hash);
+        }
+      })
       .catch(function () { listEl.textContent = ''; });
   })();
   </script>
