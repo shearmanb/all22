@@ -7,13 +7,31 @@
   <link rel="stylesheet" href="/app.css">
   <script src="/theme.js"></script>
   <style>
-    /* Two-up on a wide screen, single column on a phone. Cards stay top-aligned
-       so a tall source doesn't stretch its neighbour. */
+    /* Link-only sites: compact tiles (name + link), packed as many-up as fit,
+       so sites without headlines don't eat vertical space. */
+    #news-links {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .news-link-chip {
+      display: block;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: var(--card-bg, rgba(255,255,255,0.04));
+      border: 1px solid var(--border, rgba(255,255,255,0.08));
+      font-weight: 600;
+      text-align: center;
+    }
+    /* Article sites: two-up on a wide screen, single column on a phone. Cards
+       stay top-aligned so a tall source doesn't stretch its neighbour. */
     @media (min-width: 900px) {
-      #news { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+      #news-articles { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
     }
     .wire-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
     .wire-head .grow { flex: 1; }
+    .wire-section-label { margin: 4px 0 8px; }
   </style>
 </head>
 <body>
@@ -45,6 +63,11 @@
     <p class="muted">Headlines from the sites you follow — skim here, click through only if it's worth your time.
       Sites without a feed show a link out. <a href="/settings.html">Manage sources →</a></p>
     <div id="news" class="news-loading">Loading…</div>
+    <div id="news-body" style="display:none">
+      <div id="news-links"></div>
+      <h2 id="news-articles-label" class="wire-section-label">Headlines</h2>
+      <div id="news-articles"></div>
+    </div>
   </main>
 
   <script src="/app.js"></script>
@@ -59,6 +82,9 @@
     }
 
     var newsEl = $('news');
+    var newsBodyEl = $('news-body');
+    var linksEl = $('news-links');
+    var articlesEl = $('news-articles');
     var updatedEl = $('news-updated');
     var refreshBtn = $('news-refresh');
     var DISPLAY_LIMIT = 5; // keep each card short; older items are a click away
@@ -87,6 +113,22 @@
       return wrap;
     }
 
+    // A source counts as "has headlines" if it's not a plain link source and
+    // actually has items to show — otherwise it's just a link out, so it
+    // belongs in the compact tile row instead of a full card.
+    function hasHeadlines(src) {
+      return src.kind !== 'link' && src.items && src.items.length;
+    }
+
+    function renderLinkTile(src) {
+      var chip = el('div', 'news-link-chip');
+      chip.appendChild(extLink(el('a', null, src.name), src.siteUrl));
+      if (src.lastError) {
+        chip.appendChild(el('div', 'news-source-error small', "Couldn't refresh: " + src.lastError));
+      }
+      return chip;
+    }
+
     function renderSource(src) {
       var card = el('div', 'card news-source');
       var head = el('div', 'news-source-head');
@@ -100,26 +142,17 @@
       if (src.lastError) {
         card.appendChild(el('div', 'news-source-error', "Couldn't refresh: " + src.lastError));
       }
-      if (src.kind === 'link') {
-        var tile = el('div', 'news-link-tile');
-        tile.appendChild(extLink(el('a', null, 'Open ' + src.name + ' →'), src.siteUrl));
-        tile.appendChild(el('div', 'muted', 'No feed for this site — open it for the latest.'));
-        card.appendChild(tile);
-      } else if (src.items && src.items.length) {
-        src.items.slice(0, DISPLAY_LIMIT).forEach(function (it) { card.appendChild(renderItem(it)); });
-        var rest = src.items.slice(DISPLAY_LIMIT);
-        if (rest.length) {
-          var more = el('button', 'secondary', 'Show ' + rest.length + ' more');
-          more.type = 'button';
-          more.style.marginTop = '8px';
-          more.addEventListener('click', function () {
-            rest.forEach(function (it) { card.insertBefore(renderItem(it), more); });
-            more.remove();
-          });
-          card.appendChild(more);
-        }
-      } else if (!src.lastError) {
-        card.appendChild(el('div', 'muted', 'No recent items yet.'));
+      src.items.slice(0, DISPLAY_LIMIT).forEach(function (it) { card.appendChild(renderItem(it)); });
+      var rest = src.items.slice(DISPLAY_LIMIT);
+      if (rest.length) {
+        var more = el('button', 'secondary', 'Show ' + rest.length + ' more');
+        more.type = 'button';
+        more.style.marginTop = '8px';
+        more.addEventListener('click', function () {
+          rest.forEach(function (it) { card.insertBefore(renderItem(it), more); });
+          more.remove();
+        });
+        card.appendChild(more);
       }
       return card;
     }
@@ -127,7 +160,10 @@
     function renderNews(sources) {
       newsEl.className = '';
       newsEl.textContent = '';
+      linksEl.textContent = '';
+      articlesEl.textContent = '';
       if (!sources || !sources.length) {
+        newsBodyEl.style.display = 'none';
         var empty = el('div', 'muted');
         empty.appendChild(document.createTextNode('No sources yet. '));
         var link = el('a', null, 'Add some in Settings →');
@@ -137,14 +173,22 @@
         updatedEl.textContent = '';
         return;
       }
+      newsBodyEl.style.display = '';
       var newest = null;
+      var anyArticles = false;
       sources.forEach(function (s) {
         if (s.lastOk && s.lastFetchedAt) {
           var t = new Date(s.lastFetchedAt).getTime();
           if (!newest || t > newest) newest = t;
         }
-        newsEl.appendChild(renderSource(s));
+        if (hasHeadlines(s)) {
+          anyArticles = true;
+          articlesEl.appendChild(renderSource(s));
+        } else {
+          linksEl.appendChild(renderLinkTile(s));
+        }
       });
+      $('news-articles-label').style.display = anyArticles ? '' : 'none';
       updatedEl.textContent = newest ? 'updated ' + timeAgo(newest) : '';
     }
 
