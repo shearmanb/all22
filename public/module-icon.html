@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>All22 — Module Icons</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/theme.js"></script>
+  <style>
+    /* Gallery-only chrome. The two mode panels paint their own chassis so each
+       mode's chips render on the background they're designed for, regardless of
+       the team theme selected in the nav (Balanced = light page, Takeover = dark
+       team radial). App-bar + active colors still come from the live team theme. */
+    .mi-cols { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 12px; }
+    @media (min-width: 780px) { .mi-cols { grid-template-columns: 1fr 1fr; } }
+    .mi-panel { border-radius: 14px; padding: 18px; border: 1px solid rgba(255,255,255,0.10); }
+    .mi-panel h3 { margin: 0 0 4px; }
+    .mi-panel .mi-sub { font-size: 0.82rem; margin: 0 0 14px; }
+    .mi-panel.balanced { background: #F3F4F8; color: #161A26; }
+    .mi-panel.balanced .mi-sub { color: #5b6270; }
+    .mi-panel.takeover {
+      background: radial-gradient(1000px 520px at 12% -12%, #2a3345 0%, #141a24 55%, #0b0f16 100%);
+      color: #fff;
+    }
+    .mi-panel.takeover .mi-sub { color: rgba(255,255,255,0.6); }
+
+    .mi-tilegrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px 8px; }
+    @media (min-width: 460px) { .mi-tilegrid { grid-template-columns: repeat(4, 1fr); } }
+    .mi-tilegrid > * { justify-self: center; }
+
+    .mi-chiprow { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+    .mi-chiprow.tight { gap: 10px 12px; }
+    .mi-chiplist { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+
+    /* A mock team app bar so the appbar-context (mono in --abi) reads true. */
+    .mi-mockbar {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 6px 18px;
+      background: var(--ab, #1b2430);
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 12px; padding: 10px 14px;
+    }
+    .mi-mockbar .mi-brand { font-weight: 800; letter-spacing: 0.02em; color: var(--abi, #fff); margin-right: 4px; }
+    .mi-mockbar .mi-brand em { font-style: normal; opacity: 0.72; }
+
+    .mi-note {
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px; font-size: 0.88rem; color: var(--text-dim);
+    }
+    .mi-live { display: flex; flex-wrap: wrap; gap: 18px 24px; align-items: center; }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">All<em>22</em></span>
+    <a href="/">Hub</a>
+    <a href="/module-icon.html" class="active">Module Icons</a>
+    <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
+  </nav>
+  <div id="error-banner"></div>
+
+  <main>
+    <header class="hero">
+      <h1>Module Icons</h1>
+      <p>A fixed identity layer: every module owns a permanent hue that never re-themes per team.
+         The team theme owns chrome, nav and the active state; module hues are wayfinding only —
+         tinted duotone chips, never a background fill.</p>
+    </header>
+
+    <section class="card section-gap">
+      <h2>Tiles — dashboard</h2>
+      <p class="muted small">66px glyph, name + descriptor stacked below. Same eleven hues in both theme modes.</p>
+      <div class="mi-cols">
+        <div class="mi-panel balanced">
+          <h3>Balanced</h3><p class="mi-sub">Light chassis — 12% tint, hue border + glyph, dark label.</p>
+          <div class="mi-tilegrid" data-gallery="tiles" data-mode="balanced"></div>
+        </div>
+        <div class="mi-panel takeover">
+          <h3>Takeover</h3><p class="mi-sub">Team radial — 22% tint, stronger border, lightened glyph, white label.</p>
+          <div class="mi-tilegrid" data-gallery="tiles" data-mode="takeover"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card section-gap">
+      <h2>Chips — top-nav &amp; lists</h2>
+      <p class="muted small">Glyph + name inline. Nav chips skip the descriptor; list chips add it as a small uppercase sub-label.</p>
+      <div class="mi-cols">
+        <div class="mi-panel balanced">
+          <h3>Balanced</h3><p class="mi-sub">Nav row (no descriptor)</p>
+          <div class="mi-chiprow" data-gallery="chips" data-mode="balanced"></div>
+          <p class="mi-sub" style="margin-top:16px">List (with descriptor)</p>
+          <div class="mi-chiplist" data-gallery="chips-desc" data-mode="balanced"></div>
+        </div>
+        <div class="mi-panel takeover">
+          <h3>Takeover</h3><p class="mi-sub">Nav row (no descriptor)</p>
+          <div class="mi-chiprow" data-gallery="chips" data-mode="takeover"></div>
+          <p class="mi-sub" style="margin-top:16px">List (with descriptor)</p>
+          <div class="mi-chiplist" data-gallery="chips-desc" data-mode="takeover"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card section-gap" id="chrome-demo">
+      <h2>App bar &amp; active state — owned by the team, not the hue</h2>
+      <p class="muted small">
+        On the team-primary app bar the glyph goes mono in <code>--abi</code>. The selected item is owned by the
+        team accent <code>--pop</code> (faint pill + underline + <code>--pop</code> glyph) — it does <em>not</em> switch to
+        the module's bright hue. Both track the team you pick in the nav — try the picker and the 🎲.
+      </p>
+      <div class="mi-mockbar" data-gallery="appbar">
+        <span class="mi-brand">All<em>22</em></span>
+      </div>
+      <p class="mi-sub muted small" style="margin:14px 0 6px">Active (selected) vs. resting, live team accent:</p>
+      <div class="mi-chiprow tight" data-gallery="active"></div>
+    </section>
+
+    <section class="card section-gap">
+      <h2>Live — follows the active theme</h2>
+      <p class="mi-note">These icons pass no explicit mode, so they follow whatever the nav picker is set to
+        (Balanced/Takeover) and re-tint instantly when you flip it — that's the ambient path the real nav uses.</p>
+      <div class="mi-live section-gap" data-gallery="live"></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+  <script src="/module-icon.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var MODS = ModuleIcon.MODULES;
+
+    function fill(sel, build) {
+      document.querySelectorAll(sel).forEach(function (host) {
+        var mode = host.getAttribute('data-mode') || undefined; // undefined => ambient (live)
+        MODS.forEach(function (m) { host.appendChild(build(m, mode)); });
+      });
+    }
+
+    // Dashboard tiles (descriptor on by default for tiles).
+    fill('[data-gallery="tiles"]', function (m, mode) {
+      return ModuleIcon.create({ moduleId: m.id, variant: 'tile', mode: mode });
+    });
+    // Nav-style chips (no descriptor).
+    fill('[data-gallery="chips"]', function (m, mode) {
+      return ModuleIcon.create({ moduleId: m.id, variant: 'chip', mode: mode });
+    });
+    // List-style chips (with the uppercase sub-label).
+    fill('[data-gallery="chips-desc"]', function (m, mode) {
+      return ModuleIcon.create({ moduleId: m.id, variant: 'chip', mode: mode, showDescriptor: true });
+    });
+
+    // Mock app bar: mono chips in --abi, the first one selected (active).
+    var bar = document.querySelector('[data-gallery="appbar"]');
+    ['hub', 'combine', 'myrankings', 'edgerush', 'warchest', 'settings'].forEach(function (id, i) {
+      bar.appendChild(ModuleIcon.create({ moduleId: id, context: 'appbar', active: i === 0 }));
+    });
+
+    // Active vs resting, using the live team accent.
+    var activeRow = document.querySelector('[data-gallery="active"]');
+    ['bigboard', 'bigboard', 'playbook', 'playbook'].forEach(function (id, i) {
+      activeRow.appendChild(ModuleIcon.create({ moduleId: id, active: i % 2 === 0, showDescriptor: true }));
+    });
+
+    // Live (ambient) — no mode passed, so the observer re-tints on theme flips.
+    var live = document.querySelector('[data-gallery="live"]');
+    ['combine', 'edgerush', 'notes'].forEach(function (id) {
+      live.appendChild(ModuleIcon.create({ moduleId: id, variant: 'tile' }));
+    });
+    ['myrankings', 'playbook', 'thewire'].forEach(function (id) {
+      live.appendChild(ModuleIcon.create({ moduleId: id, showDescriptor: true }));
+    });
+  })();
+  </script>
+</body>
+</html>

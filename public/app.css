@@ -631,3 +631,105 @@ img.preview-img { max-width: 100%; border: 1px solid var(--border); border-radiu
   .team-trigger .tt-city { display: none; }
   .mode-toggle button { padding: 5px 8px; }
 }
+
+/* =========================================================================
+   MODULE ICONS  —  the wayfinding identity layer (public/module-icon.js).
+   Each module owns a PERMANENT hue that never re-themes per team; the team
+   theme owns chrome/nav/active-state. Module hues are drawn as tinted duotone
+   chips (tint bg + border + glyph stroke) — NEVER a large surface fill — so the
+   theme's "max 1-2 background colors" rule stays intact.
+
+   Per-instance hue rides on --mi-hue / --mi-hue-light (set inline by the JS);
+   the recipe that colors the chip is chosen by data-mode / data-context /
+   .is-active. The four state rules below are all equal specificity (0,2,0) and
+   set the same custom props, so SOURCE ORDER resolves any overlap:
+   mode  →  appbar (over the team app bar)  →  active (owned by --pop). Whichever
+   applies last wins the props it sets; --mi-label carries over when a later rule
+   leaves it untouched (e.g. active keeps the mode's label color).
+   ========================================================================= */
+.mod-icon {
+  --mi-bg: transparent;
+  --mi-border: transparent;
+  --mi-stroke: currentColor;
+  --mi-label: var(--text, #161A26);
+  --mi-glyph-box: 30px;      /* chip default; the tile variant enlarges these */
+  --mi-glyph-radius: 9px;
+  --mi-svg: 19px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--mi-stroke);
+  vertical-align: middle;
+}
+.mod-glyph {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: var(--mi-glyph-box);
+  height: var(--mi-glyph-box);
+  border-radius: var(--mi-glyph-radius);
+  background: var(--mi-bg);
+  border: 1px solid var(--mi-border);
+  color: var(--mi-stroke);              /* the SVG's currentColor (stroke + solid fills) */
+}
+.mod-svg { width: var(--mi-svg); height: var(--mi-svg); display: block; }
+.mod-label { display: flex; flex-direction: column; min-width: 0; }
+.mod-name {
+  color: var(--mi-label);
+  font-weight: 600;
+  font-size: 0.95rem;
+  line-height: 1.15;
+  white-space: nowrap;                  /* labels never wrap */
+}
+.mod-descriptor {
+  color: var(--mi-label);
+  opacity: 0.62;
+  margin-top: 1px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;            /* the small uppercase sub-label */
+  white-space: nowrap;
+}
+
+/* Tile — a 66px rounded-square glyph with name + descriptor stacked, centered. */
+.mod-icon--tile {
+  flex-direction: column;
+  gap: 8px;
+  text-align: center;
+  --mi-glyph-box: 66px;
+  --mi-glyph-radius: 16px;
+  --mi-svg: 34px;
+}
+.mod-icon--tile .mod-label { align-items: center; }
+.mod-icon--tile .mod-name { font-weight: 700; }
+
+/* Balanced (light chassis): faint tint chip, hue border + hue glyph, dark label. */
+.mod-icon[data-mode="balanced"] {
+  --mi-bg: color-mix(in srgb, var(--mi-hue) 12%, #fff);
+  --mi-border: color-mix(in srgb, var(--mi-hue) 34%, transparent);
+  --mi-stroke: var(--mi-hue);
+  --mi-label: #161A26;
+}
+/* Takeover (team radial): translucent tint, stronger border, lightened hue glyph. */
+.mod-icon[data-mode="takeover"] {
+  --mi-bg: color-mix(in srgb, var(--mi-hue) 22%, transparent);
+  --mi-border: color-mix(in srgb, var(--mi-hue) 50%, transparent);
+  --mi-stroke: var(--mi-hue-light);
+  --mi-label: #fff;
+}
+/* On the team-primary app bar: glyph mono in --abi (white/navy), never the hue. */
+.mod-icon[data-context="appbar"] {
+  --mi-bg: transparent;
+  --mi-border: transparent;
+  --mi-stroke: var(--abi, #fff);
+  --mi-label: var(--abi, #fff);
+}
+/* Active/selected nav item is owned by the team accent --pop — NOT the module
+   hue's bright state: a faint --pop pill, a 2px --pop underline, --pop glyph. */
+.mod-icon.is-active {
+  --mi-bg: color-mix(in srgb, var(--pop, #4f9cf9) 24%, transparent);
+  --mi-border: color-mix(in srgb, var(--pop, #4f9cf9) 42%, transparent);
+  --mi-stroke: var(--pop, #4f9cf9);
+}
+.mod-icon.is-active .mod-glyph { box-shadow: inset 0 -2px 0 var(--pop, #4f9cf9); }
