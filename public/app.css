@@ -733,3 +733,41 @@ img.preview-img { max-width: 100%; border: 1px solid var(--border); border-radiu
   --mi-stroke: var(--pop, #4f9cf9);
 }
 .mod-icon.is-active .mod-glyph { box-shadow: inset 0 -2px 0 var(--pop, #4f9cf9); }
+
+/* Active item ON THE APP BAR is the one place rules 2 (glyph in --abi) and 3
+   (glyph in --pop) collide: on a mono team --pop can equal the app-bar color
+   --ab, which would make a --pop glyph vanish. So keep the glyph + underline in
+   the always-legible --abi and carry --pop as a pill wash — it shows on teams
+   where --pop reads against the bar and harmlessly disappears where it doesn't,
+   while the --abi underline keeps the active item visible on every team. */
+.mod-icon[data-context="appbar"].is-active {
+  --mi-bg: color-mix(in srgb, var(--pop, #4f9cf9) 26%, transparent);
+  --mi-border: transparent;
+  --mi-stroke: var(--abi, #fff);
+  --mi-label: var(--abi, #fff);
+}
+.mod-icon[data-context="appbar"].is-active .mod-glyph { box-shadow: inset 0 -2px 0 var(--abi, #fff); }
+
+/* ---- In-place integration (public/module-nav.js) ------------------------- */
+/* Nav links upgraded to app-bar chips. The chip carries its own glyph + label
+   color (--abi, or --pop when active), so drop the old text-link opacity ramp
+   and underline and let the chip show the state. Compact sizing keeps the bar
+   from growing tall when every item gains a glyph. */
+nav a.mod-navlink {
+  display: inline-flex;
+  padding: 2px 0;
+  opacity: 0.82;
+  border-bottom: none;
+}
+nav a.mod-navlink:hover, nav a.mod-navlink.active { opacity: 1; }
+nav a.mod-navlink .mod-icon { --mi-glyph-box: 24px; --mi-glyph-radius: 7px; --mi-svg: 16px; gap: 7px; }
+nav a.mod-navlink .mod-name { font-size: 0.9rem; }
+@media (max-width: 620px) {
+  nav a.mod-navlink .mod-icon { --mi-glyph-box: 21px; --mi-glyph-radius: 6px; --mi-svg: 14px; gap: 6px; }
+  nav a.mod-navlink .mod-name { font-size: 0.82rem; }
+}
+
+/* Hub launcher-card headings become a hued module chip (the module hue lives on
+   the dashboard, not the chrome). Sized up to read as a card heading. */
+.tile h2 .mod-icon { --mi-glyph-box: 34px; --mi-glyph-radius: 10px; --mi-svg: 22px; gap: 10px; }
+.tile h2 .mod-name { font-size: 1.1rem; font-weight: 700; }
