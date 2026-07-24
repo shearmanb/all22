@@ -1,8 +1,12 @@
 const express = require('express');
 const pool = require('../../db/pool');
+const settings = require('../../lib/settings');
 const { parse: parserParse } = require('./lib/parsers');
 const { suggest } = require('./lib/strategy');
 const fpwizard = require('./lib/fpwizard');
+const resolve = require('./lib/resolve');
+const analysis = require('./lib/analysis');
+const boards = require('../adp/lib/boards');
 
 const router = express.Router();
 
@@ -168,6 +172,11 @@ router.post('/', async (req, res) => {
     const myPicks = picks.filter((p) => p.isMyPick);
     const suggestedStrategy = suggest(myPicks);
 
+    // Resolve every pick to players_master BEFORE saving (Phase 3). Only
+    // high-confidence matches get a player_id; the rest stay NULL and show
+    // as unmatched — never a silent guess.
+    const matches = await resolve.matchPicks(picks);
+
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -186,10 +195,12 @@ router.post('/', async (req, res) => {
           checkedOutAt ? parseInt(checkedOutAt, 10) : null,
         ]
       );
-      for (const p of picks) {
+      for (let i = 0; i < picks.length; i++) {
+        const p = picks[i];
+        const m = matches[i];
         await client.query(
-          `INSERT INTO picks (draft_id, overall_pick, round, player_name, position, nfl_team, draft_slot, is_my_pick)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          `INSERT INTO picks (draft_id, overall_pick, round, player_name, position, nfl_team, draft_slot, is_my_pick, player_id, match_confidence, match_via)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
           [
             draft.id,
             parseInt(p.overallPick, 10), parseInt(p.round, 10),
@@ -197,6 +208,7 @@ router.post('/', async (req, res) => {
             p.position || null, p.nflTeam || null,
             p.draftSlot != null ? parseInt(p.draftSlot, 10) : null,
             !!p.isMyPick,
+            m.player_id, m.confidence, m.via,
           ]
         );
       }
@@ -228,6 +240,86 @@ router.get('/:id', async (req, res) => {
   } catch (err) {
     console.error(`GET /api/drafts/${req.params.id}: ${err.message}`);
     res.json({ ok: false, error: 'Failed to load draft.' });
+  }
+});
+
+// The ADP scoring format to grade a draft against when the request doesn't
+// say: Underdog is half-PPR best ball; otherwise the ACTIVE league profile's
+// scoring (never a hardcoded league shape — CLAUDE.md), else half.
+async function defaultFormat(draft) {
+  if (String(draft.site || '').toLowerCase() === 'underdog') return 'half';
+  const profiles = await settings.get('league.profiles', null);
+  const activeId = await settings.get('league.active', null);
+  if (Array.isArray(profiles) && profiles.length) {
+    const p = profiles.find((x) => x && x.id === activeId) || profiles[0];
+    if (p) return p.superflex ? 'superflex' : (p.scoring || 'half');
+  }
+  return 'half';
+}
+
+// GET /api/drafts/:id/analysis — value vs ADP, reaches/steals, positional
+// balance, team leaderboard. ?format=&site=&teams= override the ADP board
+// (defaults: format from the draft's site / active league profile, teams from
+// the draft's league size). Lazily resolves picks never matched before, so
+// pre-rebuild drafts heal on first view.
+router.get('/:id/analysis', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { rows: [draft] } = await pool.query('SELECT * FROM drafts WHERE id = $1', [id]);
+    if (!draft) return res.status(404).json({ ok: false, error: 'Draft not found.' });
+
+    const healed = await resolve.resolveDraftPicks(id);
+    const { rows: picks } = await pool.query(
+      'SELECT * FROM picks WHERE draft_id = $1 ORDER BY overall_pick', [id]
+    );
+
+    const format = String(req.query.format || '').toLowerCase() || await defaultFormat(draft);
+    const key = await boards.resolveKey({
+      site: req.query.site || undefined,
+      format,
+      teams: req.query.teams || draft.league_size,
+    });
+    const adpRows = key ? await boards.snapshotRows(key, key.latest) : [];
+
+    // The owner's own opinion column: latest saved My Rankings run.
+    const { rows: [run] } = await pool.query(
+      'SELECT id, name, target_format, created_at FROM my_ranking_runs ORDER BY created_at DESC, id DESC LIMIT 1'
+    );
+    const myRanks = run
+      ? (await pool.query('SELECT player_id, rank FROM my_rankings WHERE run_id = $1', [run.id])).rows
+      : [];
+
+    const options = await settings.get('playbook.analysis', {});
+    const result = analysis.analyze({ picks, adp: adpRows, myRanks, mySlot: draft.my_slot, options });
+
+    res.json({
+      ok: true,
+      data: {
+        ...result,
+        adp_board: key, // null = nothing stored for that format yet
+        boards: await boards.availableBoards(),
+        run: run ? { id: run.id, name: run.name, target_format: run.target_format, created_at: run.created_at } : null,
+        resolved_now: healed,
+      },
+    });
+  } catch (err) {
+    console.error(`GET /api/drafts/${req.params.id}/analysis: ${err.message}`);
+    res.json({ ok: false, error: 'Could not analyze this draft: ' + err.message });
+  }
+});
+
+// POST /api/drafts/:id/resolve — force re-match EVERY pick against the current
+// players_master (so learned aliases / manually added players heal old drafts).
+router.post('/:id/resolve', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { rows: [draft] } = await pool.query('SELECT id FROM drafts WHERE id = $1', [id]);
+    if (!draft) return res.status(404).json({ ok: false, error: 'Draft not found.' });
+    const out = await resolve.resolveDraftPicks(id, { force: true });
+    res.json({ ok: true, data: out });
+  } catch (err) {
+    console.error(`POST /api/drafts/${req.params.id}/resolve: ${err.message}`);
+    res.json({ ok: false, error: 'Re-matching failed: ' + err.message });
   }
 });
 

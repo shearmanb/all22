@@ -35,6 +35,24 @@
     .stars button { background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--text-dim); width: 36px; height: 36px; font-size: 1rem; cursor: pointer; padding: 0; }
     .stars button.active { border-color: var(--accent); color: #f5c842; }
     .notes-pre { white-space: pre-wrap; font-size: .875rem; color: var(--text-dim); margin: 0; }
+    /* Analysis */
+    .an-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .an-head select { max-width: 150px; }
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .chip { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; font-size: .82rem; }
+    .chip b { display: block; font-size: 1.05rem; }
+    .chip.warn { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn-text); }
+    .val-pos { color: var(--green); }
+    .val-neg { color: var(--red); }
+    .tag-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 12px; font-size: .68rem; font-weight: 600; letter-spacing: .04em; }
+    .tag-badge.steal { background: var(--ok-bg); border: 1px solid var(--ok-border); color: var(--ok-text); }
+    .tag-badge.reach { background: var(--error-bg); border: 1px solid var(--error-border); color: var(--error-text); }
+    tr.unmatched td { opacity: .55; }
+    .lb { margin-top: 12px; font-size: .84rem; }
+    .lb td, .lb th { padding: 4px 10px; }
+    .an-dials { margin-top: 12px; font-size: .84rem; }
+    .an-dials input { width: 64px; }
+    .an-dials .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -136,6 +154,17 @@
       </div>
     </div>
 
+    <!-- Analysis -->
+    <div id="analysis-card" class="card" style="margin-top:14px">
+      <div class="an-head">
+        <span style="font-weight:600">Analysis</span>
+        <select id="an-format" title="ADP scoring format to grade against"></select>
+        <span id="an-board" class="muted" style="font-size:.8rem"></span>
+        <button type="button" id="rematch-btn" class="link" style="margin-left:auto;font-size:.82rem" title="Re-match every pick against the Player DB (picks up learned aliases)">Re-match players</button>
+      </div>
+      <div id="an-body" class="muted" style="margin-top:10px;font-size:.85rem">Loading analysis…</div>
+    </div>
+
     <!-- Picks table -->
     <div style="margin-top:20px">
       <div style="font-weight:600;margin-bottom:6px">
@@ -145,7 +174,7 @@
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>#</th><th>Rnd</th><th>Player</th><th>Pos</th><th>Team</th><th>Slot</th></tr>
+              <tr><th>#</th><th>Rnd</th><th>Player</th><th>Pos</th><th>Team</th><th>Slot</th><th title="Average draft position on the chosen board">ADP</th><th title="Picks past ADP: + = fell to you (value), − = taken early (reach)">+/−</th><th title="Rank in your latest My Rankings run">My Rk</th></tr>
             </thead>
             <tbody id="picks-body"></tbody>
           </table>
@@ -217,18 +246,137 @@
       document.getElementById('pick-counts').textContent =
         `${mine.length} my picks · ${picks.length} total` + (posStr ? ` — ${posStr}` : '');
 
+      // Analysis columns: '—' until /analysis responds (or when no board/run).
+      const tagBadge = (t) => t ? ` <span class="tag-badge ${t}">${t.toUpperCase()}</span>` : '';
       const tbody = document.getElementById('picks-body');
       tbody.innerHTML = picks.map((p) => `
-        <tr class="${p.is_my_pick ? 'mine' : ''}">
+        <tr class="${p.is_my_pick ? 'mine' : ''}${p.matched === false ? ' unmatched' : ''}">
           <td>${p.overall_pick}</td>
           <td>${p.round}</td>
-          <td>${esc(p.player_name)}${p.is_my_pick ? ' <span style="font-size:.7rem;color:var(--accent)">▶ me</span>' : ''}</td>
+          <td>${esc(p.player_name)}${p.is_my_pick ? ' <span style="font-size:.7rem;color:var(--accent)">▶ me</span>' : ''}${tagBadge(p.tag)}${p.matched === false ? ' <span title="Not matched to the Player DB — use Re-match after teaching the alias in Combine or Player DB">⚠</span>' : ''}</td>
           <td>${esc(p.position || '—')}</td>
           <td>${esc(p.nfl_team || '—')}</td>
           <td>${p.draft_slot || '—'}</td>
+          <td>${p.adp == null ? '—' : p.adp}</td>
+          <td class="${valClass(p.value)}">${fmtVal(p.value)}</td>
+          <td>${p.my_rank == null ? '—' : p.my_rank}</td>
         </tr>`
       ).join('');
     }
+
+    // ----- Analysis (Phase 3) -----
+    let currentFormat = null;
+
+    const fmtVal = (v) => v == null ? '—' : (v > 0 ? '+' + v : String(v));
+    const valClass = (v) => v == null ? '' : (v > 0 ? 'val-pos' : (v < 0 ? 'val-neg' : ''));
+
+    async function loadAnalysis(format) {
+      const qs = format ? `?format=${encodeURIComponent(format)}` : '';
+      const data = await apiFetch(`/api/drafts/${id}/analysis${qs}`).catch(() => null);
+      const body = document.getElementById('an-body');
+      if (!data) { body.textContent = 'Analysis unavailable.'; return; }
+      currentFormat = data.adp_board ? data.adp_board.format : (format || null);
+      renderAnalysis(data);
+      renderPicks(data.rows); // re-render the board with ADP/value/my-rank filled in
+    }
+
+    function renderAnalysis(data) {
+      // Format picker from the boards Edge Rush actually has stored.
+      const sel = document.getElementById('an-format');
+      const formats = [...new Set((data.boards || []).map((b) => b.format))];
+      if (currentFormat && !formats.includes(currentFormat)) formats.unshift(currentFormat);
+      sel.innerHTML = formats.map((f) => `<option value="${esc(f)}"${f === currentFormat ? ' selected' : ''}>${esc(f)}</option>`).join('');
+
+      const board = document.getElementById('an-board');
+      if (data.adp_board) {
+        const k = data.adp_board;
+        board.textContent = `${k.site} · ${k.teams === 0 ? 'sitewide' : k.teams + '-team'} · ${k.latest}`;
+      } else {
+        board.textContent = 'no ADP board stored for this format — Edge Rush hasn’t collected it yet';
+      }
+
+      const s = data.summary;
+      const unresolved = (data.rows || []).filter((r) => !r.matched).length;
+      const chips = [
+        `<div class="chip"><b class="${valClass(s.total_value)}">${fmtVal(s.total_value)}</b>my ADP value</div>`,
+        `<div class="chip"><b>${s.steals}</b>steals</div>`,
+        `<div class="chip"><b>${s.reaches}</b>reaches</div>`,
+        s.best_pick && s.best_pick.value > 0 ? `<div class="chip"><b class="val-pos">${esc(s.best_pick.player_name)}</b>best value: #${s.best_pick.overall_pick} vs ADP ${s.best_pick.adp} (${fmtVal(s.best_pick.value)})</div>` : '',
+        s.worst_pick && s.worst_pick.value < 0 ? `<div class="chip"><b class="val-neg">${esc(s.worst_pick.player_name)}</b>biggest reach: #${s.worst_pick.overall_pick} vs ADP ${s.worst_pick.adp} (${fmtVal(s.worst_pick.value)})</div>` : '',
+        unresolved ? `<div class="chip warn"><b>${unresolved}</b>unmatched name${unresolved === 1 ? '' : 's'} ⚠</div>` : '',
+      ].filter(Boolean).join('');
+
+      // My positional balance: counts, rounds spent, ADP value per position.
+      const posOrder = ['QB','RB','WR','TE','K','DST','DEF','Other'];
+      const posKeys = Object.keys(data.positions || {});
+      const posStr = [...posOrder.filter((p) => posKeys.includes(p)), ...posKeys.filter((p) => !posOrder.includes(p))]
+        .map((p) => {
+          const b = data.positions[p];
+          return `${b.count} ${esc(p)} <span class="muted">(rd ${b.rounds.join(',')}${b.value ? ` · <span class="${valClass(b.value)}">${fmtVal(b.value)}</span>` : ''})</span>`;
+        }).join(' &nbsp;·&nbsp; ');
+
+      // Draft-room leaderboard: every slot's total ADP value.
+      let lb = '';
+      if ((data.teams || []).length) {
+        lb = `<div class="lb"><div style="font-weight:600;margin-bottom:4px">Draft-room value leaderboard</div>
+          <div class="table-wrap"><table style="min-width:280px">
+            <thead><tr><th>Rank</th><th>Slot</th><th>ADP value</th><th>Picks</th></tr></thead>
+            <tbody>${data.teams.map((t) => `
+              <tr class="${t.is_me ? 'mine' : ''}">
+                <td>${t.rank}</td>
+                <td>${t.slot}${t.is_me ? ' <span style="font-size:.7rem;color:var(--accent)">▶ me</span>' : ''}</td>
+                <td class="${valClass(t.value)}">${fmtVal(t.value)}</td>
+                <td class="muted">${t.picks}</td>
+              </tr>`).join('')}
+            </tbody></table></div></div>`;
+      }
+
+      const o = data.options;
+      const dials = `
+        <details class="an-dials">
+          <summary style="cursor:pointer;color:var(--text-dim)">Steal/reach thresholds ${data.run ? `· graded vs My Rankings run “${esc(data.run.name || ('#' + data.run.id))}”` : '· no My Rankings run saved yet'}</summary>
+          <div class="row">
+            <label>Steal ≥ <input type="number" id="d-steal-picks" min="0" value="${o.steal_picks}"> picks and <input type="number" id="d-steal-pct" min="0" value="${o.steal_pct}"> % of ADP</label>
+          </div>
+          <div class="row">
+            <label>Reach ≥ <input type="number" id="d-reach-picks" min="0" value="${o.reach_picks}"> picks and <input type="number" id="d-reach-pct" min="0" value="${o.reach_pct}"> % of ADP</label>
+            <button type="button" id="d-save">Save thresholds</button>
+          </div>
+        </details>`;
+
+      document.getElementById('an-body').innerHTML =
+        `<div class="chips">${chips}</div>` +
+        (posStr ? `<div style="margin-top:12px">${posStr}</div>` : '') +
+        lb + dials;
+
+      document.getElementById('d-save').addEventListener('click', async () => {
+        const entries = { 'playbook.analysis': {
+          steal_picks: +document.getElementById('d-steal-picks').value || 0,
+          steal_pct: +document.getElementById('d-steal-pct').value || 0,
+          reach_picks: +document.getElementById('d-reach-picks').value || 0,
+          reach_pct: +document.getElementById('d-reach-pct').value || 0,
+        } };
+        const saved = await apiFetch('/api/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ entries }),
+        }).catch(() => null);
+        if (saved) { toast('Thresholds saved'); loadAnalysis(currentFormat); }
+      });
+    }
+
+    document.getElementById('an-format').addEventListener('change', (e) => loadAnalysis(e.target.value));
+
+    document.getElementById('rematch-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('rematch-btn');
+      btn.disabled = true;
+      const data = await apiFetch(`/api/drafts/${id}/resolve`, { method: 'POST' }).catch(() => null);
+      btn.disabled = false;
+      if (data) {
+        toast(`Re-matched ${data.matched} of ${data.attempted} picks`);
+        loadAnalysis(currentFormat);
+      }
+    });
 
     // Edit
     document.getElementById('edit-btn').addEventListener('click', () => {
@@ -306,7 +454,7 @@
       if (data) window.location.href = '/drafts.html';
     });
 
-    loadDraft();
+    loadDraft().then(() => loadAnalysis());
   </script>
 </body>
 </html>

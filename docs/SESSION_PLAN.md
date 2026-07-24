@@ -26,11 +26,18 @@ silently picked — they are visible dials with provisional defaults (unranked =
 no-opinion, outliers = off, cross-format = warn-don't-adjust). **Still owed: a
 session confirming those defaults, and tiers-vs-ordinals remains unbuilt.**
 
-## Phase 3 — Playbook grows up
-Draft ingestion beyond paste (decide the Yahoo/Underdog extraction path),
-Draft-Wizard-style analysis: value vs. ADP, reaches/steals, positional balance.
-Picks should resolve to `player_id` via players_master (the current pre-rebuild
-pages store raw names).
+## 🟡 Phase 3 — Playbook grows up (analysis BUILT 2026-07-24; ingestion path open)
+Picks now resolve to `player_id` via players_master (migration 020: save-time
+match, lazy backfill for old drafts, force re-match button), and the draft page
+grades every draft: value vs. ADP (board shared with Edge Rush via
+`features/adp/lib/boards.js`), steal/reach tags (thresholds = dials in settings
+`playbook.analysis`), positional balance, a per-slot value leaderboard, and a
+"my rank" column from the latest My Rankings run. Math is pure + golden-tested
+(`features/playbook/lib/analysis.js`). **Still owed: draft ingestion beyond
+paste — the Yahoo/Underdog extraction path (open decision 6).**
+**Checkpoint:** open a saved draft on your phone; picks should show ADP, ±value
+and steal/reach badges; unmatched names show ⚠ and heal after teaching an alias
++ Re-match.
 
 ## ✅ Phase 4 — Edge Rush (BUILT 2026-07-10, sources differ from the sketch)
 Daily automatic ADP into `adp_history` from FantasyFootballCalculator (free
