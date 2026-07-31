@@ -297,6 +297,22 @@ select.inline, input.inline { width: auto; }
 .pill.bad { color: var(--error-text); border-color: var(--error-border); }
 .pill.accent { color: var(--accent-strong); border-color: var(--accent); }
 
+/* Filter chips (e.g. Combine's position filter on the compare tab). */
+.chip-row { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip-btn {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  width: auto;
+}
+.chip-btn:hover { background: var(--chip); }
+.chip-btn.on { color: var(--accent-strong); border-color: var(--accent); background: var(--chip); }
+
 .pos-badge {
   display: inline-block;
   font-size: 0.72rem;

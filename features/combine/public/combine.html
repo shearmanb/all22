@@ -237,14 +237,18 @@
           <select id="cmp-b" class="inline"></select>
           <button id="cmp-go" class="secondary">Compare</button>
         </div>
-        <p class="muted small section-gap">Delta = set A's rank minus set B's. <span class="delta-up">▲</span> = A is higher on the player, <span class="delta-down">▼</span> = A is lower. Different native formats? The deltas still show, but remember they're apples-to-oranges (see Settings → open decisions).</p>
-        <div id="cmp-note" class="notice-banner"></div>
-        <div class="table-wrap section-gap">
-          <table class="data" id="cmp-table" hidden>
-            <thead><tr><th>Player</th><th>Pos</th><th>Team</th><th id="cmp-head-a">A</th><th id="cmp-head-b">B</th><th>Δ</th></tr></thead>
-            <tbody></tbody>
-          </table>
+        <div class="row section-gap">
+          <label class="inline">Compare by
+            <select id="cmp-mode" class="inline">
+              <option value="position">Position rank (RB3 vs RB7)</option>
+              <option value="overall">Overall list rank</option>
+            </select>
+          </label>
+          <span id="cmp-positions" class="chip-row"></span>
         </div>
+        <p class="muted small section-gap">Delta = set A's rank minus set B's. <span class="delta-up">▲</span> = A is higher on the player, <span class="delta-down">▼</span> = A is lower. Position rank is the fair comparison: sources order their positions differently, so overall list rank only lines up when both sides ranked one big overall list. Different native formats? The deltas still show, but remember they're apples-to-oranges (see Settings → open decisions).</p>
+        <div id="cmp-note" class="notice-banner"></div>
+        <div id="cmp-results" class="section-gap"></div>
         <div id="cmp-only" class="section-gap"></div>
       </div>
     </section>
@@ -310,6 +314,8 @@
       currentSet: null,      // {set, rows}
       appendMode: false,     // "Add screenshots…" reuses the ingest tab for a set
       reviewCount: 0,
+      compare: null,         // last /compare payload
+      comparePos: '',        // position filter on the compare tab ('' = all)
     };
 
     // ---------- tiny DOM helpers ----------
@@ -963,11 +969,25 @@
         else if (state.sets[idx]) sel.value = state.sets[idx].id;
       });
     }
-    $('cmp-go').addEventListener('click', async function () {
+    async function runCompare() {
       var a = $('cmp-a').value, b = $('cmp-b').value;
       if (!a || !b) { showError('Pick two sets to compare.'); return; }
       if (a === b) { showError('Pick two different sets.'); return; }
-      var data = await apiFetch('/api/combine/compare?a=' + a + '&b=' + b);
+      var mode = $('cmp-mode').value;
+      var data = await apiFetch('/api/combine/compare?a=' + a + '&b=' + b + '&mode=' + mode);
+      state.compare = data;
+      // The server refuses overall mode when either set is positional.
+      $('cmp-mode').value = data.mode;
+      $('cmp-mode').querySelector('option[value="overall"]').disabled = !data.overall_available;
+      if (state.comparePos && !data.groups.some(function (g) { return g.position === state.comparePos; })) state.comparePos = '';
+      renderCompare();
+    }
+    $('cmp-go').addEventListener('click', runCompare);
+    $('cmp-mode').addEventListener('change', function () { if (state.compare) runCompare(); });
+
+    function renderCompare() {
+      var data = state.compare;
+      if (!data) return;
       var note = $('cmp-note');
       var notes = [];
       if (data.a.format !== data.b.format) {
@@ -976,26 +996,82 @@
           ' — cross-format deltas are directional, not exact.');
       }
       if (data.positional) {
-        notes.push('At least one of these sets is ranked by position, so the ranks and deltas below are position ranks (RB3 vs RB5).');
+        notes.push('At least one of these sets is ranked by position, so overall list order is meaningless here — the ranks and deltas below are position ranks (RB3 vs RB5).');
+      } else if (data.mode === 'position') {
+        notes.push('Comparing within each position, so a source that lists (say) RBs before WRs never skews the deltas. Switch “Compare by” to overall list rank if you want the flat list.');
       }
       note.textContent = notes.join(' ');
       note.classList.toggle('visible', notes.length > 0);
 
-      $('cmp-head-a').textContent = data.a.name;
-      $('cmp-head-b').textContent = data.b.name;
-      var table = $('cmp-table');
-      table.hidden = false;
-      var tbody = table.querySelector('tbody');
-      tbody.textContent = '';
-      data.pairs.forEach(function (p) {
-        var tr = document.createElement('tr');
+      // Position filter chips.
+      var chips = $('cmp-positions');
+      chips.textContent = '';
+      function chip(label, value, count) {
+        var btn = el('button', 'chip-btn' + (state.comparePos === value ? ' on' : ''), label + (count === null ? '' : ' ' + count));
+        btn.type = 'button';
+        btn.addEventListener('click', function () { state.comparePos = value; renderCompare(); });
+        chips.appendChild(btn);
+      }
+      chip('All', '', null);
+      data.groups.forEach(function (g) { chip(g.position, g.position, g.shared); });
+
+      var host = $('cmp-results');
+      host.textContent = '';
+      var groups = data.groups.filter(function (g) { return !state.comparePos || g.position === state.comparePos; });
+      if (data.mode === 'overall' && !state.comparePos) {
+        host.appendChild(compareTable(data.pairs, data, null));
+      } else if (!groups.length) {
+        host.appendChild(el('p', 'muted small', 'No shared players to compare.'));
+      } else {
+        groups.forEach(function (g) {
+          var head = el('div', 'row section-gap');
+          head.appendChild(el('h3', null, g.position));
+          var bits = g.shared + ' shared';
+          if (g.avg_pos_delta !== null) bits += ' · avg gap ' + g.avg_pos_delta;
+          if (g.biggest_gap) bits += ' · biggest ' + g.biggest_gap.name + ' (' + Math.abs(g.biggest_gap.delta) + ')';
+          head.appendChild(el('span', 'muted small', bits));
+          host.appendChild(head);
+          host.appendChild(compareTable(g.pairs, data, g.position));
+        });
+      }
+
+      var only = $('cmp-only');
+      only.textContent = '';
+      function onlyList(label, arr) {
+        if (state.comparePos) arr = arr.filter(function (p) { return (p.position || '').toUpperCase() === state.comparePos; });
+        if (!arr.length) return;
+        var div = el('div', 'muted small');
+        div.appendChild(el('strong', null, 'Only in ' + label + ' (' + arr.length + '): '));
+        div.appendChild(document.createTextNode(arr.slice(0, 25).map(function (p) { return p.name; }).join(', ') + (arr.length > 25 ? '…' : '')));
+        only.appendChild(div);
+      }
+      onlyList(data.a.name, data.onlyA);
+      onlyList(data.b.name, data.onlyB);
+    }
+
+    function compareTable(pairs, data, position) {
+      var wrap = el('div', 'table-wrap');
+      var table = el('table', 'data');
+      var thead = el('thead');
+      var hr = el('tr');
+      ['Player', 'Pos', 'Team', data.a.name, data.b.name, 'Δ'].forEach(function (h, i) {
+        // Inside a position section the Pos column is redundant.
+        if (position && i === 1) return;
+        hr.appendChild(el('th', null, h));
+      });
+      thead.appendChild(hr);
+      table.appendChild(thead);
+      var tbody = el('tbody');
+      pairs.forEach(function (p) {
+        var tr = el('tr');
         var nameTd = el('td'); nameTd.appendChild(el('strong', null, p.name)); tr.appendChild(nameTd);
-        var posTd = el('td'); posTd.appendChild(posBadge(p.position)); tr.appendChild(posTd);
+        if (!position) { var posTd = el('td'); posTd.appendChild(posBadge(p.position)); tr.appendChild(posTd); }
         tr.appendChild(el('td', 'muted', p.team || '—'));
-        // Positional compare runs on position ranks; overall compare on ranks.
-        var rankA = data.positional ? (p.pos_rank_a ? p.position + p.pos_rank_a : '—') : String(p.rank_a);
-        var rankB = data.positional ? (p.pos_rank_b ? p.position + p.pos_rank_b : '—') : String(p.rank_b);
-        var delta = data.positional ? p.pos_delta : p.delta;
+        // Position mode runs on position ranks; overall mode on list ranks.
+        var byPos = data.mode === 'position';
+        var rankA = byPos ? (p.pos_rank_a ? p.position + p.pos_rank_a : '—') : String(p.rank_a);
+        var rankB = byPos ? (p.pos_rank_b ? p.position + p.pos_rank_b : '—') : String(p.rank_b);
+        var delta = byPos ? p.pos_delta : p.delta;
         tr.appendChild(el('td', null, rankA));
         tr.appendChild(el('td', null, rankB));
         var d = el('td');
@@ -1006,18 +1082,10 @@
         tr.appendChild(d);
         tbody.appendChild(tr);
       });
-      var only = $('cmp-only');
-      only.textContent = '';
-      function onlyList(label, arr) {
-        if (!arr.length) return;
-        var div = el('div', 'muted small');
-        div.appendChild(el('strong', null, 'Only in ' + label + ' (' + arr.length + '): '));
-        div.appendChild(document.createTextNode(arr.slice(0, 25).map(function (p) { return p.name; }).join(', ') + (arr.length > 25 ? '…' : '')));
-        only.appendChild(div);
-      }
-      onlyList(data.a.name, data.onlyA);
-      onlyList(data.b.name, data.onlyB);
-    });
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      return wrap;
+    }
 
     // ---------- settings ----------
     async function loadSettings() {

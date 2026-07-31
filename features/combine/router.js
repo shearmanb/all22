@@ -446,10 +446,13 @@ router.get('/compare', async (req, res) => {
       const e = byPlayer.get(r.player_id);
       if (e) e.b = r; else byPlayer.set(r.player_id, { b: r });
     }
-    // A positional set's overall rank is just paste order, so as soon as one
-    // side is positional the comparison runs on position ranks (RB3 vs RB7) —
-    // which are derived for every set and always comparable.
+    // Overall list order is only comparable when BOTH sets are overall lists —
+    // and even then two sources can bunch positions differently, so the default
+    // comparison is per position (RB3 vs RB7), which is derived for every set
+    // and always apples-to-apples. `mode=overall` opts back into list order.
     const positional = aSet.ranking_scope === 'positional' || bSet.ranking_scope === 'positional';
+    const overallAvailable = !positional;
+    const mode = (overallAvailable && String(req.query.mode || '').toLowerCase() === 'overall') ? 'overall' : 'position';
     const pairs = [], onlyA = [], onlyB = [];
     for (const { a, b } of byPlayer.values()) {
       if (a && b) {
@@ -462,19 +465,52 @@ router.get('/compare', async (req, res) => {
       } else if (a) onlyA.push({ name: a.name, position: a.position, team: a.team, rank: a.rank, pos_rank: a.position_rank });
       else onlyB.push({ name: b.name, position: b.position, team: b.team, rank: b.rank, pos_rank: b.position_rank });
     }
-    const sortDelta = positional
+    const sortDelta = mode === 'position'
       ? (p) => (p.pos_delta === null ? -1 : Math.abs(p.pos_delta))
       : (p) => Math.abs(p.delta);
     pairs.sort((x, y) => sortDelta(y) - sortDelta(x));
     onlyA.sort((x, y) => x.rank - y.rank);
     onlyB.sort((x, y) => x.rank - y.rank);
+
+    // Per-position buckets: each position is its own little comparison, so a
+    // source that pastes RBs before WRs never skews another position's deltas.
+    const POS_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DST', 'DEF'];
+    const groups = new Map();
+    const bucket = (pos) => {
+      const key = (pos || '').toUpperCase() || 'UNKNOWN';
+      if (!groups.has(key)) groups.set(key, { position: key, pairs: [], onlyA: [], onlyB: [] });
+      return groups.get(key);
+    };
+    for (const p of pairs) bucket(p.position).pairs.push(p);
+    for (const p of onlyA) bucket(p.position).onlyA.push(p);
+    for (const p of onlyB) bucket(p.position).onlyB.push(p);
+    const groupList = [...groups.values()].map((g) => {
+      const withDelta = g.pairs.filter((p) => p.pos_delta !== null);
+      const totalDelta = withDelta.reduce((sum, p) => sum + Math.abs(p.pos_delta), 0);
+      const biggest = withDelta.reduce((best, p) => (
+        !best || Math.abs(p.pos_delta) > Math.abs(best.pos_delta) ? p : best), null);
+      return {
+        ...g,
+        shared: g.pairs.length,
+        avg_pos_delta: withDelta.length ? Math.round((totalDelta / withDelta.length) * 10) / 10 : null,
+        biggest_gap: biggest ? { name: biggest.name, delta: biggest.pos_delta } : null,
+      };
+    }).sort((x, y) => {
+      const ix = POS_ORDER.indexOf(x.position), iy = POS_ORDER.indexOf(y.position);
+      if (ix !== iy) return (ix === -1 ? 99 : ix) - (iy === -1 ? 99 : iy);
+      return x.position.localeCompare(y.position);
+    });
+
     res.json({
       ok: true,
       data: {
         positional,
+        mode,
+        overall_available: overallAvailable,
         a: { id: aSet.id, name: aSet.name, source: aSet.source, format: aSet.native_scoring_format, scope: aSet.ranking_scope, unmatched: aRows.filter((r) => !r.player_id).length },
         b: { id: bSet.id, name: bSet.name, source: bSet.source, format: bSet.native_scoring_format, scope: bSet.ranking_scope, unmatched: bRows.filter((r) => !r.player_id).length },
         pairs, onlyA, onlyB,
+        groups: groupList,
       },
     });
   } catch (err) {
