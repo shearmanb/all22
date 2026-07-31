@@ -28,12 +28,23 @@ function cleanScope(s) {
 function withPositionRanks(rows) {
   const counters = {};
   for (const row of rows) {
-    const pos = row.position || '';
+    const pos = positionKey(row.position);
     if (!pos) { row.position_rank = null; continue; }
     counters[pos] = (counters[pos] || 0) + 1;
     row.position_rank = counters[pos];
   }
   return rows;
+}
+
+// One bucket per position, however a source spells it: a set that carries both
+// "DEF" (from players_master) and "D/ST" (raw, still unreviewed) must not count
+// two separate rank sequences.
+function positionKey(pos) {
+  const p = String(pos || '').toUpperCase().replace(/[^A-Z/]/g, '');
+  if (!p) return '';
+  if (p === 'DEF' || p === 'D/ST' || p === 'DST' || p === 'D') return 'DST';
+  if (p === 'PK') return 'K';
+  return p;
 }
 
 // Insert one matched row's raw + (when resolved) normalized records.
@@ -238,6 +249,7 @@ module.exports = {
   cleanFormat,
   cleanScope,
   withPositionRanks,
+  positionKey,
   createSet,
   appendRows,
   listSets,

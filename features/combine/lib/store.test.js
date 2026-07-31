@@ -35,3 +35,24 @@ test('cleanScope accepts only known scopes and defaults to overall', () => {
   assert.equal(store.cleanScope('nonsense'), 'overall');
   assert.equal(store.cleanScope(undefined), 'overall');
 });
+
+test('withPositionRanks folds spelling variants into one position sequence', () => {
+  const rows = [
+    { rank: 1, position: 'DEF' },
+    { rank: 2, position: 'D/ST' },
+    { rank: 3, position: 'DST' },
+    { rank: 4, position: 'PK' },
+    { rank: 5, position: 'K' },
+  ];
+  store.withPositionRanks(rows);
+  assert.deepEqual(rows.map((r) => r.position_rank), [1, 2, 3, 1, 2]);
+});
+
+test('positionKey normalizes the spellings compare buckets on', () => {
+  assert.equal(store.positionKey('def'), 'DST');
+  assert.equal(store.positionKey('D/ST'), 'DST');
+  assert.equal(store.positionKey('pk'), 'K');
+  assert.equal(store.positionKey('wr'), 'WR');
+  assert.equal(store.positionKey(''), '');
+  assert.equal(store.positionKey(null), '');
+});

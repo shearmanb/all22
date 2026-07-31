@@ -477,7 +477,7 @@ router.get('/compare', async (req, res) => {
     const POS_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DST', 'DEF'];
     const groups = new Map();
     const bucket = (pos) => {
-      const key = (pos || '').toUpperCase() || 'UNKNOWN';
+      const key = store.positionKey(pos) || 'UNKNOWN';
       if (!groups.has(key)) groups.set(key, { position: key, pairs: [], onlyA: [], onlyB: [] });
       return groups.get(key);
     };
