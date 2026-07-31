@@ -119,6 +119,18 @@ nav form { margin-left: 10px; }
   margin: 12px 16px 0;
 }
 #error-banner.visible { display: block; }
+#error-banner.flash { animation: banner-flash 0.6s ease-out 2; }
+@keyframes banner-flash {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 0 3px var(--error-border); }
+}
+@media (prefers-reduced-motion: reduce) { #error-banner.flash { animation: none; } }
+
+/* A required field that blocked a save — paired with the error banner. */
+.field-invalid, input.field-invalid, select.field-invalid, textarea.field-invalid {
+  border-color: var(--error-border);
+  box-shadow: 0 0 0 2px var(--error-bg);
+}
 
 .notice-banner {
   display: none;

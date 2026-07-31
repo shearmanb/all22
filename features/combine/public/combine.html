@@ -367,6 +367,7 @@
     var dropzone = $('dropzone'), fileInput = $('file-input');
 
     // CSV / spreadsheet import: read the file text now, ingest it on "Ingest & Save".
+    $('in-source').addEventListener('input', function () { $('in-source').classList.remove('field-invalid'); });
     $('csv-input').addEventListener('change', function () {
       var f = $('csv-input').files[0];
       if (!f) { state.csv = null; $('csv-chip').hidden = true; return; }
@@ -470,7 +471,13 @@
       var url = $('in-url') ? $('in-url').value.trim() : '';
       $('ingest-unparsed').textContent = '';
       // A URL brings its own source name (filled from the page below).
-      if (!state.appendMode && !source && !url) { showError('Tag the set with its source (who made these rankings) first.'); return; }
+      $('in-source').classList.remove('field-invalid');
+      if (!state.appendMode && !source && !url) {
+        showError('Tag the set with its source (who made these rankings) first — nothing was saved.');
+        $('in-source').classList.add('field-invalid');
+        $('in-source').focus();
+        return;
+      }
       if (!state.images.length && !text && !url && !(state.csv && state.csv.text)) { showError('Add a screenshot, paste text, fetch a URL, or choose a CSV file first.'); return; }
       btn.disabled = true;
 

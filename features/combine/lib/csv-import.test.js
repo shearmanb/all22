@@ -52,3 +52,18 @@ test('skips a repeated header row inside the data', () => {
   const { rows } = importCsv(csv);
   assert.deepEqual(rows.map((r) => r.name), ['Bijan Robinson', 'Breece Hall']);
 });
+
+test('FantasyPoints season projections export (quoted cells, duplicate POS columns)', () => {
+  const csv = [
+    '"RK","Name","POS","Team","Bye","POS","ADP","FPTS","G","FPTS/G","TIER"',
+    '"1","Josh Allen","QB","BUF","7","QB1","28.2","335.9","15","22.39","1"',
+    '"2","Lamar Jackson","QB","BLT","13","QB2","37.9","312.2","15","20.81","2"',
+  ].join('\n');
+  const { rows, mapping, headerFound } = importCsv(csv);
+  assert.equal(headerFound, true);
+  // The plain "POS" column wins over the "QB1"-style positional-rank column.
+  assert.equal(mapping.pos, 2);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows[0], { name: 'Josh Allen', position: 'QB', team: 'BUF', rank: 1 });
+  assert.equal(rows[1].name, 'Lamar Jackson');
+});

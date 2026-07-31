@@ -15,11 +15,22 @@ function esc(value) {
     .replace(/'/g, '&#39;');
 }
 
+// The banner lives at the top of the page, so an error raised while the owner
+// is scrolled down would otherwise look like "nothing happened". Always bring
+// it into view, and flash it when it's already showing the same message.
 function showError(message) {
   var banner = $('error-banner');
   if (!banner) return;
   banner.textContent = message;
   banner.classList.add('visible');
+  try {
+    banner.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } catch (e) {
+    banner.scrollIntoView();
+  }
+  banner.classList.remove('flash');
+  void banner.offsetWidth; // restart the animation
+  banner.classList.add('flash');
 }
 
 function clearError() {
