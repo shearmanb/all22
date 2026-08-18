@@ -1,0 +1,203 @@
+QB
+1. Josh Allen, BUF
+2. Matthew Stafford, LAR
+3. Justin Herbert, LAC
+4. Patrick Mahomes II, KC
+5. Joe Burrow, CIN
+6. Drake Maye, NE
+7. Dak Prescott, DAL
+8. Lamar Jackson, BAL
+9. Jared Goff, DET
+10. Caleb Williams, CHI
+11. Brock Purdy, SF
+12. Bo Nix, DEN
+13. Trevor Lawrence, JAC
+14. Jayden Daniels, WAS
+15. Jacoby Brissett, ARI
+16. Jordan Love, GB
+17. Jalen Hurts, PHI
+18. Jaxson Dart, NYG
+19. Baker Mayfield, TB
+20. Tyler Shough, NO
+21. Kyler Murray, MIN
+22. Aaron Rodgers, PIT
+23. Malik Willis, MIA
+24. Sam Darnold, SEA
+25. Cam Ward, TEN
+26. Daniel Jones, IND
+27. Bryce Young, CAR
+28. Kirk Cousins, LV
+29. C.J. Stroud, HOU
+30. Geno Smith, NYJ
+31. Deshaun Watson, CLE
+32. Michael Penix Jr., ATL
+33. Tua Tagovailoa, ATL
+34. Fernando Mendoza, LV
+35. Shedeur Sanders, CLE
+
+RB
+1. Jahmyr Gibbs, DET
+2. Bijan Robinson, ATL
+3. Jonathan Taylor, IND
+4. Christian McCaffrey, SF
+5. James Cook III, BUF
+6. Kenneth Walker III, KC
+7. Saquon Barkley, PHI
+8. De'Von Achane, MIA
+9. Derrick Henry, BAL
+10. Chase Brown, CIN
+11. Javonte Williams, DAL
+12. Josh Jacobs, GB
+13. Omarion Hampton, LAC
+14. Quinshon Judkins, CLE
+15. David Montgomery, HOU
+16. Kyren Williams, LAR
+17. Ashton Jeanty, LV
+18. Breece Hall, NYJ
+19. Jaylen Warren, PIT
+20. Cam Skattebo, NYG
+21. Bucky Irving, TB
+22. D'Andre Swift, CHI
+23. Chuba Hubbard, CAR
+24. Travis Etienne Jr., NO
+25. Jeremiyah Love, ARI
+26. Tyler Allgeier, ARI
+27. Tony Pollard, TEN
+28. Rachaad White, WAS
+29. Rhamondre Stevenson, NE
+30. Blake Corum, LAR
+31. Aaron Jones Sr., MIN
+32. TreVeyon Henderson, NE
+33. J.K. Dobbins, DEN
+34. Jadarian Price, SEA
+35. Alvin Kamara, NO
+36. Jordan Mason, MIN
+37. Kyle Monangai, CHI
+38. Rico Dowdle, PIT
+39. Chris Rodriguez Jr., JAC
+40. Bhayshul Tuten, JAC
+41. Kenny Gainwell, TB
+42. RJ Harvey, DEN
+43. Tyrone Tracy Jr., NYG
+44. Jacory Croskey-Merritt, WAS
+45. Woody Marks, HOU
+46. Isiah Pacheco, DET
+47. Tyjae Spears, TEN
+48. Jonathon Brooks, CAR
+49. Zach Charbonnet, SEA
+50. Brian Robinson Jr., ATL
+51. Justice Hill, BAL
+52. Braelon Allen, NYJ
+53. Dylan Sampson, CLE
+54. Emanuel Wilson, SEA
+55. Chris Brooks, GB
+56. Ray Davis, BUF
+57. Mike Washington Jr., LV
+58. Emmett Johnson, KC
+59. Tank Bigsby, PHI
+60. Keaton Mitchell, LAC
+61. Jaydon Blue, DAL
+62. MarShawn Lloyd, GB
+63. James Conner, ARI
+64. Jaylen Wright, MIA
+65. Sean Tucker, TB
+66. Kimani Vidal, LAC
+67. Ollie Gordon II, MIA
+68. Kaytron Allen, WAS
+69. Nicholas Singleton, TEN
+70. Jonah Coleman, DEN
+
+WR
+1. Puka Nacua, LAR
+2. Amon-Ra St. Brown, DET
+3. Ja'Marr Chase, CIN
+4. Jaxon Smith-Njigba, SEA
+5. Rashee Rice, KC
+6. CeeDee Lamb, DAL
+7. Davante Adams, LAR
+8. Drake London, ATL
+9. Tee Higgins, CIN
+10. George Pickens, DAL
+11. Justin Jefferson, MIN
+12. Nico Collins, HOU
+13. A.J. Brown, NE
+14. Chris Olave, NO
+15. DeVonta Smith, PHI
+16. Tetairoa McMillan, CAR
+17. Malik Nabers, NYG
+18. Zay Flowers, BAL
+19. Ladd McConkey, LAC
+20. DJ Moore, BUF
+21. Mike Evans, SF
+22. Terry McLaurin, WAS
+23. Michael Wilson, ARI
+24. Marvin Harrison Jr., ARI
+25. Emeka Egbuka, TB
+26. Jameson Williams, DET
+27. Courtland Sutton, DEN
+28. Garrett Wilson, NYJ
+29. Christian Watson, GB
+30. DK Metcalf, PIT
+31. Jaylen Waddle, DEN
+32. Luther Burden III, CHI
+33. Alec Pierce, IND
+34. Xavier Worthy, KC
+35. Rome Odunze, CHI
+36. Stefon Diggs, WAS
+37. Quentin Johnston, LAC
+38. Chris Godwin Jr., TB
+39. Tre Tucker, LV
+40. Carnell Tate, TEN
+41. Jalen Coker, CAR
+42. Michael Pittman Jr., PIT
+43. Jayden Reed, GB
+44. Jordan Addison, MIN
+45. Khalil Shakir, BUF
+46. Josh Downs, IND
+47. Brian Thomas Jr., JAC
+48. Parker Washington, JAC
+49. Jakobi Meyers, JAC
+50. Jordyn Tyson, NO
+51. Cooper Kupp, SEA
+52. Calvin Ridley, TEN
+53. Deebo Samuel Sr., SF
+54. Jalen McMillan, TB
+55. Romeo Doubs, NE
+56. Ryan Flournoy, DAL
+57. Jerry Jeudy, CLE
+58. Wan'Dale Robinson, TEN
+59. Matthew Golden, GB
+60. Devaughn Vele, NO
+61. Makai Lemon, PHI
+62. Tre' Harris, LAC
+63. Malik Washington, MIA
+64. Jauan Jennings, MIN
+65. Kayshon Boutte, NE
+66. Jalen Nailor, LV
+67. Tyquan Thornton, KC
+68. KC Concepcion, CLE
+69. Rashod Bateman, BAL
+70. Rashid Shaheed, SEA
+
+TE
+1. Trey McBride, ARI
+2. Brock Bowers, LV
+3. Tyler Warren, IND
+4. Kyle Pitts Sr., ATL
+5. Tucker Kraft, GB
+6. Harold Fannin Jr., CLE
+7. Dallas Goedert, PHI
+8. Travis Kelce, KC
+9. George Kittle, SF
+10. Sam LaPorta, DET
+11. Colston Loveland, CHI
+12. Mark Andrews, BAL
+13. Jake Ferguson, DAL
+14. Hunter Henry, NE
+15. Juwan Johnson, NO
+16. Brenton Strange, JAC
+17. Dalton Kincaid, BUF
+18. Chig Okonkwo, WAS
+19. Gunner Helm, TEN
+20. T.J. Hockenson, MIN
+
