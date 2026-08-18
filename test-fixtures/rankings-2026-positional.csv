@@ -1,0 +1,196 @@
+RANK,PLAYER,POS,TEAM
+1,"Josh Allen",QB,BUF
+2,"Matthew Stafford",QB,LAR
+3,"Justin Herbert",QB,LAC
+4,"Patrick Mahomes II",QB,KC
+5,"Joe Burrow",QB,CIN
+6,"Drake Maye",QB,NE
+7,"Dak Prescott",QB,DAL
+8,"Lamar Jackson",QB,BAL
+9,"Jared Goff",QB,DET
+10,"Caleb Williams",QB,CHI
+11,"Brock Purdy",QB,SF
+12,"Bo Nix",QB,DEN
+13,"Trevor Lawrence",QB,JAC
+14,"Jayden Daniels",QB,WAS
+15,"Jacoby Brissett",QB,ARI
+16,"Jordan Love",QB,GB
+17,"Jalen Hurts",QB,PHI
+18,"Jaxson Dart",QB,NYG
+19,"Baker Mayfield",QB,TB
+20,"Tyler Shough",QB,NO
+21,"Kyler Murray",QB,MIN
+22,"Aaron Rodgers",QB,PIT
+23,"Malik Willis",QB,MIA
+24,"Sam Darnold",QB,SEA
+25,"Cam Ward",QB,TEN
+26,"Daniel Jones",QB,IND
+27,"Bryce Young",QB,CAR
+28,"Kirk Cousins",QB,LV
+29,"C.J. Stroud",QB,HOU
+30,"Geno Smith",QB,NYJ
+31,"Deshaun Watson",QB,CLE
+32,"Michael Penix Jr.",QB,ATL
+33,"Tua Tagovailoa",QB,ATL
+34,"Fernando Mendoza",QB,LV
+35,"Shedeur Sanders",QB,CLE
+1,"Jahmyr Gibbs",RB,DET
+2,"Bijan Robinson",RB,ATL
+3,"Jonathan Taylor",RB,IND
+4,"Christian McCaffrey",RB,SF
+5,"James Cook III",RB,BUF
+6,"Kenneth Walker III",RB,KC
+7,"Saquon Barkley",RB,PHI
+8,"De'Von Achane",RB,MIA
+9,"Derrick Henry",RB,BAL
+10,"Chase Brown",RB,CIN
+11,"Javonte Williams",RB,DAL
+12,"Josh Jacobs",RB,GB
+13,"Omarion Hampton",RB,LAC
+14,"Quinshon Judkins",RB,CLE
+15,"David Montgomery",RB,HOU
+16,"Kyren Williams",RB,LAR
+17,"Ashton Jeanty",RB,LV
+18,"Breece Hall",RB,NYJ
+19,"Jaylen Warren",RB,PIT
+20,"Cam Skattebo",RB,NYG
+21,"Bucky Irving",RB,TB
+22,"D'Andre Swift",RB,CHI
+23,"Chuba Hubbard",RB,CAR
+24,"Travis Etienne Jr.",RB,NO
+25,"Jeremiyah Love",RB,ARI
+26,"Tyler Allgeier",RB,ARI
+27,"Tony Pollard",RB,TEN
+28,"Rachaad White",RB,WAS
+29,"Rhamondre Stevenson",RB,NE
+30,"Blake Corum",RB,LAR
+31,"Aaron Jones Sr.",RB,MIN
+32,"TreVeyon Henderson",RB,NE
+33,"J.K. Dobbins",RB,DEN
+34,"Jadarian Price",RB,SEA
+35,"Alvin Kamara",RB,NO
+36,"Jordan Mason",RB,MIN
+37,"Kyle Monangai",RB,CHI
+38,"Rico Dowdle",RB,PIT
+39,"Chris Rodriguez Jr.",RB,JAC
+40,"Bhayshul Tuten",RB,JAC
+41,"Kenny Gainwell",RB,TB
+42,"RJ Harvey",RB,DEN
+43,"Tyrone Tracy Jr.",RB,NYG
+44,"Jacory Croskey-Merritt",RB,WAS
+45,"Woody Marks",RB,HOU
+46,"Isiah Pacheco",RB,DET
+47,"Tyjae Spears",RB,TEN
+48,"Jonathon Brooks",RB,CAR
+49,"Zach Charbonnet",RB,SEA
+50,"Brian Robinson Jr.",RB,ATL
+51,"Justice Hill",RB,BAL
+52,"Braelon Allen",RB,NYJ
+53,"Dylan Sampson",RB,CLE
+54,"Emanuel Wilson",RB,SEA
+55,"Chris Brooks",RB,GB
+56,"Ray Davis",RB,BUF
+57,"Mike Washington Jr.",RB,LV
+58,"Emmett Johnson",RB,KC
+59,"Tank Bigsby",RB,PHI
+60,"Keaton Mitchell",RB,LAC
+61,"Jaydon Blue",RB,DAL
+62,"MarShawn Lloyd",RB,GB
+63,"James Conner",RB,ARI
+64,"Jaylen Wright",RB,MIA
+65,"Sean Tucker",RB,TB
+66,"Kimani Vidal",RB,LAC
+67,"Ollie Gordon II",RB,MIA
+68,"Kaytron Allen",RB,WAS
+69,"Nicholas Singleton",RB,TEN
+70,"Jonah Coleman",RB,DEN
+1,"Puka Nacua",WR,LAR
+2,"Amon-Ra St. Brown",WR,DET
+3,"Ja'Marr Chase",WR,CIN
+4,"Jaxon Smith-Njigba",WR,SEA
+5,"Rashee Rice",WR,KC
+6,"CeeDee Lamb",WR,DAL
+7,"Davante Adams",WR,LAR
+8,"Drake London",WR,ATL
+9,"Tee Higgins",WR,CIN
+10,"George Pickens",WR,DAL
+11,"Justin Jefferson",WR,MIN
+12,"Nico Collins",WR,HOU
+13,"A.J. Brown",WR,NE
+14,"Chris Olave",WR,NO
+15,"DeVonta Smith",WR,PHI
+16,"Tetairoa McMillan",WR,CAR
+17,"Malik Nabers",WR,NYG
+18,"Zay Flowers",WR,BAL
+19,"Ladd McConkey",WR,LAC
+20,"DJ Moore",WR,BUF
+21,"Mike Evans",WR,SF
+22,"Terry McLaurin",WR,WAS
+23,"Michael Wilson",WR,ARI
+24,"Marvin Harrison Jr.",WR,ARI
+25,"Emeka Egbuka",WR,TB
+26,"Jameson Williams",WR,DET
+27,"Courtland Sutton",WR,DEN
+28,"Garrett Wilson",WR,NYJ
+29,"Christian Watson",WR,GB
+30,"DK Metcalf",WR,PIT
+31,"Jaylen Waddle",WR,DEN
+32,"Luther Burden III",WR,CHI
+33,"Alec Pierce",WR,IND
+34,"Xavier Worthy",WR,KC
+35,"Rome Odunze",WR,CHI
+36,"Stefon Diggs",WR,WAS
+37,"Quentin Johnston",WR,LAC
+38,"Chris Godwin Jr.",WR,TB
+39,"Tre Tucker",WR,LV
+40,"Carnell Tate",WR,TEN
+41,"Jalen Coker",WR,CAR
+42,"Michael Pittman Jr.",WR,PIT
+43,"Jayden Reed",WR,GB
+44,"Jordan Addison",WR,MIN
+45,"Khalil Shakir",WR,BUF
+46,"Josh Downs",WR,IND
+47,"Brian Thomas Jr.",WR,JAC
+48,"Parker Washington",WR,JAC
+49,"Jakobi Meyers",WR,JAC
+50,"Jordyn Tyson",WR,NO
+51,"Cooper Kupp",WR,SEA
+52,"Calvin Ridley",WR,TEN
+53,"Deebo Samuel Sr.",WR,SF
+54,"Jalen McMillan",WR,TB
+55,"Romeo Doubs",WR,NE
+56,"Ryan Flournoy",WR,DAL
+57,"Jerry Jeudy",WR,CLE
+58,"Wan'Dale Robinson",WR,TEN
+59,"Matthew Golden",WR,GB
+60,"Devaughn Vele",WR,NO
+61,"Makai Lemon",WR,PHI
+62,"Tre' Harris",WR,LAC
+63,"Malik Washington",WR,MIA
+64,"Jauan Jennings",WR,MIN
+65,"Kayshon Boutte",WR,NE
+66,"Jalen Nailor",WR,LV
+67,"Tyquan Thornton",WR,KC
+68,"KC Concepcion",WR,CLE
+69,"Rashod Bateman",WR,BAL
+70,"Rashid Shaheed",WR,SEA
+1,"Trey McBride",TE,ARI
+2,"Brock Bowers",TE,LV
+3,"Tyler Warren",TE,IND
+4,"Kyle Pitts Sr.",TE,ATL
+5,"Tucker Kraft",TE,GB
+6,"Harold Fannin Jr.",TE,CLE
+7,"Dallas Goedert",TE,PHI
+8,"Travis Kelce",TE,KC
+9,"George Kittle",TE,SF
+10,"Sam LaPorta",TE,DET
+11,"Colston Loveland",TE,CHI
+12,"Mark Andrews",TE,BAL
+13,"Jake Ferguson",TE,DAL
+14,"Hunter Henry",TE,NE
+15,"Juwan Johnson",TE,NO
+16,"Brenton Strange",TE,JAC
+17,"Dalton Kincaid",TE,BUF
+18,"Chig Okonkwo",TE,WAS
+19,"Gunner Helm",TE,TEN
+20,"T.J. Hockenson",TE,MIN
