@@ -2,7 +2,8 @@
 // bare JSON array, but the extractor must survive fences, prose and junk rows.
 const test = require('node:test');
 const assert = require('node:assert');
-const { extractRows, splitDataUrl } = require('./vision');
+const vision = require('./vision');
+const { extractRows, splitDataUrl } = vision;
 
 test('extractRows parses a clean JSON array', () => {
   const rows = extractRows('[{"rank":1,"name":"Ja\'Marr Chase","position":"WR","team":"CIN"}]');
@@ -47,4 +48,27 @@ test('splitDataUrl handles data URLs and rejects garbage', () => {
   assert.equal(mediaType, 'image/jpeg');
   assert.equal(base64, 'aGVsbG8=');
   assert.throws(() => splitDataUrl('not-an-image'));
+});
+
+test('parseRows salvages complete rows from a truncated array', () => {
+  const out = vision.parseRows('[{"rank":1,"name":"Ja\'Marr Chase","position":"WR","team":"CIN"},{"rank":2,"name":"Bijan Robinson","position":"RB","team":"ATL"},{"rank":3,"name":"Justin Jeff');
+  assert.equal(out.truncated, true);
+  assert.equal(out.rows.length, 2);
+  assert.equal(out.rows[1].name, 'Bijan Robinson');
+});
+
+test('parseRows reports complete arrays as not truncated', () => {
+  const out = vision.parseRows('[{"rank":1,"name":"Ja\'Marr Chase","position":"WR","team":"CIN"}]');
+  assert.equal(out.truncated, false);
+  assert.equal(out.rows.length, 1);
+});
+
+test('parseRows still throws when nothing complete was returned', () => {
+  assert.throws(() => vision.parseRows('[{"rank":1,"name":"Ja'), /Unterminated/);
+  assert.throws(() => vision.parseRows('sorry, I cannot read that'), /No JSON array/);
+});
+
+test('splitDataUrl normalises the media type', () => {
+  assert.equal(vision.splitDataUrl('data:IMAGE/JPG;base64,AAAA').mediaType, 'image/jpeg');
+  assert.equal(vision.splitDataUrl('data:image/PNG;base64,AAAA').mediaType, 'image/png');
 });

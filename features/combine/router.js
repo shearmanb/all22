@@ -28,12 +28,14 @@ async function imageToRawRows(image) {
   if (vision.available()) {
     const model = await settings.get('combine.ocr_model', vision.DEFAULT_MODEL);
     try {
-      const { rows } = await vision.imageToRows(image, { model });
-      return { rows, engine: 'claude-vision', unparsed: [] };
+      const { rows, note } = await vision.imageToRows(image, { model });
+      return { rows, engine: 'claude-vision', unparsed: [], warning: note || '' };
     } catch (err) {
+      // The owner cannot read Railway logs — the real reason has to reach the
+      // browser, or "Claude OCR failed" is an unfixable mystery.
       console.error(`combine: vision OCR failed, falling back to tesseract: ${err.message}`);
       const out = await tesseractRows(image);
-      out.warning = 'Claude vision failed on this image — used the offline OCR fallback, which reads less accurately.';
+      out.warning = `Claude vision could not read this screenshot (${err.message}) — used the offline OCR fallback, which reads less accurately.`;
       return out;
     }
   }
@@ -57,6 +59,25 @@ router.post('/warmup', (req, res) => {
   if (!vision.available()) { try { ocr.warmup(); } catch (e) { /* best-effort */ } }
   try { master.getIndex(); } catch (e) { /* best-effort */ }
   res.json({ ok: true, data: { warming: true, engine: vision.available() ? 'claude-vision' : 'tesseract' } });
+});
+
+// Live check of the Claude vision path: is the key set, does the configured
+// model actually answer? Gives the owner a plain-English reason on its own,
+// instead of only finding out mid-ingest.
+router.post('/vision-test', async (req, res) => {
+  if (!vision.available()) {
+    return res.json({ ok: true, data: { working: false, reason: 'ANTHROPIC_API_KEY is not set on the server. Add it in Railway \u2192 Variables, then redeploy.' } });
+  }
+  const model = await settings.get('combine.ocr_model', vision.DEFAULT_MODEL);
+  // A 2x2 white PNG — enough to prove the key, model and image path work.
+  const PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGP8//8/AzJgYkAD5AsAAP//DkQCB/rlRxQAAAAASUVORK5CYII=';
+  try {
+    const out = await vision.imageToRows(PIXEL, { model });
+    res.json({ ok: true, data: { working: true, model: out.model, reason: `Claude vision is working (model ${out.model}).` } });
+  } catch (err) {
+    console.error(`POST /api/combine/vision-test: ${err.message}`);
+    res.json({ ok: true, data: { working: false, model, reason: err.message } });
+  }
 });
 
 // OCR one screenshot into matched rows (nothing is saved yet — the client

@@ -288,6 +288,10 @@
       <div class="card">
         <h3>Screenshot reader</h3>
         <p id="engine-status" class="muted">Checking…</p>
+        <div class="row section-gap">
+          <button id="vision-test" class="secondary">Test Claude reader</button>
+          <span id="vision-test-status" class="muted small"></span>
+        </div>
       </div>
 
       <div class="card">
@@ -419,7 +423,8 @@
         img.onload = function () {
           var MAX = 1568;
           var scale = Math.min(1, MAX / Math.max(img.width, img.height));
-          if (scale === 1 && file.size < 1.5 * 1024 * 1024) {
+          var apiReadable = /^image\/(jpeg|jpg|png|gif|webp)$/i.test(file.type || '');
+          if (apiReadable && scale === 1 && file.size < 1.5 * 1024 * 1024) {
             var r = new FileReader();
             r.onload = function () { URL.revokeObjectURL(url); resolve(r.result); };
             r.onerror = reject;
@@ -499,7 +504,11 @@
         var data = await apiPost('/api/combine/ocr', { image: state.images[i].dataUrl });
         rows = rows.concat(data.rows);
         unparsed = unparsed.concat(data.unparsed || []);
-        if (data.warning) warning = data.warning;
+        // Keep every distinct warning — a failure on screenshot 2 must not be
+        // erased by screenshot 3 reading cleanly.
+        if (data.warning && warning.indexOf(data.warning) === -1) {
+          warning = warning ? warning + ' ' + data.warning : data.warning;
+        }
         setIngestStatus(rows.length + ' players read so far…', true);
       }
       if (text) {
@@ -1137,6 +1146,21 @@
         note.classList.add('visible');
       }
     }
+    $('vision-test').addEventListener('click', async function () {
+      var btn = $('vision-test');
+      var out = $('vision-test-status');
+      btn.disabled = true;
+      out.textContent = 'Asking the Anthropic API\u2026';
+      try {
+        var r = await apiPost('/api/combine/vision-test', {});
+        out.textContent = (r.working ? '\u2713 ' : '\u2717 ') + r.reason;
+      } catch (e) {
+        out.textContent = '\u2717 ' + (e && e.message ? e.message : 'Test failed.');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
     $('master-sync').addEventListener('click', async function () {
       var btn = $('master-sync');
       btn.disabled = true;
