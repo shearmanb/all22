@@ -89,13 +89,13 @@
         <details class="section-gap">
           <summary class="muted">…or paste rankings as text</summary>
           <p class="muted small" style="margin:8px 0 0">Position-by-position rankings? Paste the blocks in any order and keep each one under its header line (QB, Running Backs, WRs, …) — the header tags every row below it.</p>
-          <p class="muted small" style="margin:6px 0 0">Pasting straight out of a spreadsheet works too: the tab-separated columns are read as columns, so rank, bye, auction $ and a notes column are picked up and everything else is stripped off the name.</p>
+          <p class="muted small" style="margin:6px 0 0">Pasting straight out of a spreadsheet works too: the tab-separated columns are read as columns, so nothing but the name ends up in the name. Auction $ becomes the row's value, bye week is dropped, and every other column (auction rank, tier, ADP…) is kept on the player as a labelled note.</p>
           <textarea id="in-text" rows="8" placeholder="1. Ja'Marr Chase, CIN&#10;2. Bijan Robinson, ATL&#10;…" style="margin-top:8px"></textarea>
         </details>
 
         <details class="section-gap">
           <summary class="muted">…or import a CSV / spreadsheet file</summary>
-          <p class="muted small" style="margin:8px 0 6px">FantasyPros CSV export, or any spreadsheet saved as CSV (in Excel: <strong>Save As → CSV</strong>). Columns (player, position, team, rank, auction $, notes) are detected automatically — even with no header row.</p>
+          <p class="muted small" style="margin:8px 0 6px">FantasyPros CSV export, or any spreadsheet saved as CSV (in Excel: <strong>Save As → CSV</strong>). Columns (player, position, team, rank, auction $, notes) are detected automatically — even with no header row. Bye week is thrown away; any other extra column (auction rank, tier, ADP, projections) is kept on the player as a labelled note.</p>
           <input id="csv-input" type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values">
           <div id="csv-chip" class="muted small section-gap" hidden></div>
         </details>

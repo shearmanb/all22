@@ -64,7 +64,48 @@ function detectColumns(header) {
     rank: find(/\brk\b|\brank\b|\boverall\b|\bovr\b|^#$/),
     auction: find(/\$|auction|\baav\b|salary|price|\bvalue\b|\bcost\b|\bbudget\b/),
     notes: find(/\bnotes?\b|\bcomments?\b|\banalysis\b|\bblurb\b|\bthoughts?\b|\btake\b|\bwhy\b|\bremarks?\b/),
+    // Bye week is deliberately identified so it can be THROWN AWAY: it's the
+    // one extra column that carries nothing the owner wants on a player.
+    bye: find(/\bbye\b/),
+    // The header row verbatim — extra columns are folded into the note under
+    // their own label ("Auction Rk: 12"), so nothing else is silently dropped.
+    labels: header.map((x) => String(x == null ? '' : x).trim()),
   };
+}
+
+// Tidy a header label for use in a note: "AUCTION RK" -> "Auction Rk",
+// "$$$" -> "$$$". All-caps shouting reads badly next to prose.
+function labelText(raw) {
+  const s = String(raw || '').trim().replace(/\s+/g, ' ');
+  if (!s) return '';
+  if (s === s.toUpperCase() && /[a-z]/i.test(s)) {
+    return s.toLowerCase().replace(/\b([a-z])/g, (m, c) => c.toUpperCase());
+  }
+  return s;
+}
+
+// Every column that isn't already a field of its own, minus bye week, rendered
+// as "Label: value" note fragments. This is how an auction-rank / tier / ADP /
+// projection column survives ingest instead of being thrown away.
+function extraNotes(row, map) {
+  const claimed = new Set([map.name, map.pos, map.team, map.rank, map.auction, map.notes, map.bye]);
+  const labels = map.labels || [];
+  const out = [];
+  for (let i = 0; i < row.length; i++) {
+    if (claimed.has(i)) continue;
+    const value = String(row[i] == null ? '' : row[i]).trim();
+    if (!value) continue;
+    const label = labelText(labels[i]);
+    // With no header there is nothing to call the column, and an unlabelled
+    // stray number ("6", "11") is exactly the bye-week noise we don't want.
+    if (!label) {
+      if (/^[-+$]?\d{1,4}(\.\d+)?%?$/.test(value)) continue;
+      out.push(value);
+      continue;
+    }
+    out.push(label + ': ' + value);
+  }
+  return out;
 }
 
 // Infer columns from the DATA when there's no recognizable header row — a
@@ -74,7 +115,7 @@ function detectColumns(header) {
 function inferColumns(dataRows) {
   const sample = dataRows.slice(0, 40);
   const width = sample.reduce((w, r) => Math.max(w, r.length), 0);
-  const map = { name: -1, pos: -1, team: -1, rank: -1, auction: -1, notes: -1 };
+  const map = { name: -1, pos: -1, team: -1, rank: -1, auction: -1, notes: -1, bye: -1, labels: [] };
   if (!width) return map;
 
   const cells = (i) => sample.map((r) => String(r[i] == null ? '' : r[i]).trim());
@@ -154,7 +195,7 @@ function importCsv(text) {
     dataRows = table;
     map = table.some((r) => r.length > 1)
       ? inferColumns(table)
-      : { name: 0, pos: -1, team: -1, rank: -1, auction: -1, notes: -1 };
+      : { name: 0, pos: -1, team: -1, rank: -1, auction: -1, notes: -1, bye: -1, labels: [] };
     if (map.name < 0) map = Object.assign(map, { name: 0 });
   }
 
@@ -172,10 +213,15 @@ function importCsv(text) {
       if (Number.isFinite(n)) out.rank = n;
     }
     if (map.auction >= 0) out.auction_value = cleanAuction(r[map.auction]);
+    // The note is the source's own comment column plus every other column it
+    // published (auction rank, tier, ADP…), labelled. Bye week is dropped.
+    const noteParts = [];
     if (map.notes >= 0) {
       const note = String(r[map.notes] || '').trim();
-      if (note) out.notes = note;
+      if (note) noteParts.push(note);
     }
+    for (const extra of extraNotes(r, map)) noteParts.push(extra);
+    if (noteParts.length) out.notes = noteParts.join(' · ');
     rows.push(out);
   }
   return { rows, mapping: map, headerFound: headerIdx >= 0 };
@@ -193,4 +239,4 @@ function detectedFields(mapping) {
   return out;
 }
 
-module.exports = { importCsv, parseTable, detectColumns, inferColumns, detectedFields };
+module.exports = { importCsv, parseTable, detectColumns, inferColumns, extraNotes, detectedFields };

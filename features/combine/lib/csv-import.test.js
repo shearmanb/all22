@@ -64,8 +64,14 @@ test('FantasyPoints season projections export (quoted cells, duplicate POS colum
   // The plain "POS" column wins over the "QB1"-style positional-rank column.
   assert.equal(mapping.pos, 2);
   assert.equal(rows.length, 2);
-  assert.deepEqual(rows[0], { name: 'Josh Allen', position: 'QB', team: 'BUF', rank: 1 });
+  // Bye week is dropped; every OTHER extra column rides along in the note under
+  // its own label, so nothing the source published is silently thrown away.
+  assert.deepEqual(rows[0], {
+    name: 'Josh Allen', position: 'QB', team: 'BUF', rank: 1,
+    notes: 'Pos: QB1 · Adp: 28.2 · Fpts: 335.9 · G: 15 · Fpts/G: 22.39 · Tier: 1',
+  });
   assert.equal(rows[1].name, 'Lamar Jackson');
+  assert.ok(!/Bye/i.test(rows[1].notes));
 });
 
 test('a headerless spreadsheet range is mapped by what the cells look like', () => {
@@ -76,7 +82,12 @@ test('a headerless spreadsheet range is mapped by what the cells look like', () 
   ].join('\n');
   const { rows, mapping, headerFound } = importCsv(tsv);
   assert.equal(headerFound, false);
-  assert.deepEqual(mapping, { name: 1, pos: 2, team: 3, rank: 0, auction: 5, notes: -1 });
+  assert.equal(mapping.name, 1);
+  assert.equal(mapping.pos, 2);
+  assert.equal(mapping.team, 3);
+  assert.equal(mapping.rank, 0);
+  assert.equal(mapping.auction, 5);
+  assert.equal(mapping.notes, -1);
   assert.equal(rows.length, 3);
   assert.equal(rows[0].name, 'Jahmyr Gibbs');
   assert.equal(rows[0].position, 'RB');
@@ -98,4 +109,23 @@ test('a notes/comment column is detected and carried on the row', () => {
 test('a one-name-per-line list is still read as bare names', () => {
   const { rows } = importCsv('Bijan Robinson\nJustin Jefferson');
   assert.deepEqual(rows.map((r) => r.name), ['Bijan Robinson', 'Justin Jefferson']);
+});
+
+test('extra columns ride along in the note, bye week does not', () => {
+  const csv = [
+    'OVERALL,NAME,Position,Team,BYE,$$$,AUCTION RK,TIER',
+    '1,Jahmyr Gibbs,RB,DET,6,$60,1,1',
+  ].join('\n');
+  const { rows } = importCsv(csv);
+  assert.equal(rows[0].name, 'Jahmyr Gibbs');
+  assert.equal(rows[0].auction_value, 60);
+  assert.equal(rows[0].notes, 'Auction Rk: 1 · Tier: 1');
+});
+
+test('a headerless paste drops stray numbers rather than guessing at them', () => {
+  // No header means no label for the "6"/"11" column — that is the bye-week
+  // noise, and an unlabelled number in a note would be worse than useless.
+  const { rows } = importCsv('1\tJahmyr Gibbs\tRB\tDET\t6\t$60\n2\tBijan Robinson\tRB\tATL\t11\t$59');
+  assert.equal(rows[0].notes, undefined);
+  assert.equal(rows[1].notes, undefined);
 });
