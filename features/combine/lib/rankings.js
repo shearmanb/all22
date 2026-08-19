@@ -3,7 +3,8 @@
 // parser; site-specific parsers can be added as sibling files later.
 //
 // Output:
-//   { players: [{ rank, name, position, team }], unparsed: [{ line, reason }],
+//   { players: [{ rank, name, position, team, auction_value, notes }],
+//     unparsed: [{ line, reason }],
 //     position_blocks: ['QB', 'WR', …] }   // distinct block headers, in order
 //
 // Design rules (from the spec):
@@ -14,6 +15,7 @@
 //   - All names go through lib/players.js — no name logic lives here.
 
 const players = require('../../../lib/players');
+const csvImport = require('./csv-import');
 
 // Words that only appear in header/label rows, never in a player name.
 const HEADER_WORDS = new Set([
@@ -167,7 +169,58 @@ function parseLine(rawLine) {
   return withValue({ name, position, team });
 }
 
+// A paste copied straight out of a spreadsheet (Excel, Google Sheets, a web
+// table) arrives TAB-delimited: "1\tJahmyr Gibbs\tRB\tDET\t6\t$60". Those
+// columns are far more reliable than guessing inside one run-on line, so a
+// tabular paste is handed to the CSV importer, which detects the columns from
+// the header (or, headerless, from what the cells look like) and drops
+// everything it isn't asked for — rank, bye, projections, notes.
+function looksTabular(text) {
+  const lines = String(text || '').split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length < 2) return false;
+  const tabbed = lines.filter((l) => l.includes('\t')).length;
+  return tabbed >= 2 && tabbed / lines.length >= 0.6;
+}
+
+// Turn CSV-importer rows into parse()'s output shape (rank = list order).
+function fromTable(rawText) {
+  const { rows } = csvImport.importCsv(rawText);
+  const out = [];
+  const unparsed = [];
+  const seen = new Set();
+  for (const r of rows) {
+    const rawName = String(r.name || '').trim();
+    // A position-block header line ("RB", "Wide Receivers") in a tabular paste
+    // is not a player — but it does tag the rows beneath it, same as always.
+    if (positionHeader(rawName)) continue;
+    const dst = players.teamDefenseFromLine(rawName);
+    const name = dst ? players.teamDefenseName(dst) : players.display(rawName);
+    if (!name || !/[a-z]/i.test(name) || players.key(name).length < 2) {
+      unparsed.push({ line: rawName, reason: 'could not detect a player name' });
+      continue;
+    }
+    const team = dst || players.teamFromToken(r.team || '') || String(r.team || '').trim().toUpperCase();
+    const k = players.key(name) + (team ? '|' + team : '');
+    if (seen.has(k)) {
+      unparsed.push({ line: rawName, reason: `duplicate of "${name}"` });
+      continue;
+    }
+    seen.add(k);
+    out.push({
+      rank: out.length + 1,
+      name,
+      position: dst ? 'DST' : players.findPosition([String(r.position || '')]),
+      team,
+      auction_value: (r.auction_value === undefined || r.auction_value === null) ? null : r.auction_value,
+      notes: r.notes ? String(r.notes).trim() : null,
+    });
+  }
+  return { players: out, unparsed, position_blocks: [] };
+}
+
 function parse(rawText) {
+  if (looksTabular(rawText)) return fromTable(rawText);
+
   const lines = String(rawText || '').split(/\r?\n/);
   const players_out = [];
   const unparsed = [];
@@ -222,10 +275,13 @@ function parse(rawText) {
       // Auction value when the line carried a "$14"-style token (Yahoo /
       // FantasyPros auction-value tables pasted as text), else null.
       auction_value: parsed.auction_value === undefined ? null : parsed.auction_value,
+      // Free-text note for this player. Line-based pastes have nowhere to put
+      // one; tabular pastes (fromTable) carry a notes column through.
+      notes: null,
     });
   }
 
   return { players: players_out, unparsed, position_blocks: blockPositions };
 }
 
-module.exports = { parse, parseLine };
+module.exports = { parse, parseLine, looksTabular };

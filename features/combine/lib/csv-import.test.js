@@ -67,3 +67,35 @@ test('FantasyPoints season projections export (quoted cells, duplicate POS colum
   assert.deepEqual(rows[0], { name: 'Josh Allen', position: 'QB', team: 'BUF', rank: 1 });
   assert.equal(rows[1].name, 'Lamar Jackson');
 });
+
+test('a headerless spreadsheet range is mapped by what the cells look like', () => {
+  const tsv = [
+    '1\tJahmyr Gibbs\tRB\tDET\t6\t$60',
+    '2\tBijan Robinson\tRB\tATL\t11\t$59',
+    '3\tChristian McCaffrey\tRB\tSF\t8\t$54',
+  ].join('\n');
+  const { rows, mapping, headerFound } = importCsv(tsv);
+  assert.equal(headerFound, false);
+  assert.deepEqual(mapping, { name: 1, pos: 2, team: 3, rank: 0, auction: 5, notes: -1 });
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].name, 'Jahmyr Gibbs');
+  assert.equal(rows[0].position, 'RB');
+  assert.equal(rows[0].auction_value, 60);
+});
+
+test('a notes/comment column is detected and carried on the row', () => {
+  const csv = [
+    'Rank,Player,Pos,Team,Comments',
+    '1,Jahmyr Gibbs,RB,DET,"Elite dual-threat, locked top pick"',
+    '2,Bijan Robinson,RB,ATL,',
+  ].join('\n');
+  const { rows, mapping } = importCsv(csv);
+  assert.ok(mapping.notes >= 0);
+  assert.equal(rows[0].notes, 'Elite dual-threat, locked top pick');
+  assert.equal(rows[1].notes, undefined);
+});
+
+test('a one-name-per-line list is still read as bare names', () => {
+  const { rows } = importCsv('Bijan Robinson\nJustin Jefferson');
+  assert.deepEqual(rows.map((r) => r.name), ['Bijan Robinson', 'Justin Jefferson']);
+});
