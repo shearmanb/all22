@@ -23,7 +23,8 @@ router.get('/', async (req, res) => {
     if (!hasDb()) {
       return res.json({ ok: true, data: { db: false } });
     }
-    const [pm, sets, review, myRuns, adp, drafts, notes, boards, auctions, live] = await Promise.all([
+    // Order here must match the array below, one for one.
+    const [pm, sets, review, myRuns, adp, drafts, live, notes, boards, auctions] = await Promise.all([
       master.status(),
       tryQuery(`SELECT COUNT(*)::int AS n, MAX(updated_at) AS latest,
                        (SELECT name FROM ranking_sets ORDER BY updated_at DESC NULLS LAST, created_at DESC LIMIT 1) AS latest_name

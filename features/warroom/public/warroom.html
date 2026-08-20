@@ -77,6 +77,24 @@
       <h2>Drafts</h2>
       <div id="draft-list"><div class="muted">Loading…</div></div>
     </div>
+
+    <details class="card">
+      <summary class="muted">War Room settings</summary>
+      <div class="field-row section-gap">
+        <label>
+          <span class="field-label">Check for new picks every (seconds)</span>
+          <input id="cfg-poll" type="number" min="1" max="60" step="0.5">
+        </label>
+        <label>
+          <span class="field-label">Default rounds for a new draft</span>
+          <input id="cfg-rounds" type="number" min="1" max="30">
+        </label>
+      </div>
+      <div class="row section-gap">
+        <button id="cfg-save" class="secondary">Save settings</button>
+        <span id="cfg-status" class="muted small"></span>
+      </div>
+    </details>
   </main>
 
   <script src="/app.js"></script>
@@ -157,6 +175,31 @@
       });
     }
 
+    // The two War Room dials, with their documented defaults. Editable here so
+    // a tweak never needs a code edit (PRD §11).
+    var POLL_DEFAULT = 2500, ROUNDS_DEFAULT = 16;
+
+    function renderSettings(s) {
+      var poll = Number(s['warroom.poll_ms']) || POLL_DEFAULT;
+      $('cfg-poll').value = (poll / 1000);
+      $('cfg-rounds').value = Number(s['warroom.default_rounds']) || ROUNDS_DEFAULT;
+      $('new-rounds').value = Number(s['warroom.default_rounds']) || ROUNDS_DEFAULT;
+    }
+
+    $('cfg-save').addEventListener('click', function () {
+      var secs = Number($('cfg-poll').value);
+      var rounds = parseInt($('cfg-rounds').value, 10);
+      if (!(secs >= 1 && secs <= 60)) { showError('Check for new picks every 1–60 seconds.'); return; }
+      if (!(rounds >= 1 && rounds <= 30)) { showError('Default rounds must be between 1 and 30.'); return; }
+      apiPost('/api/settings', { entries: {
+        'warroom.poll_ms': Math.round(secs * 1000),
+        'warroom.default_rounds': rounds,
+      } }, 'PUT').then(function () {
+        $('cfg-status').textContent = 'Saved.';
+        toast('War Room settings saved');
+      }).catch(function () { /* banner shown */ });
+    });
+
     function load() {
       Promise.all([
         apiFetch('/api/settings'),
@@ -164,6 +207,7 @@
         apiFetch('/api/myrankings/runs').catch(function () { return []; }),
       ]).then(function (r) {
         renderLeagues(r[0] || {});
+        renderSettings(r[0] || {});
         renderDrafts(r[1] || []);
         var sel = $('new-run');
         (r[2] || []).forEach(function (run) {

@@ -54,7 +54,14 @@ async function apiFetch(url, options) {
   }
   if (!body.ok) {
     showError(body.error || 'Something went wrong.');
-    throw new Error(body.error || 'API error');
+    // Carry the response along on the error. Some endpoints answer a rejection
+    // with useful payload — a conflict returns the authoritative current state
+    // — and a caller that wants it shouldn't have to re-fetch or bypass this
+    // helper. Callers that only care about the message are unaffected.
+    var err = new Error(body.error || 'API error');
+    err.data = body.data;
+    err.status = res.status;
+    throw err;
   }
   return body.data;
 }

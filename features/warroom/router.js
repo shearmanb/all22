@@ -13,6 +13,8 @@ const pool = require('../../db/pool');
 const settings = require('../../lib/settings');
 const players = require('../../lib/players');
 const snake = require('./public/warroom-snake');
+const myRankings = require('../myrankings/lib/store');
+const adpLatest = require('../adp/lib/latest');
 
 const router = express.Router();
 const hasDb = () => Boolean(process.env.DATABASE_URL);
@@ -187,6 +189,81 @@ router.delete('/drafts/:id', async (req, res) => {
   } catch (err) {
     console.error(`DELETE /api/warroom/drafts/:id: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not delete the draft.' });
+  }
+});
+
+// The draft-day board: the owner's own blended rankings, with each player's
+// ADP alongside so the page can answer "will he make it back to me?". Loaded
+// once per draft — rankings don't change mid-draft; who's gone does, and that
+// is computed client-side from the picks the poll already delivers.
+router.get('/drafts/:id/cheatsheet', async (req, res) => {
+  try {
+    if (!hasDb()) return res.json({ ok: true, data: { rows: [], note: '' } });
+    const { rows: drafts } = await pool.query(
+      "SELECT * FROM drafts WHERE id = $1 AND source = 'warroom'", [req.params.id]
+    );
+    if (!drafts.length) return res.status(404).json({ ok: false, error: 'That draft no longer exists.' });
+    const draft = drafts[0];
+    const profile = await leagueProfile(draft.league_profile_id, draft.league_size);
+    const format = String(profile.scoring || 'half').toLowerCase();
+
+    // ADP is useful on its own, so a draft with no pinned rankings run still
+    // gets a board — just ordered by ADP instead of by the owner's blend.
+    const board = await adpLatest.latestBoard({ format, teams: draft.league_size });
+    const adpBy = new Map();
+    if (board) for (const r of board.rows) if (r.player_id) adpBy.set(r.player_id, r);
+
+    const notes = [];
+    let rows = [];
+    if (draft.my_ranking_run_id) {
+      const run = await myRankings.getRun(draft.my_ranking_run_id);
+      const runRows = run ? await myRankings.getRunRows(draft.my_ranking_run_id) : [];
+      rows = runRows.map((r) => {
+        const a = adpBy.get(r.player_id) || {};
+        return {
+          player_id: r.player_id,
+          rank: r.rank,
+          name: r.name,
+          position: r.position,
+          team: r.team,
+          adp: a.adp === undefined ? null : a.adp,
+          stdev: a.stdev === undefined ? null : a.stdev,
+          high: a.high === undefined ? null : a.high,
+          low: a.low === undefined ? null : a.low,
+        };
+      });
+      if (run) notes.push(`Your rankings: ${run.name || 'run #' + run.id}`);
+      else notes.push('That saved ranking run is gone — showing ADP order instead.');
+    }
+    if (!rows.length) {
+      rows = (board ? board.rows : []).map((r, i) => ({
+        player_id: r.player_id,
+        rank: i + 1,
+        name: r.name,
+        position: r.position,
+        team: r.team,
+        adp: r.adp,
+        stdev: r.stdev,
+        high: r.high,
+        low: r.low,
+      }));
+      if (rows.length) notes.push('Ordered by ADP — pin a My Rankings run to a draft to use your own board.');
+    }
+
+    if (board) {
+      notes.push(`ADP: ${board.key.site} ${format}${board.key.teams ? ' ' + board.key.teams + '-team' : ' site-wide'}, ${board.key.latest}`);
+      // The %-available math needs a spread; say plainly when the source
+      // didn't publish one (PRD open decision 4 — never bury the estimate).
+      const withStdev = board.rows.filter((r) => r.stdev !== null && r.stdev !== undefined && Number(r.stdev) > 0).length;
+      if (!withStdev) notes.push('This ADP source publishes no spread, so “% available” is estimated.');
+    } else {
+      notes.push('No ADP collected for this format yet, so there is no “% available”.');
+    }
+
+    res.json({ ok: true, data: { rows, note: notes.join(' · ') } });
+  } catch (err) {
+    console.error(`GET /api/warroom/drafts/:id/cheatsheet: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not build the cheat sheet.' });
   }
 });
 
