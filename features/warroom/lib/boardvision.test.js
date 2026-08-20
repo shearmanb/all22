@@ -91,3 +91,29 @@ test('junk entries are ignored rather than throwing the whole read away', () => 
 test('no array at all is an error the caller can report', () => {
   assert.throws(() => parseCells('I could not read that photo.'), /No JSON array/);
 });
+
+// The seam between the prompt and the parser: if someone edits PROMPT and
+// renames a field, or relaxes "skip empty cells", this is what catches it.
+// Fixture = what the model returns for a full 6-team, 2-round board where the
+// last three squares of round 2 are still empty.
+test('a whole board read straight from the prompt lands intact', () => {
+  const modelOutput = `[
+  {"round": 1, "slot": 1, "name": "Ja'Marr Chase", "position": "", "readable": true},
+  {"round": 1, "slot": 2, "name": "Jahmyr Gibbs", "position": "", "readable": true},
+  {"round": 1, "slot": 3, "name": "Puka Nacua", "position": "", "readable": true},
+  {"round": 1, "slot": 4, "name": "Bijan Robinson", "position": "", "readable": true},
+  {"round": 1, "slot": 5, "name": "Jonathan Taylor", "position": "", "readable": true},
+  {"round": 1, "slot": 6, "name": "Brock Bowers", "position": "", "readable": true},
+  {"round": 2, "slot": 1, "name": "Josh Allen", "position": "", "readable": true},
+  {"round": 2, "slot": 2, "name": "James Cook", "position": "", "readable": true},
+  {"round": 2, "slot": 3, "name": "Amon-Ra St. Brown", "position": "", "readable": true}
+]`;
+  const { cells, truncated } = parseCells(modelOutput);
+  assert.equal(truncated, false);
+  assert.equal(cells.length, 9, 'the three empty squares are absent, not blank cells');
+  assert.equal(cells.every((c) => c.readable), true);
+  assert.deepEqual(cells[0], { round: 1, slot: 1, name: "Ja'Marr Chase", position: '', readable: true });
+  assert.deepEqual(cells[8], { round: 2, slot: 3, name: 'Amon-Ra St. Brown', position: '', readable: true });
+  // Every square is placed, so the diff can line all nine up against picks.
+  assert.equal(cells.filter((c) => c.round && c.slot).length, 9);
+});
