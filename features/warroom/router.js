@@ -15,6 +15,8 @@ const players = require('../../lib/players');
 const snake = require('./public/warroom-snake');
 const myRankings = require('../myrankings/lib/store');
 const adpLatest = require('../adp/lib/latest');
+const boardvision = require('./lib/boardvision');
+const boarddiff = require('./lib/boarddiff');
 
 const router = express.Router();
 const hasDb = () => Boolean(process.env.DATABASE_URL);
@@ -264,6 +266,49 @@ router.get('/drafts/:id/cheatsheet', async (req, res) => {
   } catch (err) {
     console.error(`GET /api/warroom/drafts/:id/cheatsheet: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not build the cheat sheet.' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Photo verification: the board on the wall is the truth, this is the check.
+// ---------------------------------------------------------------------------
+
+// Read one photo of the board. The client sends photos one at a time (a whole
+// board rarely fits in one legible frame) and accumulates the cells, exactly
+// the way Combine accumulates screenshots. Nothing is saved: reading a photo
+// never changes a pick, it only produces something to compare.
+router.post('/drafts/:id/verify-photo', async (req, res) => {
+  try {
+    const { image } = req.body || {};
+    if (!image) return res.status(400).json({ ok: false, error: 'Take or choose a photo of the board first.' });
+    if (!boardvision.available()) {
+      // No Tesseract fallback here on purpose: the offline reader returns flat
+      // text, which cannot say which square a name was in — the one thing a
+      // board check needs. Better to say so than to "verify" against nothing.
+      return res.status(400).json({ ok: false, error: 'Reading board photos needs ANTHROPIC_API_KEY on the server. Check the board by eye for now — the picks you recorded are unaffected.' });
+    }
+    const model = await settings.get('combine.ocr_model', null);
+    const out = await boardvision.readBoard(String(image), { model: model || undefined });
+    res.json({ ok: true, data: out });
+  } catch (err) {
+    console.error(`POST /api/warroom/drafts/:id/verify-photo: ${err.message}`);
+    res.status(500).json({ ok: false, error: `Could not read that photo. ${err.message}` });
+  }
+});
+
+// Compare accumulated cells against the recorded picks. Body: { cells }.
+// Returns findings the owner resolves by hand — nothing is changed for him.
+router.post('/drafts/:id/verify-report', async (req, res) => {
+  try {
+    if (!hasDb()) return res.status(400).json({ ok: false, error: 'War Room needs a database.' });
+    const state = await loadState(req.params.id);
+    if (!state) return res.status(404).json({ ok: false, error: 'That draft no longer exists.' });
+    const cells = Array.isArray(req.body && req.body.cells) ? req.body.cells : [];
+    const { findings, summary } = boarddiff.diffBoard(cells, state.picks);
+    res.json({ ok: true, data: { findings, summary, teams: state.draft.teams, rounds: state.draft.rounds } });
+  } catch (err) {
+    console.error(`POST /api/warroom/drafts/:id/verify-report: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not compare the photo with the recorded picks.' });
   }
 });
 

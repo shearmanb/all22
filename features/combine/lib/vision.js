@@ -8,6 +8,8 @@
 // var) and never reaches the browser. When the key is missing or a call fails,
 // the caller falls back to the bundled Tesseract pipeline (lib/ocr.js) so
 // ingestion always works — just less accurately.
+const { parseFirstArray } = require('../../../lib/json-array');
+
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const API_VERSION = '2023-06-01';
 const DEFAULT_MODEL = 'claude-sonnet-5';
@@ -60,41 +62,11 @@ function splitDataUrl(image) {
   throw new Error('Expected an image data URL.');
 }
 
-// Pull the first JSON array out of model text (tolerates stray prose/fences).
-// Returns { rows, truncated }: if the model ran out of output tokens mid-array
-// we salvage every complete row rather than throwing the whole read away.
+// Model text -> ranking rows. The array-walking (fences, trailing prose,
+// salvaging a truncated array) is shared in lib/json-array.js; what belongs
+// here is what a RANKING row means.
 function parseRows(text) {
-  const s = String(text || '').replace(/```(?:json)?/gi, '');
-  const start = s.indexOf('[');
-  if (start === -1) throw new Error('No JSON array in the model response.');
-  // Walk to the matching close bracket so trailing prose doesn't break parsing,
-  // remembering where the last complete element ended in case we never get there.
-  let depth = 0, inStr = false, esc = false, end = -1, lastElementEnd = -1;
-  for (let i = start; i < s.length; i++) {
-    const c = s[i];
-    if (inStr) {
-      if (esc) esc = false;
-      else if (c === '\\') esc = true;
-      else if (c === '"') inStr = false;
-      continue;
-    }
-    if (c === '"') inStr = true;
-    else if (c === '[' || c === '{') depth++;
-    else if (c === '}') { depth--; if (depth === 1) lastElementEnd = i; }
-    else if (c === ']') { depth--; if (!depth) { end = i; break; } }
-  }
-  let truncated = false;
-  let json;
-  if (end !== -1) {
-    json = s.slice(start, end + 1);
-  } else if (lastElementEnd !== -1) {
-    json = `${s.slice(start, lastElementEnd + 1)}]`;
-    truncated = true;
-  } else {
-    throw new Error('Unterminated JSON array in the model response.');
-  }
-  const arr = JSON.parse(json);
-  if (!Array.isArray(arr)) throw new Error('Model response was not an array.');
+  const { items: arr, truncated } = parseFirstArray(text);
   const rows = [];
   for (const r of arr) {
     if (!r || typeof r !== 'object') continue;
@@ -125,7 +97,7 @@ function extractRows(text) {
 
 // One Messages API call. Throws an Error carrying .status/.retryable so the
 // caller can tell "try again" apart from "this will never work".
-async function callApi(mediaType, base64, model) {
+async function callApi(mediaType, base64, model, prompt) {
   let res;
   try {
     res = await fetch(API_URL, {
@@ -143,7 +115,7 @@ async function callApi(mediaType, base64, model) {
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-            { type: 'text', text: PROMPT },
+            { type: 'text', text: prompt },
           ],
         }],
       }),
@@ -170,27 +142,32 @@ async function callApi(mediaType, base64, model) {
   return res.json();
 }
 
-// image (data URL) -> rows. opts.model overrides the settings-driven model.
-// Returns { rows, model, truncated, note } — `note` is owner-facing text about
-// anything that had to be worked around (retry, model fallback, truncation).
-async function imageToRows(image, opts = {}) {
+// Ask Claude to read an image, with the retry / model-fallback / size-guard
+// behaviour every vision call in the app needs. The PROMPT is the caller's
+// business; getting an answer out of the API is this function's.
+//
+// Returns { text, model, stopReason, notes } — `notes` is owner-facing prose
+// about anything worked around on the way (a retry, a model substitution).
+// Shared with War Room's draft-board reader (features/warroom/lib/boardvision.js)
+// so there is one implementation of talking to the Messages API, not two.
+async function readImage(image, opts = {}) {
   if (!available()) throw new Error('ANTHROPIC_API_KEY is not set on the server.');
   const { mediaType, base64 } = splitDataUrl(image);
   if (!SUPPORTED_TYPES.has(mediaType)) {
-    throw new Error(`Claude cannot read ${mediaType} images (only JPEG, PNG, GIF and WebP). Re-save the screenshot as a JPEG or PNG.`);
+    throw new Error(`Claude cannot read ${mediaType} images (only JPEG, PNG, GIF and WebP). Re-save the picture as a JPEG or PNG.`);
   }
   const bytes = Math.floor(base64.length * 3 / 4);
   if (bytes > MAX_IMAGE_BYTES) {
     throw new Error(`That image is ${(bytes / 1024 / 1024).toFixed(1)}MB — over the 5MB the API accepts. Crop it or save it smaller.`);
   }
 
-  const wanted = opts.model || DEFAULT_MODEL;
+  const prompt = opts.prompt || PROMPT;
   const notes = [];
-  let model = wanted;
+  let model = opts.model || DEFAULT_MODEL;
   let body;
   for (let attempt = 1; ; attempt++) {
     try {
-      body = await callApi(mediaType, base64, model);
+      body = await callApi(mediaType, base64, model, prompt);
       break;
     } catch (err) {
       // A bad model name in settings never fixes itself — say so and use the default.
@@ -209,11 +186,20 @@ async function imageToRows(image, opts = {}) {
     .filter((b) => b.type === 'text')
     .map((b) => b.text)
     .join('\n');
-  const { rows, truncated } = parseRows(text);
-  if (truncated || body.stop_reason === 'max_tokens') {
-    notes.push(`This screenshot has more rows than one read can return — kept the first ${rows.length}. Split it into shorter screenshots to get the rest.`);
-  }
-  return { rows, model, truncated: Boolean(truncated || body.stop_reason === 'max_tokens'), note: notes.join(' ') };
+  return { text, model, stopReason: body.stop_reason, notes };
 }
 
-module.exports = { available, imageToRows, extractRows, parseRows, splitDataUrl, DEFAULT_MODEL };
+// image (data URL) -> ranking rows. opts.model overrides the settings-driven
+// model. Returns { rows, model, truncated, note }.
+async function imageToRows(image, opts = {}) {
+  const read = await readImage(image, { model: opts.model, prompt: PROMPT });
+  const notes = read.notes.slice();
+  const { rows, truncated } = parseRows(read.text);
+  const cut = Boolean(truncated || read.stopReason === 'max_tokens');
+  if (cut) {
+    notes.push(`This screenshot has more rows than one read can return — kept the first ${rows.length}. Split it into shorter screenshots to get the rest.`);
+  }
+  return { rows, model: read.model, truncated: cut, note: notes.join(' ') };
+}
+
+module.exports = { available, imageToRows, readImage, extractRows, parseRows, splitDataUrl, DEFAULT_MODEL };

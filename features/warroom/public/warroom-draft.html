@@ -81,6 +81,15 @@
     .avail.low { color: var(--error-text); }
     .avail.mid { color: var(--warn-text); }
     .avail.high { color: var(--ok-text); }
+
+    /* --- Board check --- */
+    .finding { display: flex; align-items: baseline; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--border); }
+    .finding .where { font-variant-numeric: tabular-nums; color: var(--text-dim); font-size: .78rem; min-width: 56px; }
+    .finding .grow { min-width: 0; }
+    .finding .said { font-size: .8rem; color: var(--text-dim); }
+    .verdict-group { margin-bottom: 14px; }
+    .verdict-group h4 { margin: 12px 0 4px; font-size: .9rem; }
+    .verdict-group .muted.small { margin: 0 0 4px; }
   </style>
 </head>
 <body>
@@ -118,6 +127,7 @@
       <button id="tab-record-btn" class="active" data-panel="record">Record</button>
       <button id="tab-board-btn" data-panel="board">Board</button>
       <button id="tab-sheet-btn" data-panel="sheet">Cheat sheet</button>
+      <button id="tab-verify-btn" data-panel="verify">Check board</button>
     </div>
 
     <!-- ============================ RECORD ============================ -->
@@ -169,6 +179,25 @@
       </div>
       <div class="card">
         <div id="sheet-list"><div class="muted">Loading…</div></div>
+      </div>
+    </section>
+
+    <!-- ============================= VERIFY ============================= -->
+    <section id="panel-verify" hidden>
+      <div class="card">
+        <h3 style="margin-top:0">Check the board</h3>
+        <p class="muted small">Photograph the board on the wall and I'll compare it against what's been recorded. The board is the truth — this only reports what disagrees, it never changes a pick. Take several photos if the whole board won't fit in one legible shot; they add up.</p>
+        <input id="photo-input" type="file" accept="image/*" capture="environment" multiple>
+        <div id="photo-chips" class="chip-row section-gap"></div>
+        <div class="row section-gap">
+          <button id="verify-run" disabled>Compare with recorded picks</button>
+          <button id="verify-clear" class="secondary">Start over</button>
+          <span id="verify-status" class="muted small"></span>
+        </div>
+      </div>
+      <div class="card" id="verify-report-card" hidden>
+        <div id="verify-summary"></div>
+        <div id="verify-findings"></div>
       </div>
     </section>
   </main>
@@ -470,16 +499,17 @@
     });
 
     // ------------------------------------------------------------------ tabs
+    var PANELS = ['record', 'board', 'sheet', 'verify'];
     function showPanel(name) {
       state.panel = name;
-      ['record', 'board', 'sheet'].forEach(function (p) {
+      PANELS.forEach(function (p) {
         $('panel-' + p).hidden = (p !== name);
         $('tab-' + p + '-btn').classList.toggle('active', p === name);
       });
       if (name === 'board') renderBoard();
       if (name === 'sheet') { loadSheet(); renderSheet(); }
     }
-    ['record', 'board', 'sheet'].forEach(function (p) {
+    PANELS.forEach(function (p) {
       $('tab-' + p + '-btn').addEventListener('click', function () { showPanel(p); });
     });
 
@@ -558,6 +588,161 @@
       return cell;
     }
     $('hide-gone').addEventListener('change', renderSheet);
+
+    // --------------------------------------------------------- board check
+    // Photos are read one at a time and their cells accumulate, so a board too
+    // big for one legible frame can be covered in sections (Combine's
+    // multi-screenshot pattern).
+    var photos = { pending: [], cells: [], read: 0 };
+
+    // The API caps an image at 5MB, and a modern phone camera blows past that.
+    // Draw it down to a sane width and re-encode as JPEG before upload.
+    function downscale(file) {
+      return new Promise(function (resolve, reject) {
+        var reader = new FileReader();
+        reader.onerror = function () { reject(new Error('Could not read that photo.')); };
+        reader.onload = function () {
+          var img = new Image();
+          img.onerror = function () { reject(new Error('That file is not an image.')); };
+          img.onload = function () {
+            var MAX = 2000;                       // plenty for reading stickers
+            var scale = Math.min(1, MAX / Math.max(img.width, img.height));
+            var c = document.createElement('canvas');
+            c.width = Math.round(img.width * scale);
+            c.height = Math.round(img.height * scale);
+            c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+            resolve(c.toDataURL('image/jpeg', 0.9));
+          };
+          img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function renderPhotoChips() {
+      var wrap = $('photo-chips');
+      wrap.textContent = '';
+      photos.pending.forEach(function (p) {
+        wrap.appendChild(el('span', 'pill' + (p.done ? ' ok' : ''), p.name + (p.done ? ' · ' + p.cells + ' cells' : ' · waiting')));
+      });
+      $('verify-run').disabled = !photos.pending.length;
+    }
+
+    $('photo-input').addEventListener('change', async function (ev) {
+      var files = Array.prototype.slice.call(ev.target.files || []);
+      for (var i = 0; i < files.length; i++) {
+        photos.pending.push({ name: files[i].name || ('photo ' + (photos.pending.length + 1)), file: files[i], done: false, cells: 0 });
+      }
+      ev.target.value = '';
+      renderPhotoChips();
+    });
+
+    $('verify-clear').addEventListener('click', function () {
+      photos = { pending: [], cells: [], read: 0 };
+      renderPhotoChips();
+      $('verify-report-card').hidden = true;
+      $('verify-status').textContent = '';
+    });
+
+    $('verify-run').addEventListener('click', async function () {
+      clearError();
+      $('verify-run').disabled = true;
+      try {
+        for (var i = 0; i < photos.pending.length; i++) {
+          var p = photos.pending[i];
+          if (p.done) continue;
+          $('verify-status').textContent = 'Reading photo ' + (i + 1) + ' of ' + photos.pending.length + '…';
+          var dataUrl = await downscale(p.file);
+          var out = await apiPost('/api/warroom/drafts/' + state.id + '/verify-photo', { image: dataUrl });
+          photos.cells = photos.cells.concat(out.cells || []);
+          p.done = true;
+          p.cells = (out.cells || []).length;
+          if (out.note) toast(out.note);
+          renderPhotoChips();
+        }
+        $('verify-status').textContent = 'Comparing…';
+        var rep = await apiPost('/api/warroom/drafts/' + state.id + '/verify-report', { cells: photos.cells });
+        renderReport(rep);
+        $('verify-status').textContent = '';
+      } catch (e) {
+        $('verify-status').textContent = '';
+      }
+      $('verify-run').disabled = !photos.pending.length;
+    });
+
+    var VERDICTS = [
+      { key: 'mismatch', title: 'Different player on the board', help: 'The board says someone else here. The board wins — fix the pick.' },
+      { key: 'missing_from_app', title: 'On the board, not recorded', help: 'A pick nobody entered. Reopen the draft if it is finished, then record it.' },
+      { key: 'unreadable', title: 'Could not read', help: 'Writing is there but not legible — check these squares by eye, or photograph them closer.' },
+      { key: 'unplaced', title: 'Could not place on the grid', help: 'Read a name but not which square it was in — usually the row/column headers were out of frame.' },
+      { key: 'missing_from_board', title: 'Recorded, not seen in a photo', help: 'Probably just not photographed. Only worth a look if you think you covered the whole board.' },
+      { key: 'ok', title: 'Agree', help: '' },
+    ];
+
+    function renderReport(rep) {
+      var card = $('verify-report-card');
+      card.hidden = false;
+      var s = rep.summary;
+      var sum = $('verify-summary');
+      sum.textContent = '';
+      var headline = s.problems
+        ? s.problems + (s.problems === 1 ? ' thing to look at' : ' things to look at')
+        : 'Everything the photos showed matches what was recorded';
+      sum.appendChild(el('h3', null, headline));
+      sum.appendChild(el('p', 'muted small',
+        'Read ' + s.cells_seen + ' squares from the board · ' + s.picks_recorded + ' picks recorded · ' +
+        s.ok + ' agree'));
+
+      var wrap = $('verify-findings');
+      wrap.textContent = '';
+      VERDICTS.forEach(function (v) {
+        var rows = rep.findings.filter(function (f) { return f.verdict === v.key; });
+        if (!rows.length) return;
+        // "Agree" is a count, not a list — nobody reads 180 rows of good news.
+        if (v.key === 'ok') {
+          wrap.appendChild(el('p', 'muted small', rows.length + ' squares agree with the recorded picks.'));
+          return;
+        }
+        var group = el('div', 'verdict-group');
+        group.appendChild(el('h4', null, v.title + ' (' + rows.length + ')'));
+        if (v.help) group.appendChild(el('p', 'muted small', v.help));
+        rows.forEach(function (f) { group.appendChild(findingRow(f)); });
+        wrap.appendChild(group);
+      });
+    }
+
+    function findingRow(f) {
+      var row = el('div', 'finding');
+      row.appendChild(el('span', 'where', f.round ? (f.round + '.' + (f.slot < 10 ? '0' : '') + f.slot) : '—'));
+      var body = el('span', 'grow');
+      if (f.verdict === 'mismatch') {
+        body.appendChild(el('div', null, 'Board: ' + f.board_name));
+        body.appendChild(el('div', 'said', 'Recorded: ' + f.app_name));
+      } else if (f.verdict === 'missing_from_app') {
+        body.appendChild(el('div', null, f.board_name));
+        if (f.board_suggestion) body.appendChild(el('div', 'said', 'possibly ' + f.board_suggestion + ' — unconfirmed'));
+      } else if (f.verdict === 'missing_from_board') {
+        body.appendChild(el('div', null, f.app_name));
+      } else {
+        body.appendChild(el('div', null, f.board_name || '(illegible)'));
+        if (f.app_name) body.appendChild(el('div', 'said', 'Recorded here: ' + f.app_name));
+      }
+      if (f.photo_conflict) {
+        body.appendChild(el('div', 'said', 'Another photo read this square as “' + f.photo_conflict + '”'));
+      }
+      row.appendChild(body);
+      // Jump straight to fixing the pick this finding is about.
+      if (f.pick_id) {
+        var fix = el('button', 'secondary', 'Fix');
+        fix.addEventListener('click', function () {
+          var p = null;
+          for (var i = 0; i < state.picks.length; i++) if (state.picks[i].id === f.pick_id) p = state.picks[i];
+          if (p) startEdit(p); else toast('That pick is gone — refresh the board.');
+        });
+        row.appendChild(fix);
+      }
+      return row;
+    }
 
     // ------------------------------------------------------------ sync loop
     function poll() {

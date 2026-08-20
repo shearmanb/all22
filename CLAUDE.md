@@ -5,7 +5,8 @@ rankings, mesh them into custom personal rankings, track/analyze drafts, pull
 ADP. Sub-apps: **Combine** (rankings hub, built), **My Rankings** (the mini-ECR
 blender, built — v1 of the custom model), **Edge Rush** (automatic daily ADP,
 built), **Playbook** (draft log, seeded), **Notes** (built), **Player DB**
-(registry viewer, built), **War Room** (Phase 5 — see `docs/SESSION_PLAN.md`).
+(registry viewer, built), **War Room** (live draft recorder, built — first slice
+of PRD Phase 5; the mock-draft simulator is still to come).
 Deploys to Railway: push to `main` = production deploy. Postgres lives on
 Railway (`DATABASE_URL`).
 
@@ -31,9 +32,10 @@ Hub (splash) + self-contained **feature modules**. Shared core at the root; each
 - `features/adp/` — Edge Rush, automatic ADP (`/api/adp`, `adp.html`): `lib/sources.js` fetches FantasyFootballCalculator's free API (per format + league size, with the pick distribution) and Sleeper's projections ADP (all formats, joined exactly by `players_master.sleeper_id`); `lib/custom.js` adds owner-supplied sources by URL (FantasyPros ADP pages — which blend ESPN/Sleeper/CBS/RTSports — and MyFantasyLeague; unknown hosts fail loudly), stored in settings `adp.custom_sources`; `lib/collect.js` snapshots each feed at most daily into `adp_history` (boot + 6h re-check from server.js; FFC targets derive from league profiles; only high-confidence matches get a `player_id`, the rest stay visibly unmatched). Every board carries a "View source" link. A login-only source (Yahoo) is captured by a browser bookmarklet that POSTs scraped rows to a token-guarded `/api/adp/ingest` route (`features/adp/ingest.js`) mounted BEFORE the password gate — the token, not a cookie, is the credential, so it's CORS-open and the user's session never reaches the server. Dials: `adp.auto`, `adp.year`, `adp.sources` override, `adp.custom_sources`, `adp.ingest_token`.
 - `features/auction/` — War Chest, the auction budget calculator (`/api/auction`, `auction.html`): per-auction config (teams, budget, roster slots), one budget row per slot (plan $ / player / paid $), must-have/want/watch target lists. Player values come from ingested ranking sets carrying `auction_value` (per-auction source pick or latest-any), scaled by the expensive-mode `price_mult_pct` dial; "suggest plans" budgets every open slot from them. All arithmetic lives in `public/auction-math.js` — shared verbatim by the router and the browser (UMD wrapper, no build step), golden-tested.
 - `features/playbook/` — draft log & analysis (`/api/drafts`; the old draft tracker, seed of the PRD's Playbook): parsers for Underdog/FantasyPros paste, a FantasyPros Draft Wizard URL fetch (`lib/fpwizard.js` — shape-agnostic JSON hunter, paste stays the fallback), drafts pages.
+- `features/warroom/` — War Room, the live draft recorder (`/api/warroom`, `warroom.html` + `warroom-draft.html`): the owner drafts in person on a physical board and records picks from more than one phone at once. Writes into Playbook's `drafts`/`picks` with `source='warroom'`, so a finished draft flows straight into draft-detail analysis. **Concurrency is the point**: every pick mutation locks the draft row (`SELECT … FOR UPDATE`), assigns the next open slot server-side, and bumps `drafts.version`; a losing write gets a readable 409 carrying the authoritative state, never a silent overwrite. Devices stay in step by polling `GET /drafts/:id/state?since=<version>` (settings `warroom.poll_ms`, default 2500) — deliberately not SSE/websockets, because phones lock and a poll recovers by itself. Pure math is UMD-shared server+browser like `auction-math.js`: `public/warroom-snake.js` (serpentine order, next-open-pick, gap refill) and `public/warroom-availability.js` (% still available at your next pick — a normal around ADP; when a source publishes no spread the fallback is *reported*, never hidden). Photo check: `lib/boardvision.js` reads a photo of the physical board into grid cells via Combine's `vision.readImage`, `lib/boarddiff.js` classifies each square (`ok | mismatch | missing_from_app | missing_from_board | unreadable | unplaced`) — it only ever reports, it never rewrites a pick, and there is no Tesseract fallback because flat text cannot say which square a name was in.
 - `features/notes/` — scratchpad (`/api/notes`, `notes.html`).
 - `routes/` — core (shared) routers: `auth.js`, `health.js` (unauthenticated), `news.js`, `settings.js`, `datahealth.js`, `players.js` (`/api/players` — the Player DB viewer's list/search/stats + alias teach/forget; page at `public/players.html`) (behind the gate).
-- `lib/` — `players.js`, `aliases.js`, `players-master.js`, `settings.js`, `news/`.
+- `lib/` — `players.js`, `aliases.js`, `players-master.js`, `settings.js`, `json-array.js` (salvage a JSON array out of model text, including one truncated mid-array — shared by every vision reader), `news/`.
 - `db/pool.js`, `db/migrate.js`, `db/migrations/` — one shared Postgres pool + boot-time migration runner + numbered history.
 - `public/` — hub (`index.html` with launcher cards, data-health panel, global settings, news), `login.html`, `app.css` (the design system), `app.js` (shared helpers: `$`, `esc`, `apiFetch`, `apiPost`, `apiDownload`, `timeAgo`, `toast` — use these, never re-declare per page).
 - Tests: `*.test.js` next to the code they cover, `npm test` (Node's built-in runner, no deps). The name engine, ingest pipeline, vision parser, converters and text parser have golden tests — keep them green before pushing.
@@ -45,7 +47,7 @@ Hub (splash) + self-contained **feature modules**. Shared core at the root; each
 - `rankings_normalized` — raw row resolved to a `player_id` + confidence/via/confirmed. Missing row here = review queue.
 - `my_ranking_runs` + `my_rankings` — My Rankings' saved runs (migration 018 adds run `name` + per-player `detail` JSONB so runs stay frozen even if source sets change).
 - `adp_history` — Edge Rush's daily snapshots, one row per (site, format, teams, snapshot_date, raw_name); 018 adds format/teams/bye/high/low/stdev/times_drafted. `teams = 0` means site-wide (Sleeper). `players_master.sleeper_id` (018) makes Sleeper joins exact.
-- `drafts` + `picks` — Playbook's tables (pre-rebuild, reused as-is).
+- `drafts` + `picks` — Playbook's tables, shared with War Room (migration 021): `picks` gains `player_id` (→ `players_master`), `recorded_by` and `pick_price`, plus unique indexes on `(draft_id, overall_pick)` and `(draft_id, player_id)` so two recorders can't double-book; `drafts` gains `status` (`live|complete`), `rounds`, `league_profile_id`, `my_ranking_run_id`, and `version`/`updated_at` for the sync poll. The unique indexes are created inside a `DO $$ … EXCEPTION` block — legacy pasted drafts may hold rows they'd reject, and a failing `CREATE INDEX` must never brick boot.
 - `auctions` + `auction_slots` + `auction_targets` (migration 015) — War Chest: config, one row per roster slot (`plan`/`player_id`/`player_name`/`paid`; `paid IS NULL` = open slot), target tiers (`must|want|watch`).
 - `notes`, `settings` — scratchpad + control panel.
 - Legacy tables kept but dormant: `roster_cache`, `converter_corrections` (superseded by players_master), `converter_aliases` (still read into the alias map; new learned aliases go to `players_master.aliases`).
@@ -67,6 +69,8 @@ in My Rankings (unranked semantics, outlier tamping, min-sets) with documented
 provisional defaults — the owner still needs to confirm them (deep session);
 never bury or hardcode them. Cross-format blending remains unadjusted by
 design: mixing native formats shows a warning, nothing is rewritten.
+War Room's "% available" surfaces the same way: when an ADP source publishes no
+spread, the estimate is labelled as one rather than presented as measured.
 Tiers-vs-ordinals is still fully open. Getting draft data out of
 Yahoo/Underdog is open before Playbook grows — see `docs/INTEGRATIONS.md`.
 
