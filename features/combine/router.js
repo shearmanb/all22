@@ -235,7 +235,7 @@ router.post('/sets', async (req, res) => {
       `${String(source).trim()} ${captured_on || new Date().toISOString().slice(0, 10)}`;
     const index = await master.getIndex();
     const matched = ingest.matchRows(
-      list.map((r) => ({ name: r.raw_name || r.name, position: r.raw_position || r.position, team: r.raw_team || r.team, auction_value: r.auction_value })),
+      list.map((r) => ({ name: r.raw_name || r.name, position: r.raw_position || r.position, team: r.raw_team || r.team, auction_value: r.auction_value, notes: r.notes })),
       index
     );
     const set = await store.createSet(
@@ -259,7 +259,7 @@ router.post('/sets/:id/rows', async (req, res) => {
     if (!list.length) return res.status(400).json({ ok: false, error: 'There are no rows to add.' });
     const index = await master.getIndex();
     const matched = ingest.matchRows(
-      list.map((r) => ({ name: r.raw_name || r.name, position: r.raw_position || r.position, team: r.raw_team || r.team, auction_value: r.auction_value })),
+      list.map((r) => ({ name: r.raw_name || r.name, position: r.raw_position || r.position, team: r.raw_team || r.team, auction_value: r.auction_value, notes: r.notes })),
       index
     );
     await store.appendRows(set.id, matched);
@@ -404,6 +404,19 @@ router.post('/rows/:rawId/resolve', async (req, res) => {
   } catch (err) {
     console.error(`POST /api/combine/rows/:rawId/resolve: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not resolve that row.' });
+  }
+});
+
+// Set or clear one row's note. Body: { notes }. Sources that publish a comment
+// column land here on ingest; this is how the owner edits or adds his own.
+router.post('/rows/:rawId/notes', async (req, res) => {
+  try {
+    if (!hasDb()) return res.status(400).json({ ok: false, error: 'Notes need a database.' });
+    const data = await store.setRowNotes(req.params.rawId, (req.body || {}).notes);
+    res.json({ ok: true, data });
+  } catch (err) {
+    console.error(`POST /api/combine/rows/:rawId/notes: ${err.message}`);
+    res.status(500).json({ ok: false, error: err.message || 'Could not save that note.' });
   }
 });
 

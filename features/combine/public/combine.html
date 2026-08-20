@@ -19,6 +19,7 @@
     <a href="/auction.html">War Chest</a>
     <a href="/drafts.html">Playbook</a>
     <a href="/adp.html">Edge Rush</a>
+    <a href="/warroom.html">War Room</a>
     <a href="/players.html">Player DB</a>
     <a href="/notes.html">Notes</a>
     <a href="/wire.html">The Wire</a>
@@ -89,12 +90,13 @@
         <details class="section-gap">
           <summary class="muted">…or paste rankings as text</summary>
           <p class="muted small" style="margin:8px 0 0">Position-by-position rankings? Paste the blocks in any order and keep each one under its header line (QB, Running Backs, WRs, …) — the header tags every row below it.</p>
+          <p class="muted small" style="margin:6px 0 0">Pasting straight out of a spreadsheet works too: the tab-separated columns are read as columns, so nothing but the name ends up in the name. Auction $ becomes the row's value, bye week is dropped, and every other column (auction rank, tier, ADP…) is kept on the player as a labelled note.</p>
           <textarea id="in-text" rows="8" placeholder="1. Ja'Marr Chase, CIN&#10;2. Bijan Robinson, ATL&#10;…" style="margin-top:8px"></textarea>
         </details>
 
         <details class="section-gap">
           <summary class="muted">…or import a CSV / spreadsheet file</summary>
-          <p class="muted small" style="margin:8px 0 6px">FantasyPros CSV export, or any spreadsheet saved as CSV (in Excel: <strong>Save As → CSV</strong>). Columns (player, position, team, auction $) are detected automatically.</p>
+          <p class="muted small" style="margin:8px 0 6px">FantasyPros CSV export, or any spreadsheet saved as CSV (in Excel: <strong>Save As → CSV</strong>). Columns (player, position, team, rank, auction $, notes) are detected automatically — even with no header row. Bye week is thrown away; any other extra column (auction rank, tier, ADP, projections) is kept on the player as a labelled note.</p>
           <input id="csv-input" type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values">
           <div id="csv-chip" class="muted small section-gap" hidden></div>
         </details>
@@ -209,7 +211,7 @@
           <h3>Players <span id="set-count" class="muted small"></span></h3>
           <div class="table-wrap">
             <table class="data" id="set-rows-table">
-              <thead><tr><th></th><th id="set-rank-head">#</th><th>Player</th><th>Pos</th><th>Team</th><th class="auction-col">$</th><th>Match</th><th></th></tr></thead>
+              <thead><tr><th></th><th id="set-rank-head">#</th><th>Player</th><th>Pos</th><th>Team</th><th class="auction-col">$</th><th class="notes-col">Notes</th><th>Match</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -539,7 +541,7 @@
       }
 
       var payloadRows = rows.map(function (r) {
-        return { raw_name: r.raw_name, raw_position: r.raw_position, raw_team: r.raw_team, auction_value: r.auction_value };
+        return { raw_name: r.raw_name, raw_position: r.raw_position, raw_team: r.raw_team, auction_value: r.auction_value, notes: r.notes };
       });
 
       var result;
@@ -720,6 +722,7 @@
         var posTd = el('td'); posTd.appendChild(posBadge(r.position)); tr.appendChild(posTd);
         tr.appendChild(el('td', null, r.team || '—'));
         tr.appendChild(el('td', 'auction-col', (r.auction_value === null || r.auction_value === undefined) ? '' : '$' + r.auction_value));
+        tr.appendChild(noteCell(r));
         tr.appendChild(el('td', 'muted small', r.player_id ? (r.confirmed ? 'confirmed' : r.confidence) : 'no match'));
         var act = el('td');
         if (!r.player_id || (r.confidence !== 'high' && !r.confirmed)) {
@@ -731,6 +734,38 @@
         tr.appendChild(act);
         tbody.appendChild(tr);
       });
+    }
+
+    // One row's note: whatever the source published in its comment column, plus
+    // anything the owner types. Saves on blur (and Ctrl/Cmd+Enter), never on
+    // every keystroke; a failure surfaces in the shared error banner.
+    function noteCell(r) {
+      var td = el('td', 'notes-col');
+      var box = document.createElement('textarea');
+      box.className = 'note-edit';
+      box.rows = 1;
+      box.placeholder = 'Add a note…';
+      box.value = r.notes || '';
+      var saved = box.value;
+      async function save() {
+        var value = box.value.trim();
+        if (value === saved) return;
+        try {
+          await apiPost('/api/combine/rows/' + r.raw_id + '/notes', { notes: value });
+          saved = value;
+          r.notes = value;
+          toast(value ? 'Note saved' : 'Note cleared');
+        } catch (e) {
+          box.value = saved;
+          throw e;
+        }
+      }
+      box.addEventListener('blur', save);
+      box.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); box.blur(); }
+      });
+      td.appendChild(box);
+      return td;
     }
 
     $('set-save-meta').addEventListener('click', async function () {
@@ -885,6 +920,9 @@
       head.appendChild(el('span', 'muted small',
         (item.ranking_scope === 'positional' ? 'row ' : '#') + item.rank + ' in ' + item.set_name));
       box.appendChild(head);
+      // The source's own note on this row is often the clue that identifies an
+      // ambiguous name, so show it while the owner decides.
+      if (item.notes) box.appendChild(el('div', 'raw-note', item.notes));
 
       var actions = el('div', 'row section-gap');
 

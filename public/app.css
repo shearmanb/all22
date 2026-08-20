@@ -390,6 +390,18 @@ table.data td .raw-note { color: var(--text-dim); font-size: 0.78rem; }
 #set-rows-table .auction-col { display: none; }
 #set-rows-table.show-auction .auction-col { display: table-cell; }
 
+/* Per-player note. Always present (the owner can add one to any row) but kept
+   narrow so it never crowds the identity columns; it wraps instead. */
+#set-rows-table .notes-col { max-width: 260px; white-space: normal; }
+#set-rows-table .note-edit {
+  width: 100%; min-width: 120px; padding: 4px 6px; font-size: 0.85rem;
+  background: transparent; border: 1px solid transparent; border-radius: 6px;
+  color: var(--text-body); resize: vertical;
+}
+#set-rows-table .note-edit::placeholder { color: var(--text-dim); opacity: 0.7; }
+#set-rows-table .note-edit:hover { border-color: var(--border); }
+#set-rows-table .note-edit:focus { border-color: var(--accent); background: var(--field); outline: none; }
+
 /* ===== Dropzone ===== */
 .dropzone {
   border: 2px dashed var(--border-strong);

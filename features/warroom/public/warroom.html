@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>War Room — All22</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/theme.js"></script>
+  <script src="/module-icon.js"></script>
+  <script src="/module-nav.js"></script>
+  <style>
+    .draft-row { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--border); }
+    .draft-row .grow { min-width: 0; }
+    .live-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--green); margin-right: 6px; animation: wr-pulse 1.6s infinite; }
+    @keyframes wr-pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+    .field-row { display: flex; flex-wrap: wrap; gap: 12px; }
+    .field-row label { flex: 1 1 150px; }
+    /* Anchor styled like the shared button (open/view links in the list). */
+    a.button { display: inline-block; padding: 8px 16px; border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none; font-size: .9rem; }
+    a.button.secondary { background: var(--surface-2); color: var(--text-body); border: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">All<em>22</em></span>
+    <a href="/">Hub</a>
+    <a href="/combine.html">Combine</a>
+    <a href="/myrankings.html">My Rankings</a>
+    <a href="/boards.html">Big Board</a>
+    <a href="/auction.html">War Chest</a>
+    <a href="/drafts.html">Playbook</a>
+    <a href="/adp.html">Edge Rush</a>
+    <a href="/warroom.html" class="active">War Room</a>
+    <a href="/players.html">Player DB</a>
+    <a href="/notes.html">Notes</a>
+    <a href="/wire.html">The Wire</a>
+    <a href="/settings.html">Settings</a>
+    <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
+  </nav>
+  <div id="error-banner"></div>
+  <main>
+    <h1>War Room <span class="muted small">live draft recorder</span></h1>
+
+    <div class="card">
+      <h2>Start a draft</h2>
+      <p class="muted small">Everyone recording picks opens the same draft on their own phone — you're all logged in with the same password, and every device sees new picks within seconds.</p>
+      <div class="field-row">
+        <label>
+          <span class="field-label">League</span>
+          <select id="new-league"></select>
+        </label>
+        <label>
+          <span class="field-label">Rounds</span>
+          <input id="new-rounds" type="number" min="1" max="30" value="16">
+        </label>
+        <label>
+          <span class="field-label">My draft slot</span>
+          <input id="new-slot" type="number" min="1" value="1">
+        </label>
+      </div>
+      <div class="field-row section-gap">
+        <label class="grow">
+          <span class="field-label">Cheat sheet (a saved My Rankings run — optional)</span>
+          <select id="new-run"><option value="">None — board and record only</option></select>
+        </label>
+        <label>
+          <span class="field-label">Your name (shows who recorded each pick)</span>
+          <input id="new-recorder" placeholder="e.g. Ben">
+        </label>
+      </div>
+      <div class="row section-gap">
+        <button id="new-start" class="big">Start draft</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Drafts</h2>
+      <div id="draft-list"><div class="muted">Loading…</div></div>
+    </div>
+
+    <details class="card">
+      <summary class="muted">War Room settings</summary>
+      <div class="field-row section-gap">
+        <label>
+          <span class="field-label">Check for new picks every (seconds)</span>
+          <input id="cfg-poll" type="number" min="1" max="60" step="0.5">
+        </label>
+        <label>
+          <span class="field-label">Default rounds for a new draft</span>
+          <input id="cfg-rounds" type="number" min="1" max="30">
+        </label>
+      </div>
+      <p class="muted small section-gap" style="margin-bottom:4px">Reading a photo of the board is a harder job than reading a ranking screenshot — one picture of a wall, at an angle, a few times a draft. It gets its own model so Combine's screenshot reading stays fast and cheap.</p>
+      <div class="field-row">
+        <label>
+          <span class="field-label">Model for board photos</span>
+          <input id="cfg-board-model" placeholder="claude-fable-5">
+        </label>
+        <label>
+          <span class="field-label">How hard it thinks</span>
+          <select id="cfg-board-effort">
+            <option value="low">Low — quickest</option>
+            <option value="medium">Medium</option>
+            <option value="high">High (default)</option>
+            <option value="xhigh">Extra high</option>
+            <option value="max">Max — slowest, best odds</option>
+          </select>
+        </label>
+        <label>
+          <span class="field-label">Give up after (seconds)</span>
+          <input id="cfg-board-timeout" type="number" min="30" max="600" step="10">
+        </label>
+      </div>
+      <div class="row section-gap">
+        <button id="cfg-save" class="secondary">Save settings</button>
+        <span id="cfg-status" class="muted small"></span>
+      </div>
+    </details>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+  (function () {
+    'use strict';
+
+    var leagues = [];
+
+    function recorderName() { return localStorage.getItem('warroom_recorder') || ''; }
+
+    function renderLeagues(settingsMap) {
+      leagues = Array.isArray(settingsMap['league.profiles']) ? settingsMap['league.profiles'] : [];
+      var active = settingsMap['league.active'];
+      var sel = $('new-league');
+      sel.textContent = '';
+      if (!leagues.length) {
+        var o = document.createElement('option');
+        o.value = ''; o.textContent = 'No leagues yet — add one on the Hub first';
+        sel.appendChild(o);
+        return;
+      }
+      leagues.forEach(function (l) {
+        var o = document.createElement('option');
+        o.value = l.id;
+        o.textContent = l.name + ' (' + l.teams + ' teams, ' + (l.scoring || '?') + ')';
+        if (l.id === active) o.selected = true;
+        sel.appendChild(o);
+      });
+      syncSlotMax();
+    }
+
+    function syncSlotMax() {
+      var l = leagues.filter(function (x) { return x.id === $('new-league').value; })[0];
+      if (l) $('new-slot').max = l.teams;
+    }
+    $('new-league').addEventListener('change', syncSlotMax);
+
+    function renderDrafts(list) {
+      var wrap = $('draft-list');
+      wrap.textContent = '';
+      if (!list.length) {
+        wrap.innerHTML = '<div class="muted">No drafts yet — start one above when you’re on the clock.</div>';
+        return;
+      }
+      list.forEach(function (d) {
+        var row = document.createElement('div');
+        row.className = 'draft-row';
+        var league = leagues.filter(function (l) { return l.id === d.league_profile_id; })[0];
+        var info = document.createElement('div');
+        info.className = 'grow';
+        info.innerHTML = '<strong>' + (d.status === 'live' ? '<span class="live-dot"></span>' : '') +
+          esc(league ? league.name : d.teams + '-team draft') + '</strong>' +
+          '<div class="muted small">' + esc(d.teams + ' teams · ' + d.rounds + ' rounds · slot ' + d.my_slot) +
+          ' · ' + d.pick_count + '/' + (d.teams * d.rounds) + ' picks · ' + timeAgo(d.created_at) + '</div>';
+        row.appendChild(info);
+        var open = document.createElement('a');
+        open.className = 'button';
+        open.href = '/warroom-draft.html#' + d.id;
+        open.textContent = d.status === 'live' ? 'Open' : 'View';
+        row.appendChild(open);
+        if (d.status !== 'live') {
+          var det = document.createElement('a');
+          det.className = 'button secondary';
+          det.href = '/draft-detail.html?id=' + d.id;
+          det.textContent = 'Analysis';
+          row.appendChild(det);
+        }
+        var del = document.createElement('button');
+        del.className = 'secondary';
+        del.textContent = 'Delete';
+        del.addEventListener('click', function () {
+          if (!confirm('Delete this draft and every recorded pick? This cannot be undone.')) return;
+          apiPost('/api/warroom/drafts/' + d.id, null, 'DELETE').then(load).catch(function () {});
+        });
+        row.appendChild(del);
+        wrap.appendChild(row);
+      });
+    }
+
+    // War Room's dials, with their documented defaults. Editable here so a
+    // tweak never needs a code edit (PRD §11).
+    var POLL_DEFAULT = 2500, ROUNDS_DEFAULT = 16;
+    var BOARD_MODEL_DEFAULT = 'claude-fable-5', BOARD_EFFORT_DEFAULT = 'high',
+        BOARD_TIMEOUT_DEFAULT = 180000;
+
+    function renderSettings(s) {
+      var poll = Number(s['warroom.poll_ms']) || POLL_DEFAULT;
+      $('cfg-poll').value = (poll / 1000);
+      $('cfg-rounds').value = Number(s['warroom.default_rounds']) || ROUNDS_DEFAULT;
+      $('new-rounds').value = Number(s['warroom.default_rounds']) || ROUNDS_DEFAULT;
+      $('cfg-board-model').value = s['warroom.board_model'] || BOARD_MODEL_DEFAULT;
+      $('cfg-board-effort').value = s['warroom.board_effort'] || BOARD_EFFORT_DEFAULT;
+      $('cfg-board-timeout').value = (Number(s['warroom.board_timeout_ms']) || BOARD_TIMEOUT_DEFAULT) / 1000;
+    }
+
+    $('cfg-save').addEventListener('click', function () {
+      var secs = Number($('cfg-poll').value);
+      var rounds = parseInt($('cfg-rounds').value, 10);
+      if (!(secs >= 1 && secs <= 60)) { showError('Check for new picks every 1–60 seconds.'); return; }
+      if (!(rounds >= 1 && rounds <= 30)) { showError('Default rounds must be between 1 and 30.'); return; }
+      var boardSecs = Number($('cfg-board-timeout').value);
+      if (!(boardSecs >= 30 && boardSecs <= 600)) { showError('Give board reads between 30 and 600 seconds.'); return; }
+      apiPost('/api/settings', { entries: {
+        'warroom.poll_ms': Math.round(secs * 1000),
+        'warroom.default_rounds': rounds,
+        'warroom.board_model': $('cfg-board-model').value.trim() || BOARD_MODEL_DEFAULT,
+        'warroom.board_effort': $('cfg-board-effort').value,
+        'warroom.board_timeout_ms': Math.round(boardSecs * 1000),
+      } }, 'PUT').then(function () {
+        $('cfg-status').textContent = 'Saved.';
+        toast('War Room settings saved');
+      }).catch(function () { /* banner shown */ });
+    });
+
+    function load() {
+      Promise.all([
+        apiFetch('/api/settings'),
+        apiFetch('/api/warroom/drafts'),
+        apiFetch('/api/myrankings/runs').catch(function () { return []; }),
+      ]).then(function (r) {
+        renderLeagues(r[0] || {});
+        renderSettings(r[0] || {});
+        renderDrafts(r[1] || []);
+        var sel = $('new-run');
+        (r[2] || []).forEach(function (run) {
+          var o = document.createElement('option');
+          o.value = run.id;
+          o.textContent = run.name || ('Run #' + run.id + ' (' + (run.target_format || '') + ')');
+          sel.appendChild(o);
+        });
+        $('new-recorder').value = recorderName();
+      }).catch(function () { /* banner shown */ });
+    }
+
+    $('new-start').addEventListener('click', function () {
+      clearError();
+      var name = $('new-recorder').value.trim();
+      if (name) localStorage.setItem('warroom_recorder', name);
+      apiPost('/api/warroom/drafts', {
+        league_profile_id: $('new-league').value,
+        rounds: $('new-rounds').value,
+        my_slot: $('new-slot').value,
+        my_ranking_run_id: $('new-run').value || null,
+      }).then(function (d) {
+        location.href = '/warroom-draft.html#' + d.id;
+      }).catch(function () { /* banner shown */ });
+    });
+
+    load();
+  })();
+  </script>
+</body>
+</html>

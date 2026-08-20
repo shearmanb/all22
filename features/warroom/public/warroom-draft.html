@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>War Room — live draft</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/theme.js"></script>
+  <script src="/module-icon.js"></script>
+  <script src="/module-nav.js"></script>
+  <script src="/warroom-snake.js"></script>
+  <script src="/warroom-availability.js"></script>
+  <style>
+    /* --- On-the-clock banner: the one thing readable across a room --- */
+    .clock {
+      display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px;
+      padding: 12px 14px; border-radius: var(--radius);
+      background: var(--surface); border: 1px solid var(--border); margin-bottom: 12px;
+    }
+    .clock .now { font-size: 1.6rem; font-weight: 700; letter-spacing: .5px; }
+    .clock .who { color: var(--text-dim); font-size: .9rem; }
+    .clock .mine { color: var(--accent-strong); font-weight: 600; }
+    .sync { margin-left: auto; font-size: .75rem; color: var(--text-dim); white-space: nowrap; }
+    .sync.stale { color: var(--warn-text); }
+
+    /* --- Search + results --- */
+    .search-results { margin-top: 8px; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .search-results:empty { display: none; }
+    .hit {
+      display: flex; align-items: center; gap: 10px; width: 100%;
+      padding: 12px 12px; border: none; border-bottom: 1px solid var(--border);
+      background: var(--surface); color: var(--text-body); text-align: left;
+      border-radius: 0; font-size: .95rem; cursor: pointer;
+    }
+    .hit:last-child { border-bottom: none; }
+    .hit:hover, .hit:focus { background: var(--chip); filter: none; }
+    .hit .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hit.typed { color: var(--text-dim); font-style: italic; }
+    .editing-banner { padding: 8px 12px; border-radius: var(--radius); background: var(--chip); border: 1px solid var(--accent); margin-bottom: 8px; }
+
+    /* --- Recent picks --- */
+    .recent { list-style: none; padding: 0; margin: 0; }
+    .recent li { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--border); }
+    .recent .num { font-variant-numeric: tabular-nums; color: var(--text-dim); font-size: .8rem; min-width: 42px; }
+    .recent .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .recent button { padding: 4px 10px; font-size: .78rem; }
+
+    /* --- The board grid --- */
+    .board-scroll { overflow-x: auto; padding-bottom: 6px; }
+    .board { display: grid; gap: 3px; min-width: max-content; }
+    .bcell {
+      border: 1px solid var(--border); border-radius: 6px; padding: 5px 6px;
+      background: var(--surface); min-height: 46px; width: 104px;
+      font-size: .72rem; line-height: 1.25; overflow: hidden; cursor: pointer;
+      text-align: left; color: var(--text-body);
+    }
+    .bcell:hover { filter: none; background: var(--chip); }
+    .bcell.empty { background: transparent; border-style: dashed; cursor: default; }
+    .bcell.onclock { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+    .bcell.needs-review { border-color: var(--warn-border); }
+    .bcell .bname { font-weight: 600; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bcell .bmeta { color: var(--text-dim); font-size: .68rem; }
+    .bhead {
+      width: 104px; font-size: .72rem; font-weight: 600; color: var(--text-dim);
+      text-align: center; padding: 3px 0; white-space: nowrap;
+    }
+    .bhead.mine { color: var(--accent-strong); }
+    .bround { font-size: .7rem; color: var(--text-dim); align-self: center; padding-right: 4px; text-align: right; min-width: 26px; }
+    /* My column, so the owner can find his own picks at a glance. The class sits
+       on the cell itself — these are grid children, there is no column wrapper. */
+    .bcell.col-mine { border-color: var(--border-strong); background: var(--surface-2); }
+    .bcell.empty.col-mine { background: var(--chip); border-style: dashed; }
+
+    /* --- Cheat sheet --- */
+    .sheet-row { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-bottom: 1px solid var(--border); }
+    .sheet-row.gone { opacity: .4; }
+    .sheet-row.gone .sname { text-decoration: line-through; }
+    .sheet-row .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sheet-row .num { font-variant-numeric: tabular-nums; color: var(--text-dim); font-size: .8rem; min-width: 30px; text-align: right; }
+    .avail { font-variant-numeric: tabular-nums; font-size: .78rem; min-width: 46px; text-align: right; }
+    .avail.low { color: var(--error-text); }
+    .avail.mid { color: var(--warn-text); }
+    .avail.high { color: var(--ok-text); }
+
+    /* --- Board check --- */
+    .finding { display: flex; align-items: baseline; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--border); }
+    .finding .where { font-variant-numeric: tabular-nums; color: var(--text-dim); font-size: .78rem; min-width: 56px; }
+    .finding .grow { min-width: 0; }
+    .finding .said { font-size: .8rem; color: var(--text-dim); }
+    .verdict-group { margin-bottom: 14px; }
+    .verdict-group h4 { margin: 12px 0 4px; font-size: .9rem; }
+    .verdict-group .muted.small { margin: 0 0 4px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">All<em>22</em></span>
+    <a href="/">Hub</a>
+    <a href="/combine.html">Combine</a>
+    <a href="/myrankings.html">My Rankings</a>
+    <a href="/boards.html">Big Board</a>
+    <a href="/auction.html">War Chest</a>
+    <a href="/drafts.html">Playbook</a>
+    <a href="/adp.html">Edge Rush</a>
+    <a href="/warroom.html" class="active">War Room</a>
+    <a href="/players.html">Player DB</a>
+    <a href="/notes.html">Notes</a>
+    <a href="/wire.html">The Wire</a>
+    <a href="/settings.html">Settings</a>
+    <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
+  </nav>
+  <div id="error-banner"></div>
+  <main>
+    <div class="row" style="align-items:baseline;gap:10px">
+      <h1 style="margin:0">War Room</h1>
+      <span id="draft-meta" class="muted small"></span>
+      <span class="sync" id="sync-note"></span>
+    </div>
+
+    <div class="clock" id="clock">
+      <span class="now" id="clock-now">—</span>
+      <span class="who" id="clock-who"></span>
+      <span class="mine" id="clock-mine"></span>
+    </div>
+
+    <div class="tabs">
+      <button id="tab-record-btn" class="active" data-panel="record">Record</button>
+      <button id="tab-board-btn" data-panel="board">Board</button>
+      <button id="tab-sheet-btn" data-panel="sheet">Cheat sheet</button>
+      <button id="tab-verify-btn" data-panel="verify">Check board</button>
+    </div>
+
+    <!-- ============================ RECORD ============================ -->
+    <section id="panel-record">
+      <div class="card">
+        <div id="editing-banner" class="editing-banner" hidden></div>
+        <label>
+          <span class="field-label" id="search-label">Who was just picked?</span>
+          <input id="search" placeholder="Start typing a name…" autocomplete="off" autocapitalize="words">
+        </label>
+        <div class="search-results" id="search-results"></div>
+        <p class="muted small" id="search-hint" style="margin-top:8px">Tap a player to record him at the pick shown above.</p>
+      </div>
+
+      <div class="card">
+        <div class="row" style="align-items:baseline">
+          <h3 style="margin:0">Recent picks</h3>
+          <button id="undo-btn" class="secondary" style="margin-left:auto">Undo last</button>
+        </div>
+        <ul class="recent" id="recent-list"></ul>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <span class="muted small grow" id="finish-note"></span>
+          <button id="finish-btn" class="secondary">Finish draft</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================= BOARD ============================= -->
+    <section id="panel-board" hidden>
+      <div class="card">
+        <p class="muted small" style="margin-top:0">Columns are draft slots, rows are rounds — the same shape as the board on the wall. Tap any pick to fix or remove it. Amber means the name never matched a player in the registry.</p>
+        <div class="board-scroll"><div class="board" id="board"></div></div>
+      </div>
+    </section>
+
+    <!-- ============================= SHEET ============================= -->
+    <section id="panel-sheet" hidden>
+      <div class="card">
+        <div class="row" style="align-items:center">
+          <span class="chip-row" id="pos-chips"></span>
+          <label class="row small" style="margin-left:auto;gap:6px;align-items:center">
+            <input type="checkbox" id="hide-gone" checked style="width:auto"> <span class="muted">Hide drafted</span>
+          </label>
+        </div>
+        <p class="muted small" id="sheet-note" style="margin-bottom:0"></p>
+      </div>
+      <div class="card">
+        <div id="sheet-list"><div class="muted">Loading…</div></div>
+      </div>
+    </section>
+
+    <!-- ============================= VERIFY ============================= -->
+    <section id="panel-verify" hidden>
+      <div class="card">
+        <h3 style="margin-top:0">Check the board</h3>
+        <p class="muted small">Photograph the board on the wall and I'll compare it against what's been recorded. The board is the truth — this only reports what disagrees, it never changes a pick. Take several photos if the whole board won't fit in one legible shot; they add up.</p>
+        <input id="photo-input" type="file" accept="image/*" capture="environment" multiple>
+        <div id="photo-chips" class="chip-row section-gap"></div>
+        <div class="row section-gap">
+          <button id="verify-run" disabled>Compare with recorded picks</button>
+          <button id="verify-clear" class="secondary">Start over</button>
+          <span id="verify-status" class="muted small"></span>
+        </div>
+      </div>
+      <div class="card" id="verify-report-card" hidden>
+        <div id="verify-summary"></div>
+        <div id="verify-findings"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+  (function () {
+    'use strict';
+
+    var SN = window.WarRoomSnake;
+    // How often each phone asks "anything new?". Owner-editable on the War Room
+    // page (settings key warroom.poll_ms); this is the documented default.
+    var POLL_MS = 2500;
+
+    var state = {
+      id: null,
+      version: -1,
+      draft: null,
+      picks: [],
+      editingPickId: null,   // set while fixing an existing pick
+      pendingDupName: '',    // a name the server flagged as a duplicate; tap again to force
+      lastSync: null,
+      sheet: null,           // cheat-sheet rows, loaded once per draft
+      sheetNote: '',
+      posFilter: '',
+      panel: 'record',
+    };
+
+    function el(tag, className, text) {
+      var n = document.createElement(tag);
+      if (className) n.className = className;
+      if (text != null) n.textContent = text;
+      return n;
+    }
+    function posBadge(pos) { return el('span', 'pos-badge' + (pos ? ' pos-' + pos : ''), pos || '—'); }
+    function recorder() { return localStorage.getItem('warroom_recorder') || ''; }
+
+    // ---------------------------------------------------------------- derived
+    function teams() { return state.draft ? state.draft.teams : 12; }
+    function rounds() { return state.draft ? state.draft.rounds : 15; }
+    function takenOveralls() { return new Set(state.picks.map(function (p) { return p.overall_pick; })); }
+    function onClock() { return SN.nextOpenOverall(takenOveralls(), teams(), rounds()); }
+    function pickByOverall(o) {
+      for (var i = 0; i < state.picks.length; i++) if (state.picks[i].overall_pick === o) return state.picks[i];
+      return null;
+    }
+    function draftedPlayerIds() {
+      var s = new Set();
+      state.picks.forEach(function (p) { if (p.player_id) s.add(p.player_id); });
+      return s;
+    }
+
+    // ------------------------------------------------------------- rendering
+    function renderClock() {
+      var o = onClock();
+      var meta = state.draft
+        ? teams() + ' teams · ' + rounds() + ' rounds · you are slot ' + state.draft.my_slot +
+          (state.draft.status === 'live' ? '' : ' · finished')
+        : '';
+      $('draft-meta').textContent = meta;
+
+      if (!o) {
+        $('clock-now').textContent = 'Board full';
+        $('clock-who').textContent = state.picks.length + ' picks recorded';
+        $('clock-mine').textContent = '';
+        return;
+      }
+      var spot = SN.overallToSlot(o, teams());
+      $('clock-now').textContent = 'Pick ' + SN.pickLabel(o, teams());
+      $('clock-who').textContent = 'overall ' + o + ' · team ' + spot.slot;
+
+      var next = SN.myNextPick(o - 1, state.draft.my_slot, teams(), rounds());
+      if (next === o) {
+        $('clock-mine').textContent = "★ You're on the clock";
+      } else if (next) {
+        $('clock-mine').textContent = 'Your next: ' + SN.pickLabel(next, teams()) + ' (' + (next - o) + ' away)';
+      } else {
+        $('clock-mine').textContent = 'No picks left for you';
+      }
+    }
+
+    function renderSync() {
+      var note = $('sync-note');
+      if (!state.lastSync) { note.textContent = ''; return; }
+      var age = Math.round((Date.now() - state.lastSync) / 1000);
+      note.textContent = age < 8 ? 'synced' : 'synced ' + timeAgo(new Date(state.lastSync).toISOString());
+      note.classList.toggle('stale', age > 20);
+    }
+
+    function renderRecent() {
+      var list = $('recent-list');
+      list.textContent = '';
+      var recent = state.picks.slice().sort(function (a, b) { return b.overall_pick - a.overall_pick; }).slice(0, 8);
+      if (!recent.length) {
+        list.appendChild(el('li', 'muted', 'Nothing recorded yet.'));
+      }
+      recent.forEach(function (p) {
+        var li = el('li');
+        li.appendChild(el('span', 'num', SN.pickLabel(p.overall_pick, teams())));
+        li.appendChild(posBadge(p.position));
+        var name = el('span', 'grow');
+        name.appendChild(el('strong', null, p.name || p.player_name));
+        var bits = [];
+        if (p.nfl_team) bits.push(p.nfl_team);
+        if (p.recorded_by) bits.push('by ' + p.recorded_by);
+        if (!p.player_id) bits.push('unmatched');
+        if (bits.length) name.appendChild(el('div', 'raw-note', bits.join(' · ')));
+        li.appendChild(name);
+        var fix = el('button', 'secondary', 'Fix');
+        fix.addEventListener('click', function () { startEdit(p); });
+        li.appendChild(fix);
+        var del = el('button', 'secondary', '✕');
+        del.addEventListener('click', function () { removePick(p); });
+        li.appendChild(del);
+        list.appendChild(li);
+      });
+      $('undo-btn').disabled = !state.picks.length || state.draft.status !== 'live';
+    }
+
+    function renderBoard() {
+      var board = $('board');
+      board.textContent = '';
+      var t = teams(), r = rounds(), clock = onClock();
+      board.style.gridTemplateColumns = '26px repeat(' + t + ', 104px)';
+
+      board.appendChild(el('div'));                       // corner
+      for (var s = 1; s <= t; s++) {
+        var h = el('div', 'bhead' + (s === state.draft.my_slot ? ' mine' : ''), 'Team ' + s);
+        board.appendChild(h);
+      }
+      for (var round = 1; round <= r; round++) {
+        board.appendChild(el('div', 'bround', String(round)));
+        for (var slot = 1; slot <= t; slot++) {
+          board.appendChild(boardCell(round, slot, t, clock));
+        }
+      }
+    }
+
+    function boardCell(round, slot, t, clock) {
+      var overall = SN.slotToOverall(round, slot, t);
+      var pick = pickByOverall(overall);
+      var mine = slot === state.draft.my_slot ? ' col-mine' : '';
+      if (!pick) {
+        var empty = el('div', 'bcell empty' + mine + (overall === clock ? ' onclock' : ''));
+        empty.appendChild(el('span', 'bmeta', SN.pickLabel(overall, t)));
+        return empty;
+      }
+      var cell = el('button', 'bcell' + mine + (pick.player_id ? '' : ' needs-review'));
+      cell.appendChild(el('span', 'bname', pick.name || pick.player_name));
+      cell.appendChild(el('span', 'bmeta',
+        (pick.position || '?') + (pick.nfl_team ? ' · ' + pick.nfl_team : '') + ' · ' + SN.pickLabel(overall, t)));
+      cell.addEventListener('click', function () { startEdit(pick); });
+      return cell;
+    }
+
+    function render() {
+      renderClock();
+      renderSync();
+      renderRecent();
+      if (state.panel === 'board') renderBoard();
+      if (state.panel === 'sheet') renderSheet();
+      $('finish-note').textContent = state.draft.status === 'live'
+        ? 'Finishing moves this draft into Playbook for analysis. You can reopen it.'
+        : 'This draft is finished.';
+      $('finish-btn').textContent = state.draft.status === 'live' ? 'Finish draft' : 'Reopen draft';
+    }
+
+    // ------------------------------------------------------------- searching
+    var searchTimer = null;
+    $('search').addEventListener('input', function () {
+      clearTimeout(searchTimer);
+      state.pendingDupName = '';
+      var q = $('search').value.trim();
+      if (q.length < 2) { $('search-results').textContent = ''; return; }
+      searchTimer = setTimeout(function () { runSearch(q); }, 220);
+    });
+
+    function runSearch(q) {
+      apiFetch('/api/boards/players?q=' + encodeURIComponent(q)).then(function (hits) {
+        if ($('search').value.trim() !== q) return;      // a newer keystroke won
+        renderHits(q, hits || []);
+      }).catch(function () { /* banner shown */ });
+    }
+
+    function renderHits(q, hits) {
+      var wrap = $('search-results');
+      wrap.textContent = '';
+      var gone = draftedPlayerIds();
+      hits.forEach(function (p) {
+        var b = el('button', 'hit');
+        b.appendChild(posBadge(p.position));
+        var label = el('span', 'grow');
+        label.appendChild(el('strong', null, p.name));
+        if (p.team) label.appendChild(el('span', 'muted small', '  ' + p.team));
+        label.appendChild(el('span', 'muted small', gone.has(p.player_id) ? '  · already drafted' : ''));
+        b.appendChild(label);
+        b.addEventListener('click', function () { submitPlayer({ player_id: p.player_id }, p.name); });
+        wrap.appendChild(b);
+      });
+      // Never silently guess: a name the registry doesn't know is recorded as
+      // typed and stays visibly unmatched until someone fixes it.
+      var typed = el('button', 'hit typed');
+      typed.appendChild(el('span', 'grow', 'Not listed — record “' + q + '” as typed'));
+      typed.addEventListener('click', function () { submitPlayer({ name: q }, q); });
+      wrap.appendChild(typed);
+    }
+
+    // ------------------------------------------------------------- mutations
+    function applyState(data) {
+      if (!data) return;
+      if (data.unchanged) { state.lastSync = Date.now(); renderSync(); return; }
+      state.version = data.version;
+      state.draft = data.draft;
+      state.picks = data.picks;
+      state.lastSync = Date.now();
+      render();
+    }
+
+    function clearSearch() {
+      $('search').value = '';
+      $('search-results').textContent = '';
+      state.pendingDupName = '';
+    }
+
+    function submitPlayer(identity, displayName) {
+      clearError();
+      if (state.draft.status !== 'live') { showError('This draft is finished — reopen it to record more picks.'); return; }
+      var body = Object.assign({}, identity, { recorded_by: recorder() });
+      // A second tap on the same name after a duplicate warning means "yes, really".
+      if (state.pendingDupName && state.pendingDupName === displayName) body.force = true;
+
+      var req;
+      if (state.editingPickId) {
+        req = apiPost('/api/warroom/drafts/' + state.id + '/picks/' + state.editingPickId, body, 'PUT');
+      } else {
+        body.expected_overall = onClock();
+        req = apiPost('/api/warroom/drafts/' + state.id + '/picks', body);
+      }
+      req.then(function (data) {
+        var wasEdit = !!state.editingPickId;
+        cancelEdit();
+        clearSearch();
+        applyState(data);
+        toast(wasEdit ? 'Pick updated' : displayName + ' — ' +
+          (data.recorded ? SN.pickLabel(data.recorded.overall_pick, teams()) : 'recorded'));
+        $('search').focus();
+      }).catch(function (err) {
+        // A conflict carries the authoritative state: show it immediately so the
+        // board is right even though this tap failed.
+        if (err && err.data) applyState(err.data);
+        state.pendingDupName = displayName;
+      });
+    }
+
+    function startEdit(pick) {
+      state.editingPickId = pick.id;
+      state.pendingDupName = '';
+      var banner = $('editing-banner');
+      banner.textContent = '';
+      banner.hidden = false;
+      banner.appendChild(el('span', null, 'Fixing pick ' + SN.pickLabel(pick.overall_pick, teams()) +
+        ' — currently “' + (pick.name || pick.player_name) + '”. '));
+      var cancel = el('button', 'secondary', 'Cancel');
+      cancel.style.padding = '3px 10px';
+      cancel.addEventListener('click', cancelEdit);
+      banner.appendChild(cancel);
+      $('search-label').textContent = 'Who should be at ' + SN.pickLabel(pick.overall_pick, teams()) + '?';
+      showPanel('record');
+      clearSearch();
+      $('search').focus();
+    }
+
+    function cancelEdit() {
+      state.editingPickId = null;
+      $('editing-banner').hidden = true;
+      $('search-label').textContent = 'Who was just picked?';
+    }
+
+    function removePick(pick) {
+      if (!confirm('Remove ' + (pick.name || pick.player_name) + ' from pick ' +
+          SN.pickLabel(pick.overall_pick, teams()) + '?')) return;
+      apiPost('/api/warroom/drafts/' + state.id + '/picks/' + pick.id, null, 'DELETE')
+        .then(function (data) { cancelEdit(); applyState(data); toast('Pick removed'); })
+        .catch(function (err) { if (err && err.data) applyState(err.data); });
+    }
+
+    $('undo-btn').addEventListener('click', function () {
+      if (!state.picks.length) return;
+      var last = state.picks.slice().sort(function (a, b) { return b.overall_pick - a.overall_pick; })[0];
+      removePick(last);
+    });
+
+    $('finish-btn').addEventListener('click', function () {
+      var live = state.draft.status === 'live';
+      if (live && !confirm('Finish this draft? It moves into Playbook for analysis — you can reopen it.')) return;
+      apiPost('/api/warroom/drafts/' + state.id + (live ? '/finish' : '/reopen'), {})
+        .then(function (data) { applyState(data); toast(live ? 'Draft finished' : 'Draft reopened'); })
+        .catch(function () { /* banner shown */ });
+    });
+
+    // ------------------------------------------------------------------ tabs
+    var PANELS = ['record', 'board', 'sheet', 'verify'];
+    function showPanel(name) {
+      state.panel = name;
+      PANELS.forEach(function (p) {
+        $('panel-' + p).hidden = (p !== name);
+        $('tab-' + p + '-btn').classList.toggle('active', p === name);
+      });
+      if (name === 'board') renderBoard();
+      if (name === 'sheet') { loadSheet(); renderSheet(); }
+    }
+    PANELS.forEach(function (p) {
+      $('tab-' + p + '-btn').addEventListener('click', function () { showPanel(p); });
+    });
+
+    // ----------------------------------------------------------- cheat sheet
+    function loadSheet() {
+      if (state.sheet) return;                      // rankings don't change mid-draft
+      apiFetch('/api/warroom/drafts/' + state.id + '/cheatsheet').then(function (data) {
+        state.sheet = data.rows || [];
+        state.sheetNote = data.note || '';
+        renderSheet();
+      }).catch(function () { state.sheet = []; renderSheet(); });
+    }
+
+    function renderPosChips() {
+      var wrap = $('pos-chips');
+      if (wrap.childNodes.length) return;
+      ['', 'QB', 'RB', 'WR', 'TE', 'K', 'DST'].forEach(function (pos) {
+        var b = el('button', 'chip-btn' + (pos === state.posFilter ? ' on' : ''), pos || 'All');
+        b.addEventListener('click', function () {
+          state.posFilter = pos;
+          Array.prototype.forEach.call(wrap.children, function (c) { c.classList.remove('on'); });
+          b.classList.add('on');
+          renderSheet();
+        });
+        wrap.appendChild(b);
+      });
+    }
+
+    function renderSheet() {
+      renderPosChips();
+      var wrap = $('sheet-list');
+      if (!state.sheet) { wrap.textContent = ''; wrap.appendChild(el('div', 'muted', 'Loading…')); return; }
+      $('sheet-note').textContent = state.sheetNote;
+      if (!state.sheet.length) {
+        wrap.textContent = '';
+        wrap.appendChild(el('div', 'muted',
+          'No cheat sheet for this draft — start a draft with a saved My Rankings run to get one.'));
+        return;
+      }
+      var gone = draftedPlayerIds();
+      var clock = onClock();
+      var myNext = clock ? SN.myNextPick(clock - 1, state.draft.my_slot, teams(), rounds()) : null;
+      var hideGone = $('hide-gone').checked;
+
+      wrap.textContent = '';
+      var shown = 0;
+      for (var i = 0; i < state.sheet.length && shown < 200; i++) {
+        var p = state.sheet[i];
+        var isGone = gone.has(p.player_id);
+        if (hideGone && isGone) continue;
+        if (state.posFilter && p.position !== state.posFilter) continue;
+        shown++;
+        var row = el('div', 'sheet-row' + (isGone ? ' gone' : ''));
+        row.appendChild(el('span', 'num', String(p.rank)));
+        row.appendChild(posBadge(p.position));
+        var label = el('span', 'grow');
+        label.appendChild(el('span', 'sname', p.name));
+        var meta = [];
+        if (p.team) meta.push(p.team);
+        if (p.adp) meta.push('ADP ' + p.adp.toFixed(1));
+        if (meta.length) label.appendChild(el('div', 'raw-note', meta.join(' · ')));
+        row.appendChild(label);
+        row.appendChild(availCell(p, myNext, isGone));
+        wrap.appendChild(row);
+      }
+      if (!shown) wrap.appendChild(el('div', 'muted', 'Nobody left matching that filter.'));
+    }
+
+    function availCell(p, myNext, isGone) {
+      if (isGone || !myNext || !window.WarRoomAvailability) return el('span', 'avail', '');
+      var pct = window.WarRoomAvailability.pctAvailable(p.adp, p.stdev, myNext, { high: p.high, low: p.low });
+      if (pct === null) return el('span', 'avail muted', '—');
+      var cls = pct < 25 ? 'low' : (pct < 65 ? 'mid' : 'high');
+      var cell = el('span', 'avail ' + cls, Math.round(pct) + '%');
+      cell.title = 'Chance he is still there at your next pick (' + SN.pickLabel(myNext, teams()) + ')';
+      return cell;
+    }
+    $('hide-gone').addEventListener('change', renderSheet);
+
+    // --------------------------------------------------------- board check
+    // Photos are read one at a time and their cells accumulate, so a board too
+    // big for one legible frame can be covered in sections (Combine's
+    // multi-screenshot pattern).
+    var photos = { pending: [], cells: [], read: 0 };
+
+    // The API caps an image at 5MB, and a modern phone camera blows past that.
+    // Draw it down to a sane width and re-encode as JPEG before upload.
+    function downscale(file) {
+      return new Promise(function (resolve, reject) {
+        var reader = new FileReader();
+        reader.onerror = function () { reject(new Error('Could not read that photo.')); };
+        reader.onload = function () {
+          var img = new Image();
+          img.onerror = function () { reject(new Error('That file is not an image.')); };
+          img.onload = function () {
+            var MAX = 2000;                       // plenty for reading stickers
+            var scale = Math.min(1, MAX / Math.max(img.width, img.height));
+            var c = document.createElement('canvas');
+            c.width = Math.round(img.width * scale);
+            c.height = Math.round(img.height * scale);
+            c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+            resolve(c.toDataURL('image/jpeg', 0.9));
+          };
+          img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function renderPhotoChips() {
+      var wrap = $('photo-chips');
+      wrap.textContent = '';
+      photos.pending.forEach(function (p) {
+        wrap.appendChild(el('span', 'pill' + (p.done ? ' ok' : ''), p.name + (p.done ? ' · ' + p.cells + ' cells' : ' · waiting')));
+      });
+      $('verify-run').disabled = !photos.pending.length;
+    }
+
+    $('photo-input').addEventListener('change', async function (ev) {
+      var files = Array.prototype.slice.call(ev.target.files || []);
+      for (var i = 0; i < files.length; i++) {
+        photos.pending.push({ name: files[i].name || ('photo ' + (photos.pending.length + 1)), file: files[i], done: false, cells: 0 });
+      }
+      ev.target.value = '';
+      renderPhotoChips();
+    });
+
+    $('verify-clear').addEventListener('click', function () {
+      photos = { pending: [], cells: [], read: 0 };
+      renderPhotoChips();
+      $('verify-report-card').hidden = true;
+      $('verify-status').textContent = '';
+    });
+
+    $('verify-run').addEventListener('click', async function () {
+      clearError();
+      $('verify-run').disabled = true;
+      try {
+        for (var i = 0; i < photos.pending.length; i++) {
+          var p = photos.pending[i];
+          if (p.done) continue;
+          $('verify-status').textContent = 'Reading photo ' + (i + 1) + ' of ' + photos.pending.length + '…';
+          var dataUrl = await downscale(p.file);
+          var out = await apiPost('/api/warroom/drafts/' + state.id + '/verify-photo', { image: dataUrl });
+          photos.cells = photos.cells.concat(out.cells || []);
+          p.done = true;
+          p.cells = (out.cells || []).length;
+          if (out.note) toast(out.note);
+          renderPhotoChips();
+        }
+        $('verify-status').textContent = 'Comparing…';
+        var rep = await apiPost('/api/warroom/drafts/' + state.id + '/verify-report', { cells: photos.cells });
+        renderReport(rep);
+        $('verify-status').textContent = '';
+      } catch (e) {
+        $('verify-status').textContent = '';
+      }
+      $('verify-run').disabled = !photos.pending.length;
+    });
+
+    var VERDICTS = [
+      { key: 'mismatch', title: 'Different player on the board', help: 'The board says someone else here. The board wins — fix the pick.' },
+      { key: 'missing_from_app', title: 'On the board, not recorded', help: 'A pick nobody entered. Reopen the draft if it is finished, then record it.' },
+      { key: 'unreadable', title: 'Could not read', help: 'Writing is there but not legible — check these squares by eye, or photograph them closer.' },
+      { key: 'unplaced', title: 'Could not place on the grid', help: 'Read a name but not which square it was in — usually the row/column headers were out of frame.' },
+      { key: 'missing_from_board', title: 'Recorded, not seen in a photo', help: 'Probably just not photographed. Only worth a look if you think you covered the whole board.' },
+      { key: 'ok', title: 'Agree', help: '' },
+    ];
+
+    function renderReport(rep) {
+      var card = $('verify-report-card');
+      card.hidden = false;
+      var s = rep.summary;
+      var sum = $('verify-summary');
+      sum.textContent = '';
+      var headline = s.problems
+        ? s.problems + (s.problems === 1 ? ' thing to look at' : ' things to look at')
+        : 'Everything the photos showed matches what was recorded';
+      sum.appendChild(el('h3', null, headline));
+      sum.appendChild(el('p', 'muted small',
+        'Read ' + s.cells_seen + ' squares from the board · ' + s.picks_recorded + ' picks recorded · ' +
+        s.ok + ' agree'));
+
+      var wrap = $('verify-findings');
+      wrap.textContent = '';
+      VERDICTS.forEach(function (v) {
+        var rows = rep.findings.filter(function (f) { return f.verdict === v.key; });
+        if (!rows.length) return;
+        // "Agree" is a count, not a list — nobody reads 180 rows of good news.
+        if (v.key === 'ok') {
+          wrap.appendChild(el('p', 'muted small', rows.length + ' squares agree with the recorded picks.'));
+          return;
+        }
+        var group = el('div', 'verdict-group');
+        group.appendChild(el('h4', null, v.title + ' (' + rows.length + ')'));
+        if (v.help) group.appendChild(el('p', 'muted small', v.help));
+        rows.forEach(function (f) { group.appendChild(findingRow(f)); });
+        wrap.appendChild(group);
+      });
+    }
+
+    function findingRow(f) {
+      var row = el('div', 'finding');
+      row.appendChild(el('span', 'where', f.round ? (f.round + '.' + (f.slot < 10 ? '0' : '') + f.slot) : '—'));
+      var body = el('span', 'grow');
+      if (f.verdict === 'mismatch') {
+        body.appendChild(el('div', null, 'Board: ' + f.board_name));
+        body.appendChild(el('div', 'said', 'Recorded: ' + f.app_name));
+      } else if (f.verdict === 'missing_from_app') {
+        body.appendChild(el('div', null, f.board_name));
+        if (f.board_suggestion) body.appendChild(el('div', 'said', 'possibly ' + f.board_suggestion + ' — unconfirmed'));
+      } else if (f.verdict === 'missing_from_board') {
+        body.appendChild(el('div', null, f.app_name));
+      } else {
+        body.appendChild(el('div', null, f.board_name || '(illegible)'));
+        if (f.app_name) body.appendChild(el('div', 'said', 'Recorded here: ' + f.app_name));
+      }
+      if (f.photo_conflict) {
+        body.appendChild(el('div', 'said', 'Another photo read this square as “' + f.photo_conflict + '”'));
+      }
+      row.appendChild(body);
+      // Jump straight to fixing the pick this finding is about.
+      if (f.pick_id) {
+        var fix = el('button', 'secondary', 'Fix');
+        fix.addEventListener('click', function () {
+          var p = null;
+          for (var i = 0; i < state.picks.length; i++) if (state.picks[i].id === f.pick_id) p = state.picks[i];
+          if (p) startEdit(p); else toast('That pick is gone — refresh the board.');
+        });
+        row.appendChild(fix);
+      }
+      return row;
+    }
+
+    // ------------------------------------------------------------ sync loop
+    function poll() {
+      if (document.hidden || !state.id) return;
+      apiFetch('/api/warroom/drafts/' + state.id + '/state?since=' + state.version)
+        .then(applyState)
+        .catch(function () { /* banner shown; the next tick retries */ });
+    }
+
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) poll();                 // a locked phone catches up instantly
+    });
+
+    function boot() {
+      state.id = parseInt(String(location.hash || '').replace('#', ''), 10);
+      if (!Number.isFinite(state.id)) {
+        showError('No draft chosen — pick one from the War Room list.');
+        return;
+      }
+      apiFetch('/api/settings').then(function (s) {
+        var ms = Number(s && s['warroom.poll_ms']);
+        if (ms >= 1000 && ms <= 60000) POLL_MS = ms;
+      }).catch(function () { /* the default stands */ }).then(function () {
+        return apiFetch('/api/warroom/drafts/' + state.id + '/state');
+      }).then(function (data) {
+        applyState(data);
+        $('search').focus();
+        setInterval(poll, POLL_MS);
+        setInterval(renderSync, 5000);
+      }).catch(function () { /* banner shown */ });
+    }
+
+    boot();
+  })();
+  </script>
+</body>
+</html>

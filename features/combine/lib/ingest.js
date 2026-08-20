@@ -1,6 +1,7 @@
 // ingest.js — the one matching pipeline every Combine input goes through.
 // Rows can come from Claude vision, Tesseract-OCR'd text, or a paste; by the
-// time they're here they look like [{ rank?, name, position?, team? }].
+// time they're here they look like
+// [{ rank?, name, position?, team?, auction_value?, notes? }].
 //
 // Pure logic: takes the players_master name index as an argument so it's
 // testable without a database. Never guesses silently — every output row
@@ -21,6 +22,9 @@ function matchRow(raw, index) {
   const rawName = String(raw.name || '').trim();
   const rawPosition = String(raw.position || '').toUpperCase().replace(/\./g, '');
   const rawTeam = String(raw.team || '').toUpperCase().replace(/\./g, '');
+  // Optional free-text note captured alongside the player (a source's comment
+  // column, or the owner's own). Kept verbatim; NULL when there is none.
+  const notes = String(raw.notes == null ? '' : raw.notes).trim() || null;
   // Optional captured auction value (kept verbatim; NULL when the source has none).
   const auctionValue = (raw.auction_value === null || raw.auction_value === undefined ||
     raw.auction_value === '' || !Number.isFinite(Number(raw.auction_value)))
@@ -51,6 +55,7 @@ function matchRow(raw, index) {
     position: (hit && hit.position) || (dstAbbr ? 'DST' : rawPosition),
     team: (hit && hit.team) || (dstAbbr ? dstAbbr : rawTeam),
     auction_value: auctionValue,
+    notes,
     confidence: hit ? confidence : 'none',
     via: m.via,
   };

@@ -4,7 +4,7 @@
 // normalize to the same name aren't collapsed).
 const test = require('node:test');
 const assert = require('node:assert');
-const { parse } = require('./rankings');
+const { parse, looksTabular } = require('./rankings');
 
 test('parses space-delimited "rank name POS TEAM" rows in list order', () => {
   const { players: out } = parse('1 Bijan Robinson RB ATL\n2 Justin Jefferson WR MIN');
@@ -105,4 +105,51 @@ test('pastes without headers keep working exactly as before', () => {
   const { players: out, position_blocks } = parse('1 Bijan Robinson RB ATL\n2 Justin Jefferson WR MIN');
   assert.deepEqual(out.map((p) => p.position), ['RB', 'WR']);
   assert.deepEqual(position_blocks, []);
+});
+
+test('a spreadsheet paste (tab-separated columns) strips rank, bye and $ off the name', () => {
+  const text = [
+    'OVERALL\tNAME\tPosition\tTeam\tBYE\t$$$',
+    '1\tJahmyr Gibbs\tRB\tDET\t6\t$60 ',
+    '2\tBijan Robinson\tRB\tATL\t11\t$59 ',
+    "4\tJa'Marr Chase\tWR\tCIN\t6\t$54 ",
+    '6\tAmon-Ra St. Brown\tWR\tDET\t6\t$47 ',
+  ].join('\n');
+  const { players: out, unparsed } = parse(text);
+  assert.deepEqual(out.map((p) => p.name),
+    ['Jahmyr Gibbs', 'Bijan Robinson', "Ja'Marr Chase", 'Amon-Ra St. Brown']);
+  assert.deepEqual(out.map((p) => p.position), ['RB', 'RB', 'WR', 'WR']);
+  assert.deepEqual(out.map((p) => p.team), ['DET', 'ATL', 'CIN', 'DET']);
+  assert.deepEqual(out.map((p) => p.auction_value), [60, 59, 54, 47]);
+  // Rank is list order, not the printed OVERALL column (which skips 3 and 5).
+  assert.deepEqual(out.map((p) => p.rank), [1, 2, 3, 4]);
+  assert.deepEqual(unparsed, []);
+});
+
+test('a spreadsheet paste with no header row still finds the columns', () => {
+  const { players: out } = parse('1\tJahmyr Gibbs\tRB\tDET\t6\t$60\n2\tBijan Robinson\tRB\tATL\t11\t$59');
+  assert.deepEqual(out.map((p) => p.name), ['Jahmyr Gibbs', 'Bijan Robinson']);
+  assert.deepEqual(out.map((p) => p.team), ['DET', 'ATL']);
+  assert.deepEqual(out.map((p) => p.auction_value), [60, 59]);
+});
+
+test('a notes column rides along with the player', () => {
+  const text = [
+    'Rank\tPlayer\tPos\tTeam\tNotes',
+    '1\tJahmyr Gibbs\tRB\tDET\tElite dual-threat, locked top pick',
+    '2\tBijan Robinson\tRB\tATL\t',
+  ].join('\n');
+  const { players: out } = parse(text);
+  assert.equal(out[0].notes, 'Elite dual-threat, locked top pick');
+  assert.equal(out[1].notes, null);
+});
+
+test('a trailing bye week no longer glues itself to the name', () => {
+  const { players: out } = parse('1 Jahmyr Gibbs RB DET 6\n2 Bijan Robinson RB ATL 11');
+  assert.deepEqual(out.map((p) => p.name), ['Jahmyr Gibbs', 'Bijan Robinson']);
+});
+
+test('looksTabular only fires on genuinely tab-separated pastes', () => {
+  assert.equal(looksTabular('1 Bijan Robinson RB ATL\n2 Justin Jefferson WR MIN'), false);
+  assert.equal(looksTabular('1\tBijan Robinson\tATL\n2\tJustin Jefferson\tMIN'), true);
 });

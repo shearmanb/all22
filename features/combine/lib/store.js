@@ -50,10 +50,11 @@ function positionKey(pos) {
 // Insert one matched row's raw + (when resolved) normalized records.
 async function insertRow(client, setId, row) {
   const { rows } = await client.query(
-    `INSERT INTO rankings_raw (set_id, rank, raw_name, raw_position, raw_team, auction_value)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    `INSERT INTO rankings_raw (set_id, rank, raw_name, raw_position, raw_team, auction_value, notes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
     [setId, row.rank, row.raw_name, row.raw_position || '', row.raw_team || '',
-     (row.auction_value === undefined ? null : row.auction_value)]
+     (row.auction_value === undefined ? null : row.auction_value),
+     (row.notes ? String(row.notes) : null)]
   );
   const rawId = rows[0].id;
   if (row.player_id) {
@@ -147,7 +148,7 @@ async function getSet(id) {
 // query every view/export reads — canonical identity when known, raw otherwise.
 async function getSetRows(id) {
   const { rows } = await pool.query(
-    `SELECT r.id AS raw_id, r.rank, r.raw_name, r.raw_position, r.raw_team, r.auction_value,
+    `SELECT r.id AS raw_id, r.rank, r.raw_name, r.raw_position, r.raw_team, r.auction_value, r.notes,
             n.id AS norm_id, n.player_id, n.confidence, n.matched_via, n.confirmed,
             p.name AS master_name, p.position AS master_position, p.team AS master_team
      FROM rankings_raw r
@@ -163,6 +164,7 @@ async function getSetRows(id) {
     raw_position: r.raw_position,
     raw_team: r.raw_team,
     auction_value: r.auction_value === null ? null : Number(r.auction_value),
+    notes: r.notes || '',
     player_id: r.player_id,
     name: r.master_name || r.raw_name,
     position: r.master_position || r.raw_position || '',
@@ -216,6 +218,18 @@ async function resolveRow(rawId, playerId, { confidence = 'high', via = 'owner',
   return { set_id, rank };
 }
 
+// Set (or clear) one row's free-text note. The owner's own scratch note on a
+// player lives here next to whatever the source published.
+async function setRowNotes(rawId, notes) {
+  const value = String(notes == null ? '' : notes).trim() || null;
+  const { rows } = await pool.query(
+    'UPDATE rankings_raw SET notes = $2 WHERE id = $1 RETURNING set_id', [rawId, value]
+  );
+  if (!rows.length) throw new Error('That row no longer exists.');
+  await pool.query('UPDATE ranking_sets SET updated_at = now() WHERE id = $1', [rows[0].set_id]);
+  return { set_id: rows[0].set_id, notes: value || '' };
+}
+
 async function confirmRow(rawId) {
   const { rowCount } = await pool.query(
     'UPDATE rankings_normalized SET confirmed = true WHERE raw_id = $1', [rawId]
@@ -231,7 +245,7 @@ async function ignoreRow(rawId) {
 // The global review queue: unmatched raw rows + unconfirmed low/medium matches.
 async function reviewQueue() {
   const { rows } = await pool.query(
-    `SELECT r.id AS raw_id, r.set_id, r.rank, r.raw_name, r.raw_position, r.raw_team,
+    `SELECT r.id AS raw_id, r.set_id, r.rank, r.raw_name, r.raw_position, r.raw_team, r.notes,
             s.name AS set_name, s.source, s.ranking_scope,
             n.player_id, n.confidence, n.matched_via,
             p.name AS suggested_name, p.position AS suggested_position, p.team AS suggested_team
@@ -258,6 +272,7 @@ module.exports = {
   updateSetMeta,
   deleteSet,
   resolveRow,
+  setRowNotes,
   confirmRow,
   ignoreRow,
   reviewQueue,

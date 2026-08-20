@@ -27,6 +27,7 @@
     '/boards.html': 'bigboard',
     '/auction.html': 'warchest',
     '/drafts.html': 'playbook',
+    '/warroom.html': 'warroom',
     '/adp.html': 'edgerush',
     '/players.html': 'playerdb',
     '/notes.html': 'notes',
@@ -41,6 +42,7 @@
     var path = String(href).replace(/^[a-z]+:\/\/[^/]+/i, '').split(/[?#]/)[0];
     if (path === '' || path === '/index.html') path = '/';
     if (path === '/drafts-new.html' || path === '/draft-detail.html') path = '/drafts.html';
+    if (path === '/warroom-draft.html') path = '/warroom.html';
     return HREF_TO_ID[path] || null;
   }
 
@@ -69,7 +71,7 @@
       var t = tiles[i];
       if (t.getAttribute('data-modicon')) continue;
       var id = idFor(t.getAttribute('href'));
-      if (!id) continue;                               // e.g. the "War Room" coming-soon card (no href)
+      if (!id) continue;                               // non-module cards are left alone
       var h = t.querySelector('h2');
       if (!h) continue;
       h.textContent = '';
