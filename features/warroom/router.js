@@ -287,8 +287,15 @@ router.post('/drafts/:id/verify-photo', async (req, res) => {
       // board check needs. Better to say so than to "verify" against nothing.
       return res.status(400).json({ ok: false, error: 'Reading board photos needs ANTHROPIC_API_KEY on the server. Check the board by eye for now — the picks you recorded are unaffected.' });
     }
-    const model = await settings.get('combine.ocr_model', null);
-    const out = await boardvision.readBoard(String(image), { model: model || undefined });
+    // War Room's own dials — not Combine's, on purpose (see boardvision.js).
+    const model = await settings.get('warroom.board_model', boardvision.DEFAULT_MODEL);
+    const effort = await settings.get('warroom.board_effort', boardvision.DEFAULT_EFFORT);
+    const timeoutMs = await settings.get('warroom.board_timeout_ms', boardvision.DEFAULT_TIMEOUT_MS);
+    const out = await boardvision.readBoard(String(image), {
+      model: model || undefined,
+      effort: effort || undefined,
+      timeoutMs: Number(timeoutMs) || undefined,
+    });
     res.json({ ok: true, data: out });
   } catch (err) {
     console.error(`POST /api/warroom/drafts/:id/verify-photo: ${err.message}`);

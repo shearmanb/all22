@@ -15,6 +15,14 @@ const API_VERSION = '2023-06-01';
 const DEFAULT_MODEL = 'claude-sonnet-5';
 const MAX_TOKENS = 16000;
 const TIMEOUT_MS = 90 * 1000;
+// Effort levels the Messages API accepts (output_config.effort). Higher means
+// the model thinks harder before answering — worth it on a hard photo, wasted
+// on a clean screenshot. Omitting it entirely is the API's own default.
+const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+// Models that accept the server-side refusal fallback (a safety decline is
+// re-run on a second model inside the same call instead of just stopping).
+const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
+const FALLBACK_MODELS = /^claude-(fable|mythos|opus)-5/;
 // Transient API conditions (rate limit, overload, gateway hiccup) — worth a
 // second try before we drop to the much weaker offline reader.
 const RETRY_STATUS = new Set([408, 409, 425, 429, 500, 502, 503, 504, 529]);
@@ -97,35 +105,52 @@ function extractRows(text) {
 
 // One Messages API call. Throws an Error carrying .status/.retryable so the
 // caller can tell "try again" apart from "this will never work".
-async function callApi(mediaType, base64, model, prompt) {
+// Build the request body. Kept separate so it can be asserted in tests without
+// a network call — the shape of this object is what the API contract IS.
+function requestBody(mediaType, base64, model, prompt, opts = {}) {
+  const body = {
+    model,
+    max_tokens: opts.maxTokens || MAX_TOKENS,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+        { type: 'text', text: prompt },
+      ],
+    }],
+  };
+  // Thinking is deliberately never configured here: the current models either
+  // think adaptively by default or reject an explicit setting outright, so the
+  // depth dial is `effort`, not a thinking budget.
+  if (opts.effort && EFFORTS.has(opts.effort)) body.output_config = { effort: opts.effort };
+  if (opts.fallbacks && FALLBACK_MODELS.test(String(model))) body.fallbacks = 'default';
+  return body;
+}
+
+async function callApi(mediaType, base64, model, prompt, opts = {}) {
+  const timeout = opts.timeoutMs || TIMEOUT_MS;
+  const useFallbacks = Boolean(opts.fallbacks) && FALLBACK_MODELS.test(String(model));
+  const headers = {
+    'content-type': 'application/json',
+    'x-api-key': process.env.ANTHROPIC_API_KEY,
+    'anthropic-version': API_VERSION,
+  };
+  if (useFallbacks) headers['anthropic-beta'] = FALLBACK_BETA;
   let res;
   try {
     res = await fetch(API_URL, {
       method: 'POST',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': API_VERSION,
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: MAX_TOKENS,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-            { type: 'text', text: prompt },
-          ],
-        }],
-      }),
+      signal: AbortSignal.timeout(timeout),
+      headers,
+      body: JSON.stringify(requestBody(mediaType, base64, model, prompt, opts)),
     });
   } catch (err) {
     const timedOut = err && (err.name === 'TimeoutError' || err.name === 'AbortError');
     const e = new Error(timedOut
-      ? `Anthropic API did not answer within ${Math.round(TIMEOUT_MS / 1000)}s`
+      ? `Anthropic API did not answer within ${Math.round(timeout / 1000)}s`
       : `Could not reach the Anthropic API (${err && err.message ? err.message : 'network error'})`);
     e.retryable = true;
+    e.timedOut = Boolean(timedOut);
     throw e;
   }
   if (!res.ok) {
@@ -137,6 +162,9 @@ async function callApi(mediaType, base64, model, prompt) {
     const e = new Error(`Anthropic API error ${detail}`);
     e.status = res.status;
     e.retryable = RETRY_STATUS.has(res.status);
+    // An account without the refusal-fallback beta rejects the request outright.
+    // That must never cost the owner a read — readImage drops it and retries.
+    e.fallbackRejected = useFallbacks && res.status === 400 && /fallback|beta/i.test(detail);
     throw e;
   }
   return res.json();
@@ -164,17 +192,39 @@ async function readImage(image, opts = {}) {
   const prompt = opts.prompt || PROMPT;
   const notes = [];
   let model = opts.model || DEFAULT_MODEL;
+  const call = {
+    effort: opts.effort,
+    timeoutMs: opts.timeoutMs,
+    maxTokens: opts.maxTokens,
+    // Opt into the server-side refusal fallback on the models that take it,
+    // unless the caller says otherwise: a safety decline mid-draft should be
+    // rescued inside the same call, not handed to the owner as a dead end.
+    fallbacks: opts.fallbacks !== false,
+  };
   let body;
   for (let attempt = 1; ; attempt++) {
     try {
-      body = await callApi(mediaType, base64, model, prompt);
+      body = await callApi(mediaType, base64, model, prompt, call);
       break;
     } catch (err) {
       // A bad model name in settings never fixes itself — say so and use the default.
       if (err.status === 404 && model !== DEFAULT_MODEL) {
-        notes.push(`The OCR model in Settings ("${model}") is not available to this API key — used ${DEFAULT_MODEL} instead.`);
+        notes.push(`The reading model in Settings ("${model}") is not available to this API key — used ${DEFAULT_MODEL} instead.`);
         model = DEFAULT_MODEL;
         continue;
+      }
+      // This key's account doesn't have the fallback beta. Not worth failing over.
+      if (err.fallbackRejected && call.fallbacks) {
+        call.fallbacks = false;
+        continue;
+      }
+      // A timeout at high effort is a real answer: the job needs more time or a
+      // lighter setting, and saying so beats a bare "network error".
+      if (err.timedOut && attempt >= MAX_ATTEMPTS) {
+        err.message += opts.effort && opts.effort !== 'low'
+          ? `. Try a lower effort than "${opts.effort}", or allow more time, in War Room settings.`
+          : '. Try again, or allow more time in settings.';
+        throw err;
       }
       if (!err.retryable || attempt >= MAX_ATTEMPTS) throw err;
       await sleep(500 * (2 ** (attempt - 1)));
@@ -182,11 +232,22 @@ async function readImage(image, opts = {}) {
     }
   }
 
+  // A safety decline comes back 200 with no usable content; without this the
+  // caller would report "no JSON array", which explains nothing.
+  if (body.stop_reason === 'refusal') {
+    const why = (body.stop_details && body.stop_details.explanation) || '';
+    throw new Error(`Claude declined to read that image${why ? ': ' + why : '.'}`);
+  }
+
   const text = (body.content || [])
     .filter((b) => b.type === 'text')
     .map((b) => b.text)
     .join('\n');
-  return { text, model, stopReason: body.stop_reason, notes };
+  if (!text.trim()) {
+    throw new Error(`Claude returned nothing for that image (stopped: ${body.stop_reason || 'unknown'}).`);
+  }
+  // Which model actually answered — a rescued refusal is served by the fallback.
+  return { text, model: body.model || model, stopReason: body.stop_reason, notes };
 }
 
 // image (data URL) -> ranking rows. opts.model overrides the settings-driven
@@ -202,4 +263,4 @@ async function imageToRows(image, opts = {}) {
   return { rows, model: read.model, truncated: cut, note: notes.join(' ') };
 }
 
-module.exports = { available, imageToRows, readImage, extractRows, parseRows, splitDataUrl, DEFAULT_MODEL };
+module.exports = { available, imageToRows, readImage, requestBody, extractRows, parseRows, splitDataUrl, DEFAULT_MODEL, EFFORTS };

@@ -117,3 +117,60 @@ test('a whole board read straight from the prompt lands intact', () => {
   // Every square is placed, so the diff can line all nine up against picks.
   assert.equal(cells.filter((c) => c.round && c.slot).length, 9);
 });
+
+// --- readBoard wiring ------------------------------------------------------
+// The board check exists to be MORE careful than screenshot OCR, so the model
+// and effort it asks for must actually reach the request. A silently ignored
+// effort would look identical to a working one, right up until a bad read.
+const bv = require('./boardvision');
+const vision = require('../../combine/lib/vision');
+const master = require('../../../lib/players-master');
+const playersLib = require('../../../lib/players');
+
+// Stub the two things that reach outside: the API call and the registry.
+// The index is built by the real builder so name matching behaves as it does
+// in production — only its contents are fixed.
+const TEST_INDEX = playersLib.buildNameIndex([
+  { player_id: 900002, name: 'Bijan Robinson', position: 'RB', team: 'ATL' },
+]);
+
+async function withStubs(reply, fn) {
+  const realRead = vision.readImage;
+  const realIndex = master.getIndex;
+  const seen = [];
+  vision.readImage = async (image, opts) => { seen.push(opts); return reply; };
+  master.getIndex = async () => TEST_INDEX;
+  try { await fn(seen); } finally { vision.readImage = realRead; master.getIndex = realIndex; }
+}
+
+const REPLY = { text: '[{"round":1,"slot":1,"name":"Bijan Robinson","readable":true}]', model: 'claude-fable-5', stopReason: 'end_turn', notes: [] };
+
+test('a board read defaults to the strong model, high effort and a long timeout', async () => {
+  await withStubs(REPLY, async (seen) => {
+    await bv.readBoard('data:image/jpeg;base64,AAAA');
+    assert.equal(seen[0].model, 'claude-fable-5');
+    assert.equal(seen[0].effort, 'high');
+    assert.equal(seen[0].timeoutMs, 180000, 'thinking models need longer than a screenshot read');
+    assert.equal(seen[0].prompt, bv.PROMPT, 'the board prompt, not the ranking one');
+  });
+});
+
+test('the owner’s dialled settings override every default', async () => {
+  await withStubs(REPLY, async (seen) => {
+    await bv.readBoard('data:image/jpeg;base64,AAAA',
+      { model: 'claude-opus-5', effort: 'max', timeoutMs: 300000 });
+    assert.equal(seen[0].model, 'claude-opus-5');
+    assert.equal(seen[0].effort, 'max');
+    assert.equal(seen[0].timeoutMs, 300000);
+  });
+});
+
+test('readBoard reports which model actually answered', async () => {
+  await withStubs(REPLY, async () => {
+    const out = await bv.readBoard('data:image/jpeg;base64,AAAA');
+    assert.equal(out.model, 'claude-fable-5');
+    assert.equal(out.cells.length, 1);
+    assert.equal(out.cells[0].name, 'Bijan Robinson');
+    assert.equal(out.cells[0].player_id, 900002, 'a confident read resolves to the registry');
+  });
+});

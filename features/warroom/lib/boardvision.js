@@ -17,6 +17,17 @@ const { parseFirstArray } = require('../../../lib/json-array');
 const master = require('../../../lib/players-master');
 const players = require('../../../lib/players');
 
+// The board check gets its OWN model and effort, separate from Combine's
+// screenshot OCR, because the two jobs pull in opposite directions: a ranking
+// screenshot is clean digital text read many times a season (cheap and fast
+// wins), while this is one photograph of a physical wall — angle, glare,
+// handwriting — read a handful of times a draft, where a wrong answer means
+// trusting a bad verification. Rare and hard is worth the strongest read.
+const DEFAULT_MODEL = 'claude-fable-5';
+const DEFAULT_EFFORT = 'high';
+// Thinking models take longer than the 90s a screenshot read allows.
+const DEFAULT_TIMEOUT_MS = 180 * 1000;
+
 const PROMPT = `This photo shows a physical fantasy football draft board: a grid
 of sticker or card labels on a wall. COLUMNS are teams (draft slots, numbered
 left to right). ROWS are rounds (numbered top to bottom). The photo may show
@@ -98,7 +109,12 @@ async function resolveCells(cells) {
 
 // One photo -> resolved cells. Returns { cells, model, truncated, note }.
 async function readBoard(image, opts = {}) {
-  const read = await vision.readImage(image, { model: opts.model, prompt: PROMPT });
+  const read = await vision.readImage(image, {
+    prompt: PROMPT,
+    model: opts.model || DEFAULT_MODEL,
+    effort: opts.effort || DEFAULT_EFFORT,
+    timeoutMs: opts.timeoutMs || DEFAULT_TIMEOUT_MS,
+  });
   const notes = read.notes.slice();
   const { cells, truncated } = parseCells(read.text);
   const cut = Boolean(truncated || read.stopReason === 'max_tokens');
@@ -109,4 +125,7 @@ async function readBoard(image, opts = {}) {
   return { cells: resolved, model: read.model, truncated: cut, note: notes.join(' ') };
 }
 
-module.exports = { available, readBoard, parseCells, resolveCells, PROMPT };
+module.exports = {
+  available, readBoard, parseCells, resolveCells, PROMPT,
+  DEFAULT_MODEL, DEFAULT_EFFORT, DEFAULT_TIMEOUT_MS,
+};
