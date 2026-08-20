@@ -6,10 +6,10 @@ const test = require('node:test');
 const assert = require('node:assert');
 const MI = require('./module-icon');
 
-test('MODULES: 11 modules, unique ids, well-formed hex hues + required fields', () => {
-  assert.strictEqual(MI.MODULES.length, 11);
+test('MODULES: 12 modules, unique ids, well-formed hex hues + required fields', () => {
+  assert.strictEqual(MI.MODULES.length, 12);
   const ids = MI.MODULES.map((m) => m.id);
-  assert.strictEqual(new Set(ids).size, 11, 'ids must be unique');
+  assert.strictEqual(new Set(ids).size, 12, 'ids must be unique');
   const hex = /^#[0-9A-Fa-f]{6}$/;
   for (const m of MI.MODULES) {
     assert.ok(m.name && m.descriptor && m.glyph, `${m.id} needs name/descriptor/glyph`);
@@ -18,10 +18,10 @@ test('MODULES: 11 modules, unique ids, well-formed hex hues + required fields', 
   }
 });
 
-test('MODULES: the exact 11 ids the app ships, in order', () => {
+test('MODULES: the exact 12 ids the app ships, in order', () => {
   assert.deepStrictEqual(MI.MODULES.map((m) => m.id), [
     'hub', 'combine', 'myrankings', 'bigboard', 'warchest',
-    'playbook', 'edgerush', 'playerdb', 'notes', 'thewire', 'settings',
+    'playbook', 'edgerush', 'warroom', 'playerdb', 'notes', 'thewire', 'settings',
   ]);
 });
 
@@ -127,5 +127,5 @@ test('markup: the descriptor text is present raw (CSS handles the uppercasing)',
 });
 
 test('markup: unknown module throws (never renders a blank/guessed icon)', () => {
-  assert.throws(() => MI.markup({ moduleId: 'warroom' }), /unknown moduleId/);
+  assert.throws(() => MI.markup({ moduleId: 'sideline' }), /unknown moduleId/);
 });

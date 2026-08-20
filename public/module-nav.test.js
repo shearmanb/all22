@@ -15,6 +15,7 @@ test('idFor: every app route maps to a module that actually exists', () => {
     '/boards.html': 'bigboard',
     '/auction.html': 'warchest',
     '/drafts.html': 'playbook',
+    '/warroom.html': 'warroom',
     '/adp.html': 'edgerush',
     '/players.html': 'playerdb',
     '/notes.html': 'notes',
@@ -35,6 +36,7 @@ test('idFor: tolerant of absolute URLs, query/hash, index.html and Playbook sub-
   assert.strictEqual(nav.idFor('/adp.html#board'), 'edgerush');
   assert.strictEqual(nav.idFor('/index.html'), 'hub');
   assert.strictEqual(nav.idFor('/drafts-new.html'), 'playbook');
+  assert.strictEqual(nav.idFor('/warroom-draft.html'), 'warroom');
   assert.strictEqual(nav.idFor('/draft-detail.html'), 'playbook');
 });
 

@@ -97,11 +97,12 @@
         <span class="tile-stat" id="stat-wire"></span>
       </a>
 
-      <div class="tile disabled">
+      <a class="tile" href="/warroom.html">
         <h2>War Room</h2>
-        <p class="muted">Draft &amp; auction strategy — who to take and when, with % chance a player makes it back to your pick. Built on your rankings + ADP.</p>
-        <span class="tile-soon">Phase 5</span>
-      </div>
+        <p class="muted">Live draft recorder — run your in-person draft from your phones: record picks (two people at once), watch the board fill, and draft off your own cheat sheet with % available at your next pick.</p>
+        <span class="tile-go">Open &rarr;</span>
+        <span class="tile-stat" id="stat-warroom"></span>
+      </a>
     </div>
 
     <section class="section-gap">
@@ -197,6 +198,8 @@
       document.getElementById('stat-combine').textContent =
         (rk.sets ? rk.sets + ' sets' : 'no sets yet') + (rk.review_open ? ' · ' + rk.review_open + ' to review' : '');
       document.getElementById('stat-playbook').textContent = dr.count ? dr.count + ' drafts logged' : 'no drafts yet';
+      var wr = d.warroom || {};
+      document.getElementById('stat-warroom').textContent = wr.live ? wr.live + (wr.live === 1 ? ' draft live now' : ' drafts live now') : '';
       document.getElementById('stat-boards').textContent = bd.count ? bd.count + (bd.count === 1 ? ' board' : ' boards') : 'no boards yet';
       document.getElementById('stat-auction').textContent = au.count ? au.count + (au.count === 1 ? ' auction' : ' auctions') : 'no auctions yet';
       var nt = d.notes || {};

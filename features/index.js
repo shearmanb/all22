@@ -9,8 +9,7 @@
 //   router    the express Router for its /api endpoints
 //   publicDir absolute path to its static pages (served at the site root)
 //
-// PRD sub-apps not yet built (War Room — draft strategy, Edge Rush — ADP
-// intelligence) appear on the hub as "coming soon" cards until they land here.
+// Every PRD sub-app is now registered here; the hub launcher cards map 1:1.
 const path = require('path');
 
 module.exports = [
@@ -55,6 +54,13 @@ module.exports = [
     apiMount: '/api/adp',
     router: require('./adp/router'),
     publicDir: path.join(__dirname, 'adp', 'public'),
+  },
+  {
+    name: 'warroom',
+    label: 'War Room',
+    apiMount: '/api/warroom',
+    router: require('./warroom/router'),
+    publicDir: path.join(__dirname, 'warroom', 'public'),
   },
   {
     name: 'notes',

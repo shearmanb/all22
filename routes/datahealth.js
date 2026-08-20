@@ -23,7 +23,7 @@ router.get('/', async (req, res) => {
     if (!hasDb()) {
       return res.json({ ok: true, data: { db: false } });
     }
-    const [pm, sets, review, myRuns, adp, drafts, notes, boards, auctions] = await Promise.all([
+    const [pm, sets, review, myRuns, adp, drafts, notes, boards, auctions, live] = await Promise.all([
       master.status(),
       tryQuery(`SELECT COUNT(*)::int AS n, MAX(updated_at) AS latest,
                        (SELECT name FROM ranking_sets ORDER BY updated_at DESC NULLS LAST, created_at DESC LIMIT 1) AS latest_name
@@ -35,6 +35,7 @@ router.get('/', async (req, res) => {
       tryQuery('SELECT COUNT(*)::int AS n, MAX(created_at) AS latest FROM my_ranking_runs'),
       tryQuery('SELECT MAX(snapshot_date) AS latest, COUNT(DISTINCT site)::int AS sites FROM adp_history'),
       tryQuery('SELECT COUNT(*)::int AS n, MAX(created_at) AS latest FROM drafts'),
+      tryQuery("SELECT COUNT(*)::int AS n FROM drafts WHERE source = 'warroom' AND status = 'live'"),
       tryQuery('SELECT COUNT(*)::int AS n, MAX(updated_at) AS latest FROM notes WHERE NOT done'),
       tryQuery('SELECT COUNT(*)::int AS n, MAX(updated_at) AS latest FROM boards'),
       tryQuery('SELECT COUNT(*)::int AS n, MAX(updated_at) AS latest FROM auctions'),
@@ -53,6 +54,7 @@ router.get('/', async (req, res) => {
         my_rankings: { runs: myRuns ? myRuns[0].n : 0, latest: myRuns ? myRuns[0].latest : null },
         adp: { latest: adp ? adp[0].latest : null, sites: adp ? adp[0].sites : 0 },
         drafts: { count: drafts ? drafts[0].n : 0, latest: drafts ? drafts[0].latest : null },
+        warroom: { live: live ? live[0].n : 0 },
         notes: { open: notes ? notes[0].n : 0, latest: notes ? notes[0].latest : null },
         boards: { count: boards ? boards[0].n : 0, latest: boards ? boards[0].latest : null },
         auctions: { count: auctions ? auctions[0].n : 0, latest: auctions ? auctions[0].latest : null },
