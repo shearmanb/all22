@@ -75,4 +75,24 @@ async function latestBoard({ site, format, teams }) {
   return { key, rows: await snapshotRows(key, key.latest) };
 }
 
-module.exports = { resolveKey, snapshotRows, latestBoard };
+// Every distinct board stored for a format, freshest first — so a caller can
+// offer the owner a choice of source rather than silently picking one. Site
+// order is stable so the list doesn't reshuffle between page loads.
+async function listBoards(format) {
+  const { rows } = await pool.query(
+    `SELECT site, teams, MAX(snapshot_date)::text AS latest, COUNT(*)::int AS players
+     FROM adp_history
+     WHERE format = $1
+     GROUP BY site, teams
+     ORDER BY site ASC, teams ASC`,
+    [format]
+  );
+  return rows.map((r) => ({
+    site: r.site,
+    teams: Number(r.teams),
+    latest: r.latest,
+    players: r.players,
+  }));
+}
+
+module.exports = { resolveKey, snapshotRows, latestBoard, listBoards };

@@ -208,14 +208,27 @@ router.get('/drafts/:id/cheatsheet', async (req, res) => {
     const draft = drafts[0];
     const profile = await leagueProfile(draft.league_profile_id, draft.league_size);
     const format = String(profile.scoring || 'half').toLowerCase();
+    const notesPre = [];
 
-    // ADP is useful on its own, so a draft with no pinned rankings run still
-    // gets a board — just ordered by ADP instead of by the owner's blend.
-    const board = await adpLatest.latestBoard({ format, teams: draft.league_size });
+    // Which ADP board orders the draft-day list. The owner's saved choice wins,
+    // a ?site= overrides it for this load, and with neither we take the best
+    // stored match for the league shape.
+    const savedSite = await settings.get('warroom.adp_site', '');
+    const wantSite = String(req.query.site || savedSite || '').trim();
+    const sites = await adpLatest.listBoards(format);
+    let board = await adpLatest.latestBoard({
+      site: wantSite || undefined, format, teams: draft.league_size,
+    });
+    // A saved source that has since stopped collecting must not leave the owner
+    // with an empty board on draft day — fall back and say so.
+    if (!board && wantSite) {
+      board = await adpLatest.latestBoard({ format, teams: draft.league_size });
+      if (board) notesPre.push(`No "${wantSite}" ADP for this format — using ${board.key.site}.`);
+    }
     const adpBy = new Map();
     if (board) for (const r of board.rows) if (r.player_id) adpBy.set(r.player_id, r);
 
-    const notes = [];
+    const notes = notesPre.slice();
     let rows = [];
     if (draft.my_ranking_run_id) {
       const run = await myRankings.getRun(draft.my_ranking_run_id);
@@ -262,7 +275,32 @@ router.get('/drafts/:id/cheatsheet', async (req, res) => {
       notes.push('No ADP collected for this format yet, so there is no “% available”.');
     }
 
-    res.json({ ok: true, data: { rows, note: notes.join(' · ') } });
+    // The draft-order list the Record panel taps from: every player the source
+    // published, in ADP order. Kept separate from `rows` because that list is
+    // the owner's OWN ranking order — two different questions ("who do I want"
+    // vs "who is realistically coming off the board next").
+    const adpRows = (board ? board.rows : []).map((r, i) => ({
+      player_id: r.player_id,
+      adp_rank: i + 1,
+      name: r.name,
+      position: r.position,
+      team: r.team,
+      adp: r.adp,
+      matched: r.matched,
+    }));
+
+    res.json({
+      ok: true,
+      data: {
+        rows,
+        note: notes.join(' · '),
+        adp: board
+          ? { site: board.key.site, teams: board.key.teams, date: board.key.latest, rows: adpRows }
+          : null,
+        sites,
+        format,
+      },
+    });
   } catch (err) {
     console.error(`GET /api/warroom/drafts/:id/cheatsheet: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not build the cheat sheet.' });
@@ -316,6 +354,20 @@ router.post('/drafts/:id/verify-report', async (req, res) => {
   } catch (err) {
     console.error(`POST /api/warroom/drafts/:id/verify-report: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not compare the photo with the recorded picks.' });
+  }
+});
+
+// Remember which ADP board orders the draft-day list. A dial, so it lives in
+// settings rather than in one phone's local storage — every recorder in the
+// room should be looking at the same order.
+router.put('/adp-site', async (req, res) => {
+  try {
+    const site = String((req.body || {}).site || '').trim();
+    await settings.set('warroom.adp_site', site);
+    res.json({ ok: true, data: { site } });
+  } catch (err) {
+    console.error(`PUT /api/warroom/adp-site: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not save that ADP source.' });
   }
 });
 
