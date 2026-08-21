@@ -187,7 +187,11 @@
           </span>
           <button id="undo-btn" class="secondary">Undo last</button>
         </summary>
-        <div class="chip-row section-gap" id="recent-chips"></div>
+        <div class="row section-gap" style="align-items:center;gap:8px">
+          <span class="chip-row" id="recent-view"></span>
+          <span class="muted small" id="recent-count" style="margin-left:auto"></span>
+        </div>
+        <div class="chip-row" id="recent-chips"></div>
         <ul class="recent" id="recent-list"></ul>
       </details>
 
@@ -264,6 +268,9 @@
     // How often each phone asks "anything new?". Owner-editable on the War Room
     // page (settings key warroom.poll_ms); this is the documented default.
     var POLL_MS = 2500;
+    // The rolling window: what just came off the board. "All picks" shows the
+    // whole draft instead.
+    var RECENT_WINDOW = 5;
 
     var state = {
       id: null,
@@ -281,6 +288,7 @@
       adpSites: [],          // every stored board, so the source is choosable
       availPos: '',          // position filter on the one-tap list
       recentPos: '',         // position filter on the recent-picks list
+      recentView: 'last5',   // 'last5' = the rolling window, 'all' = the whole draft
       availLimit: 40,        // keep the phone's DOM small; "show more" extends it
     };
 
@@ -363,7 +371,28 @@
       });
     }
 
+    // Two ways to read the same list: the rolling window answers "what just
+    // happened" while the board is moving, and the full list is for after the
+    // fact — checking the whole draft, or finding a pick from six rounds ago
+    // to fix. Same rows, different question, so it is a view toggle rather
+    // than a second panel.
+    function renderRecentView() {
+      var wrap = $('recent-view');
+      if (wrap.childNodes.length) return;
+      [['last5', 'Last ' + RECENT_WINDOW], ['all', 'All picks']].forEach(function (pair) {
+        var b = el('button', 'chip-btn' + (pair[0] === state.recentView ? ' on' : ''), pair[1]);
+        b.addEventListener('click', function () {
+          state.recentView = pair[0];
+          Array.prototype.forEach.call(wrap.children, function (c) { c.classList.remove('on'); });
+          b.classList.add('on');
+          renderRecent();
+        });
+        wrap.appendChild(b);
+      });
+    }
+
     function renderRecent() {
+      renderRecentView();
       renderRecentChips();
       var list = $('recent-list');
       list.textContent = '';
@@ -376,9 +405,17 @@
         ? '· ' + SN.pickLabel(last.overall_pick, teams()) + ' ' + (last.name || last.player_name)
         : '· nothing yet';
 
-      var recent = newestFirst.filter(function (p) {
+      var matching = newestFirst.filter(function (p) {
         return !state.recentPos || p.position === state.recentPos;
-      }).slice(0, 8);
+      });
+      var recent = state.recentView === 'all' ? matching : matching.slice(0, RECENT_WINDOW);
+      // Say plainly when the window is hiding rows, so "All picks" is a visible
+      // option rather than something to go looking for.
+      $('recent-count').textContent = matching.length
+        ? (recent.length < matching.length
+            ? 'showing ' + recent.length + ' of ' + matching.length
+            : matching.length + (matching.length === 1 ? ' pick' : ' picks'))
+        : '';
       if (!recent.length) {
         list.appendChild(el('li', 'muted', state.recentPos
           ? 'No ' + state.recentPos + ' picks recorded yet.'
@@ -443,7 +480,20 @@
       return cell;
     }
 
+    // Errors must be self-evident in the browser (CLAUDE.md). A throw in here
+    // used to vanish into boot()'s catch and leave the panel simply blank,
+    // which at a live draft reads as "the app is broken and won't say why".
     function render() {
+      try {
+        renderUnsafe();
+      } catch (err) {
+        console.error('warroom render failed', err);
+        showError('Something went wrong drawing this page (' + (err && err.message) +
+          '). Your picks are safe — reload to try again.');
+      }
+    }
+
+    function renderUnsafe() {
       renderClock();
       renderSync();
       renderRecent();
