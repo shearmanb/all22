@@ -59,25 +59,59 @@
     return { stdev: DEFAULT_STDEV, basis: 'default' };
   }
 
+  // Survival function P(drafted later than z), with a Mills-ratio tail for
+  // z > 3.5 where the erf polynomial's absolute error (~1.5e-7) would swamp
+  // the true value. Deep tails matter here: a faller taken "for sure" by the
+  // model is exactly the player everyone is watching slide.
+  function survival(z) {
+    if (z > 3.5) {
+      return Math.exp(-z * z / 2) / (z * Math.sqrt(2 * Math.PI));
+    }
+    return 1 - normalCdf(z);
+  }
+
   // Percent (0-100) chance the player is still available AT pick `atPick`.
+  //
+  // `fromPick` is the pick on the clock right now. When given, the estimate is
+  // CONDITIONED on the player having survived to it: the mid-draft question is
+  // never "what were his odds of reaching pick 21" (he did — he's on the
+  // board), it is "given he's still here at 21, does he last the gap to my
+  // pick at 24". Unconditionally a faller shows ~0% forever, which reads as
+  // nonsense next to his name on the available list.
+  //
+  //   P(X > at | X > from) = S((at-adp)/σ) / S((from-adp)/σ)
+  //
   // Null when there is no ADP to reason from — the caller shows "—", never a
   // made-up number.
-  function detail(adp, stdev, atPick, range) {
+  function detail(adp, stdev, atPick, range, fromPick) {
     var a = num(adp), n = num(atPick);
     if (a === null || n === null) return null;
     var sp = spreadFor(stdev, range);
-    // P(drafted at a pick later than this one).
-    var pct = (1 - normalCdf((n - a) / sp.stdev)) * 100;
+    var pct;
+    var from = num(fromPick);
+    if (from !== null && from >= n) {
+      // My pick is the one on the clock (or somehow earlier): he's right there.
+      pct = 100;
+    } else {
+      var sAt = survival((n - a) / sp.stdev);
+      if (from !== null) {
+        var sFrom = survival((from - a) / sp.stdev);
+        pct = sFrom > 0 ? (sAt / sFrom) * 100 : 0;
+      } else {
+        pct = sAt * 100;
+      }
+    }
     return {
       pct: Math.max(0, Math.min(100, pct)),
       stdev: sp.stdev,
       basis: sp.basis,
       estimated: sp.basis !== 'published',
+      conditioned: from !== null,
     };
   }
 
-  function pctAvailable(adp, stdev, atPick, range) {
-    var d = detail(adp, stdev, atPick, range);
+  function pctAvailable(adp, stdev, atPick, range, fromPick) {
+    var d = detail(adp, stdev, atPick, range, fromPick);
     return d ? d.pct : null;
   }
 
@@ -86,6 +120,7 @@
     detail: detail,
     spreadFor: spreadFor,
     normalCdf: normalCdf,
+    survival: survival,
     DEFAULT_STDEV: DEFAULT_STDEV,
     RANGE_TO_STDEV: RANGE_TO_STDEV,
   };
