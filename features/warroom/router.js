@@ -295,11 +295,19 @@ router.get('/drafts/:id/cheatsheet', async (req, res) => {
       matched: r.matched,
     }));
 
+    // Roster shape for the needs strip: the owner's default counts, with FLEX
+    // and SUPERFLEX from this league's profile (never a global assumption).
+    const rosterBase = await settings.get('warroom.roster', null);
+
     res.json({
       ok: true,
       data: {
         rows,
         note: notes.join(' · '),
+        roster: {
+          profile: { flex: profile.flex, superflex: !!profile.superflex },
+          base: rosterBase,
+        },
         adp: board
           ? { site: board.key.site, teams: board.key.teams, date: board.key.latest, rows: adpRows }
           : null,

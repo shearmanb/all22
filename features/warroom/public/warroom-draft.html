@@ -10,6 +10,8 @@
   <script src="/module-nav.js"></script>
   <script src="/warroom-snake.js"></script>
   <script src="/warroom-availability.js"></script>
+  <script src="/auction-math.js"></script>
+  <script src="/warroom-roster.js"></script>
   <style>
     /* --- On-the-clock header: FP-style two lines, readable across a room --- */
     .clock {
@@ -24,6 +26,36 @@
     .clock .mine { color: var(--accent-strong); font-weight: 600; font-size: .9rem; white-space: nowrap; }
     .sync { font-size: .72rem; color: var(--text-dim); white-space: nowrap; }
     .sync.stale { color: var(--warn-text); }
+    .clock.is-mine { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: var(--chip); }
+    .clock.is-mine .round-line { color: var(--accent-strong); }
+
+    /* --- My roster needs: one thin line, read at a glance mid-pick --- */
+    .needs {
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+      margin-bottom: 12px;
+    }
+    .need {
+      font-size: .72rem; font-weight: 600; padding: 3px 9px; border-radius: 999px;
+      border: 1px solid var(--border); color: var(--text-dim); white-space: nowrap;
+    }
+    /* Open starting slots are the whole point of the strip, so they carry the
+       colour; filled ones recede rather than disappear. */
+    .need.open { color: var(--accent-strong); border-color: var(--accent); }
+    .need.done { opacity: .5; }
+    .needs .lbl { font-size: .72rem; color: var(--text-dim); margin-right: 2px; }
+
+    /* A row whose position fills a starting slot I still have open. */
+    .arow.needed .aname::after, .sheet-row.needed .sname::after {
+      content: '•'; color: var(--accent-strong); margin-left: 6px; font-weight: 700;
+    }
+    /* The cheat sheet records on tap too — decide and act on one surface. */
+    .sheet-row { width: 100%; border: none; background: transparent; text-align: left; border-radius: 0; }
+    .sheet-row:not(.gone) { cursor: pointer; }
+    .sheet-row:not(.gone):hover { background: var(--chip); filter: none; }
+    .sheet-row:not(.gone):active { background: var(--accent); color: #fff; }
+    .sheet-row:active .sname, .sheet-row:active .smeta { color: #fff; }
+    .delta { font-size: .72rem; font-variant-numeric: tabular-nums; }
+    .delta.good { color: var(--ok-text); }
 
     /* --- Search + results --- */
     .search-results { margin-top: 8px; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
@@ -194,6 +226,10 @@
       </div>
     </div>
 
+    <!-- What I still need. Sits under the clock because it is the first half of
+         every draft decision; the player lists are the second half. -->
+    <div class="needs" id="needs-strip" hidden></div>
+
     <div class="tabs">
       <button id="tab-record-btn" class="active" data-panel="record">Record</button>
       <button id="tab-board-btn" data-panel="board">Board</button>
@@ -320,6 +356,8 @@
       sheetNote: '',
       posFilter: '',
       panel: 'record',
+      rosterCfg: null,       // { profile, base } — the league's roster shape
+      filled: null,          // WarRoomRoster.fill() result for MY picks
       adp: null,             // the ADP board that orders "Best available"
       adpSites: [],          // every stored board, so the source is choosable
       availPos: '',          // position filter on the one-tap list
@@ -374,6 +412,9 @@
       $('clock-who').textContent = ' (' + o + ' overall) · Team ' + spot.slot;
 
       var next = SN.myNextPick(o - 1, state.draft.my_slot, teams(), rounds());
+      // The whole banner changes, not just a line of text: at a live draft the
+      // one thing that must never be missed is that it is your turn.
+      $('clock').classList.toggle('is-mine', next === o);
       if (next === o) {
         $('clock-mine').textContent = "★ You're on the clock";
       } else if (next) {
@@ -535,6 +576,8 @@
     }
 
     function renderUnsafe() {
+      recomputeRoster();
+      renderNeeds();
       renderClock();
       renderSync();
       renderRecent();
@@ -592,6 +635,39 @@
       wrap.appendChild(typed);
     }
 
+    // ------------------------------------------------------------ my roster
+    // Recomputed from the picks the poll already delivers, so it stays true
+    // when a co-recorder enters one of my picks from another phone.
+    function recomputeRoster() {
+      var R = window.WarRoomRoster;
+      if (!R || !state.rosterCfg) { state.filled = null; return; }
+      var shape = R.shapeFor(state.rosterCfg.profile, state.rosterCfg.base);
+      var mine = state.picks.filter(function (p) { return p.is_my_pick; });
+      state.filled = R.fill(mine, shape);
+    }
+
+    function renderNeeds() {
+      var wrap = $('needs-strip');
+      if (!state.filled) { wrap.hidden = true; return; }
+      wrap.hidden = false;
+      wrap.textContent = '';
+      wrap.appendChild(el('span', 'lbl', 'My roster'));
+      state.filled.order.forEach(function (slot) {
+        var s = state.filled.slots[slot];
+        if (!s.need) return;                       // a slot this league doesn't use
+        var open = s.filled < s.need;
+        wrap.appendChild(el('span', 'need ' + (open ? 'open' : 'done'),
+          slot + ' ' + s.filled + '/' + s.need));
+      });
+    }
+
+    // Does this player fill a starting slot I still have open? Drives the dot
+    // on both lists — the "which position should I even be looking at" hint.
+    function isNeeded(position) {
+      var R = window.WarRoomRoster;
+      return Boolean(R && state.filled && R.fillsNeed(position, state.filled));
+    }
+
     // -------------------------------------------------- best available (ADP)
     // Loaded once per draft alongside the cheat sheet: ADP doesn't change
     // mid-draft, only who's gone does — and the poll already tells us that.
@@ -603,6 +679,9 @@
         state.sheetNote = data.note || '';
         state.adp = data.adp;
         state.adpSites = data.sites || [];
+        state.rosterCfg = data.roster || null;
+        recomputeRoster();
+        renderNeeds();          // the board arrives after the first render
         renderSitePicker();
         renderAvailable();
         if (state.panel === 'sheet') renderSheet();
@@ -720,7 +799,8 @@
     }
 
     function availRow(r, myNext, clock) {
-      var b = el('button', 'arow' + (r.player_id ? '' : ' unmatched'));
+      var b = el('button', 'arow' + (r.player_id ? '' : ' unmatched') +
+        (isNeeded(r.position) ? ' needed' : ''));
       b.appendChild(el('span', 'arank', String(r.adp_rank)));
       var label = el('span', 'grow');
       label.appendChild(el('span', 'aname', r.name));
@@ -745,11 +825,16 @@
     function applyState(data) {
       if (!data) return;
       if (data.unchanged) { state.lastSync = Date.now(); renderSync(); return; }
+      // Lists are rebuilt wholesale on every change, which would otherwise
+      // throw the page back to the top mid-draft — right after a tap, when the
+      // owner is still looking at that part of the list.
+      var scroll = window.pageYOffset;
       state.version = data.version;
       state.draft = data.draft;
       state.picks = data.picks;
       state.lastSync = Date.now();
       render();
+      if (scroll) window.scrollTo(0, scroll);
     }
 
     function clearSearch() {
@@ -902,19 +987,7 @@
         if (hideGone && isGone) continue;
         if (state.posFilter && p.position !== state.posFilter) continue;
         shown++;
-        var row = el('div', 'sheet-row' + (isGone ? ' gone' : ''));
-        row.appendChild(el('span', 'num', String(p.rank)));
-        var label = el('span', 'grow');
-        label.appendChild(el('span', 'sname', p.name));
-        var meta = el('span', 'smeta');
-        meta.appendChild(posBadge(p.position));
-        var bits = (p.team || '') + (p.bye ? (p.team ? ' ' : '') + '(Bye ' + p.bye + ')' : '');
-        if (bits) meta.appendChild(el('span', null, bits));
-        if (p.adp) meta.appendChild(el('span', null, '· ADP ' + p.adp.toFixed(1)));
-        label.appendChild(meta);
-        row.appendChild(label);
-        row.appendChild(availCell(p, myNext, isGone, clock));
-        wrap.appendChild(row);
+        wrap.appendChild(sheetRow(p, myNext, clock, isGone));
       }
       if (!shown) wrap.appendChild(el('div', 'muted', 'Nobody left matching that filter.'));
     }
@@ -922,6 +995,43 @@
     // "Will he make it back to me?" — conditioned on the player still being on
     // the board at the pick that's on the clock, because that is the question
     // actually being asked. `fromPick` = the current open overall.
+    // One cheat-sheet row. A function, not inline loop code: `var` is
+    // function-scoped, so building these in the loop gave every row's click
+    // handler the SAME player — the last one rendered. Tapping any name
+    // recorded the wrong man, silently and with a 200 back from the server.
+    function sheetRow(p, myNext, clock, isGone) {
+      // A button, not a div: the tab where the owner DECIDES is now also the
+      // tab where he records, so choosing and entering are one action.
+      var row = el(isGone ? 'div' : 'button',
+        'sheet-row' + (isGone ? ' gone' : '') + (!isGone && isNeeded(p.position) ? ' needed' : ''));
+      row.appendChild(el('span', 'num', String(p.rank)));
+      var label = el('span', 'grow');
+      label.appendChild(el('span', 'sname', p.name));
+      var meta = el('span', 'smeta');
+      meta.appendChild(posBadge(p.position));
+      var bits = (p.team || '') + (p.bye ? (p.team ? ' ' : '') + '(Bye ' + p.bye + ')' : '');
+      if (bits) meta.appendChild(el('span', null, bits));
+      if (p.adp) meta.appendChild(el('span', null, '· ADP ' + p.adp.toFixed(1)));
+      // How far the field lets him slide past where I rank him. Positive means
+      // the market is cooler on him than I am — I can probably wait.
+      if (p.adp && p.rank) {
+        var d = Math.round(p.adp - p.rank);
+        if (Math.abs(d) >= 5) {
+          meta.appendChild(el('span', 'delta' + (d > 0 ? ' good' : ''), (d > 0 ? '+' : '') + d));
+        }
+      }
+      label.appendChild(meta);
+      row.appendChild(label);
+      row.appendChild(availCell(p, myNext, isGone, clock));
+      if (!isGone) {
+        row.addEventListener('click', function () {
+          submitPlayer(p.player_id ? { player_id: p.player_id }
+            : { name: p.name, position: p.position, team: p.team }, p.name);
+        });
+      }
+      return row;
+    }
+
     function availCell(p, myNext, isGone, fromPick) {
       if (isGone || !myNext || !window.WarRoomAvailability) return el('span', 'avail', '');
       var pct = window.WarRoomAvailability.pctAvailable(p.adp, p.stdev, myNext, { high: p.high, low: p.low }, fromPick);
