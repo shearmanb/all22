@@ -241,6 +241,7 @@ router.get('/drafts/:id/cheatsheet', async (req, res) => {
           name: r.name,
           position: r.position,
           team: r.team,
+          bye: a.bye === undefined ? null : a.bye,
           adp: a.adp === undefined ? null : a.adp,
           stdev: a.stdev === undefined ? null : a.stdev,
           high: a.high === undefined ? null : a.high,
@@ -257,6 +258,7 @@ router.get('/drafts/:id/cheatsheet', async (req, res) => {
         name: r.name,
         position: r.position,
         team: r.team,
+        bye: r.bye === undefined ? null : r.bye,
         adp: r.adp,
         stdev: r.stdev,
         high: r.high,
@@ -285,6 +287,7 @@ router.get('/drafts/:id/cheatsheet', async (req, res) => {
       name: r.name,
       position: r.position,
       team: r.team,
+      bye: r.bye === undefined ? null : r.bye,
       adp: r.adp,
       matched: r.matched,
     }));

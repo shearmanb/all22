@@ -11,16 +11,18 @@
   <script src="/warroom-snake.js"></script>
   <script src="/warroom-availability.js"></script>
   <style>
-    /* --- On-the-clock banner: the one thing readable across a room --- */
+    /* --- On-the-clock header: FP-style two lines, readable across a room --- */
     .clock {
-      display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px;
+      display: flex; align-items: center; gap: 12px;
       padding: 12px 14px; border-radius: var(--radius);
       background: var(--surface); border: 1px solid var(--border); margin-bottom: 12px;
     }
-    .clock .now { font-size: 1.6rem; font-weight: 700; letter-spacing: .5px; }
-    .clock .who { color: var(--text-dim); font-size: .9rem; }
-    .clock .mine { color: var(--accent-strong); font-weight: 600; }
-    .sync { margin-left: auto; font-size: .75rem; color: var(--text-dim); white-space: nowrap; }
+    .clock-main { min-width: 0; }
+    .clock .round-line { font-size: 1.15rem; font-weight: 700; }
+    .clock .who { color: var(--text-dim); font-size: .85rem; }
+    .clock-side { margin-left: auto; text-align: right; display: flex; flex-direction: column; gap: 2px; }
+    .clock .mine { color: var(--accent-strong); font-weight: 600; font-size: .9rem; white-space: nowrap; }
+    .sync { font-size: .72rem; color: var(--text-dim); white-space: nowrap; }
     .sync.stale { color: var(--warn-text); }
 
     /* --- Search + results --- */
@@ -37,24 +39,39 @@
     .hit .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .hit.typed { color: var(--text-dim); font-style: italic; }
     .editing-banner { padding: 8px 12px; border-radius: var(--radius); background: var(--chip); border: 1px solid var(--accent); margin-bottom: 8px; }
+    /* The label only appears while fixing a pick; day-to-day the placeholder
+       carries the meaning and the label would just be another line of text. */
+    #search-label:empty { display: none; }
+    .ameta .pos-badge, .smeta .pos-badge { font-size: .64rem; padding: 1px 6px; min-width: 28px; }
 
-    /* --- Best available: the one-tap list. Rows are deliberately tall — this
-       gets used at arm's length, in a noisy room, in a hurry. --- */
-    .tap-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    /* --- Best available: the one-tap list, styled after FP's player rows —
+       big rank, bold name over a quiet meta line, Draft affordance right.
+       The WHOLE row records; the pill is a signpost, not a smaller target. --- */
+    .tap-list { border-top: 1px solid var(--border); }
     .tap-list:empty { display: none; }
     .arow {
-      display: flex; align-items: center; gap: 10px; width: 100%;
-      padding: 13px 12px; border: none; border-bottom: 1px solid var(--border);
-      background: var(--surface); color: var(--text-body); text-align: left;
+      display: flex; align-items: center; gap: 12px; width: 100%;
+      padding: 11px 2px; border: none; border-bottom: 1px solid var(--border);
+      background: transparent; color: var(--text-body); text-align: left;
       border-radius: 0; font-size: .95rem; cursor: pointer;
     }
-    .arow:last-child { border-bottom: none; }
     .arow:hover, .arow:focus { background: var(--chip); filter: none; }
     .arow:active { background: var(--accent); color: #fff; }
-    .arow .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .arow .aname { font-weight: 600; }
+    .arow:active .aname, .arow:active .ameta, .arow:active .aadp { color: #fff; }
+    .arow .arank {
+      font-variant-numeric: tabular-nums; font-size: 1.05rem; font-weight: 700;
+      color: var(--text-dim); min-width: 30px; text-align: center;
+    }
+    .arow .grow { min-width: 0; }
+    .arow .aname { font-weight: 700; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .arow .ameta { display: flex; align-items: center; gap: 6px; margin-top: 2px; color: var(--text-dim); font-size: .78rem; }
     .arow .aadp { font-variant-numeric: tabular-nums; color: var(--text-dim); font-size: .8rem; white-space: nowrap; }
     .arow.unmatched .aname { color: var(--warn-text); }
+    .draft-pill {
+      background: var(--accent); color: #fff; font-weight: 600; font-size: .82rem;
+      padding: 7px 16px; border-radius: 8px; white-space: nowrap;
+    }
+    .arow:active .draft-pill { background: rgba(255,255,255,.25); }
 
     /* --- Recent picks --- */
     /* Collapsed, this is a one-line bar; the marker is moved inline so the
@@ -83,34 +100,50 @@
     .board-scroll { overflow-x: auto; padding-bottom: 6px; }
     .board { display: grid; gap: 3px; min-width: max-content; }
     .bcell {
-      border: 1px solid var(--border); border-radius: 6px; padding: 5px 6px;
-      background: var(--surface); min-height: 46px; width: 104px;
-      font-size: .72rem; line-height: 1.25; overflow: hidden; cursor: pointer;
-      text-align: left; color: var(--text-body);
+      border: 1px solid transparent; border-radius: 8px; padding: 6px 7px;
+      background: var(--pos-dst); min-height: 48px; width: 104px;
+      font-size: .72rem; line-height: 1.3; overflow: hidden; cursor: pointer;
+      text-align: left; color: #0b1220;
     }
-    .bcell:hover { filter: none; background: var(--chip); }
-    .bcell.empty { background: transparent; border-style: dashed; cursor: default; }
-    .bcell.onclock { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
-    .bcell.needs-review { border-color: var(--warn-border); }
-    .bcell .bname { font-weight: 600; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .bcell .bmeta { color: var(--text-dim); font-size: .68rem; }
+    .bcell:hover { filter: brightness(1.08); }
+    /* Filled cells wear their position's colour, like the stickers on the wall
+       (and FP's board). Fixed colours + dark text stay legible in any theme. */
+    .bcell.pos-QB { background: var(--pos-qb); }
+    .bcell.pos-RB { background: var(--pos-rb); }
+    .bcell.pos-WR { background: var(--pos-wr); }
+    .bcell.pos-TE { background: var(--pos-te); }
+    .bcell.pos-K { background: var(--pos-k); }
+    .bcell.empty {
+      background: transparent; border-color: var(--border); cursor: default;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-dim); filter: none;
+    }
+    .bcell.onclock { border-color: var(--accent); box-shadow: 0 0 0 1.5px var(--accent); color: var(--accent-strong); }
+    .bcell.needs-review { box-shadow: 0 0 0 1.5px var(--warn-border); }
+    .bcell .bname { font-weight: 700; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bcell .bmeta { font-size: .66rem; opacity: .75; }
+    .bcell .bpick { float: right; font-size: .64rem; opacity: .7; font-variant-numeric: tabular-nums; }
     .bhead {
       width: 104px; font-size: .72rem; font-weight: 600; color: var(--text-dim);
       text-align: center; padding: 3px 0; white-space: nowrap;
     }
     .bhead.mine { color: var(--accent-strong); }
     .bround { font-size: .7rem; color: var(--text-dim); align-self: center; padding-right: 4px; text-align: right; min-width: 26px; }
-    /* My column, so the owner can find his own picks at a glance. The class sits
-       on the cell itself — these are grid children, there is no column wrapper. */
-    .bcell.col-mine { border-color: var(--border-strong); background: var(--surface-2); }
+    /* My column, so the owner can find his own slots at a glance. Filled cells
+       already carry position colour, so the marker rides on the empties. */
     .bcell.empty.col-mine { background: var(--chip); border-style: dashed; }
 
     /* --- Cheat sheet --- */
-    .sheet-row { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-bottom: 1px solid var(--border); }
+    .sheet-row { display: flex; align-items: center; gap: 12px; padding: 9px 2px; border-bottom: 1px solid var(--border); }
     .sheet-row.gone { opacity: .4; }
     .sheet-row.gone .sname { text-decoration: line-through; }
-    .sheet-row .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sheet-row .num { font-variant-numeric: tabular-nums; color: var(--text-dim); font-size: .8rem; min-width: 30px; text-align: right; }
+    .sheet-row .grow { min-width: 0; }
+    .sheet-row .sname { font-weight: 700; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sheet-row .smeta { display: flex; align-items: center; gap: 6px; margin-top: 2px; color: var(--text-dim); font-size: .78rem; }
+    .sheet-row .num {
+      font-variant-numeric: tabular-nums; font-size: 1.05rem; font-weight: 700;
+      color: var(--text-dim); min-width: 30px; text-align: center;
+    }
     .avail { font-variant-numeric: tabular-nums; font-size: .78rem; min-width: 46px; text-align: right; }
     .avail.low { color: var(--error-text); }
     .avail.mid { color: var(--warn-text); }
@@ -148,13 +181,17 @@
     <div class="row" style="align-items:baseline;gap:10px">
       <h1 style="margin:0">War Room</h1>
       <span id="draft-meta" class="muted small"></span>
-      <span class="sync" id="sync-note"></span>
     </div>
 
     <div class="clock" id="clock">
-      <span class="now" id="clock-now">—</span>
-      <span class="who" id="clock-who"></span>
-      <span class="mine" id="clock-mine"></span>
+      <div class="clock-main">
+        <div class="round-line" id="clock-round">—</div>
+        <div class="who"><span id="clock-now"></span><span id="clock-who"></span></div>
+      </div>
+      <div class="clock-side">
+        <span class="mine" id="clock-mine"></span>
+        <span class="sync" id="sync-note"></span>
+      </div>
     </div>
 
     <div class="tabs">
@@ -169,11 +206,10 @@
       <div class="card">
         <div id="editing-banner" class="editing-banner" hidden></div>
         <label>
-          <span class="field-label" id="search-label">Who was just picked?</span>
-          <input id="search" placeholder="Start typing a name…" autocomplete="off" autocapitalize="words">
+          <span class="field-label" id="search-label"></span>
+          <input id="search" placeholder="Search a player…" autocomplete="off" autocapitalize="words">
         </label>
         <div class="search-results" id="search-results"></div>
-        <p class="muted small" id="search-hint" style="margin-top:8px">Tap a player to record him at the pick shown above.</p>
       </div>
 
       <!-- Above the player list so a fix is one tap away instead of a scroll
@@ -326,14 +362,16 @@
       $('draft-meta').textContent = meta;
 
       if (!o) {
-        $('clock-now').textContent = 'Board full';
+        $('clock-round').textContent = 'Board full';
+        $('clock-now').textContent = '';
         $('clock-who').textContent = state.picks.length + ' picks recorded';
         $('clock-mine').textContent = '';
         return;
       }
       var spot = SN.overallToSlot(o, teams());
+      $('clock-round').textContent = 'Round ' + spot.round + ' of ' + rounds();
       $('clock-now').textContent = 'Pick ' + SN.pickLabel(o, teams());
-      $('clock-who').textContent = 'overall ' + o + ' · team ' + spot.slot;
+      $('clock-who').textContent = ' (' + o + ' overall) · Team ' + spot.slot;
 
       var next = SN.myNextPick(o - 1, state.draft.my_slot, teams(), rounds());
       if (next === o) {
@@ -472,10 +510,13 @@
         empty.appendChild(el('span', 'bmeta', SN.pickLabel(overall, t)));
         return empty;
       }
-      var cell = el('button', 'bcell' + mine + (pick.player_id ? '' : ' needs-review'));
+      var pos = String(pick.position || '').toUpperCase();
+      var cell = el('button', 'bcell' +
+        (['QB','RB','WR','TE','K'].indexOf(pos) >= 0 ? ' pos-' + pos : '') +
+        (pick.player_id ? '' : ' needs-review'));
+      cell.appendChild(el('span', 'bpick', SN.pickLabel(overall, t)));
       cell.appendChild(el('span', 'bname', pick.name || pick.player_name));
-      cell.appendChild(el('span', 'bmeta',
-        (pick.position || '?') + (pick.nfl_team ? ' · ' + pick.nfl_team : '') + ' · ' + SN.pickLabel(overall, t)));
+      cell.appendChild(el('span', 'bmeta', (pos || '?') + (pick.nfl_team ? ' - ' + pick.nfl_team : '')));
       cell.addEventListener('click', function () { startEdit(pick); });
       return cell;
     }
@@ -596,16 +637,20 @@
       loadAvailable(site);
     });
 
-    function renderAvailChips() {
+    // Rebuilt on every render (not once) because each chip carries the live
+    // count of who's LEFT at that position — the number the room keeps asking.
+    function renderAvailChips(open) {
+      var counts = {};
+      open.forEach(function (r) { counts[r.position] = (counts[r.position] || 0) + 1; });
       var wrap = $('avail-chips');
-      if (wrap.childNodes.length) return;
+      wrap.textContent = '';
       ['', 'QB', 'RB', 'WR', 'TE', 'K', 'DST'].forEach(function (pos) {
-        var b = el('button', 'chip-btn' + (pos === state.availPos ? ' on' : ''), pos || 'All');
+        var n = pos ? (counts[pos] || 0) : open.length;
+        var b = el('button', 'chip-btn' + (pos === state.availPos ? ' on' : ''),
+          (pos || 'All') + ' ' + n);
         b.addEventListener('click', function () {
           state.availPos = pos;
           state.availLimit = 40;
-          Array.prototype.forEach.call(wrap.children, function (c) { c.classList.remove('on'); });
-          b.classList.add('on');
           renderAvailable();
         });
         wrap.appendChild(b);
@@ -625,7 +670,6 @@
       return state.adp.rows.filter(function (r) {
         if (r.player_id && goneIds.has(r.player_id)) return false;
         if (goneKeys[nameKey(r.name)]) return false;
-        if (state.availPos && r.position !== state.availPos) return false;
         return true;
       });
     }
@@ -638,45 +682,54 @@
     }
 
     function renderAvailable() {
-      renderAvailChips();
       var wrap = $('avail-list');
       wrap.textContent = '';
       if (!state.adp) {
+        $('avail-chips').textContent = '';
         wrap.appendChild(el('div', 'muted small',
           'No ADP collected for this format yet — use the search box above. Edge Rush collects daily.'));
         $('avail-note').textContent = '';
         return;
       }
       var open = availablePlayers();
-      var shown = open.slice(0, state.availLimit);
+      renderAvailChips(open);
+      var filtered = state.availPos
+        ? open.filter(function (r) { return r.position === state.availPos; })
+        : open;
+      var shown = filtered.slice(0, state.availLimit);
       var list = el('div', 'tap-list');
       shown.forEach(function (r) {
         list.appendChild(availRow(r));
       });
       wrap.appendChild(list);
 
-      if (open.length > shown.length) {
-        var more = el('button', 'secondary', 'Show ' + Math.min(40, open.length - shown.length) + ' more');
+      if (filtered.length > shown.length) {
+        var more = el('button', 'secondary', 'Show ' + Math.min(40, filtered.length - shown.length) + ' more');
         more.style.marginTop = '10px';
         more.addEventListener('click', function () { state.availLimit += 40; renderAvailable(); });
         wrap.appendChild(more);
       }
-      if (!open.length) {
-        wrap.appendChild(el('div', 'muted small', 'Everyone on this ADP board is drafted — use the search box.'));
+      if (!filtered.length) {
+        wrap.appendChild(el('div', 'muted small', open.length
+          ? 'Nobody left at ' + state.availPos + '.'
+          : 'Everyone on this ADP board is drafted — use the search box.'));
       }
-      $('avail-note').textContent = state.adp.site + ' ADP · ' + state.adp.date +
-        ' · ' + open.length + ' available';
+      $('avail-note').textContent = state.adp.site + ' ADP · ' + state.adp.date;
     }
 
     function availRow(r) {
       var b = el('button', 'arow' + (r.player_id ? '' : ' unmatched'));
-      b.appendChild(el('span', 'aadp', String(r.adp_rank)));
-      b.appendChild(posBadge(r.position));
+      b.appendChild(el('span', 'arank', String(r.adp_rank)));
       var label = el('span', 'grow');
       label.appendChild(el('span', 'aname', r.name));
-      if (r.team) label.appendChild(el('span', 'muted small', '  ' + r.team));
+      var meta = el('span', 'ameta');
+      meta.appendChild(posBadge(r.position));
+      meta.appendChild(el('span', null,
+        (r.team || '') + (r.bye ? (r.team ? ' ' : '') + '(Bye ' + r.bye + ')' : '')));
+      if (r.adp) meta.appendChild(el('span', null, '· ADP ' + r.adp.toFixed(1)));
+      label.appendChild(meta);
       b.appendChild(label);
-      b.appendChild(el('span', 'aadp', r.adp ? r.adp.toFixed(1) : ''));
+      b.appendChild(el('span', 'draft-pill', 'Draft'));
       b.addEventListener('click', function () {
         // An ADP row the registry never matched has no id — record the name as
         // published rather than dropping the tap; it shows as needs-review.
@@ -754,7 +807,7 @@
     function cancelEdit() {
       state.editingPickId = null;
       $('editing-banner').hidden = true;
-      $('search-label').textContent = 'Who was just picked?';
+      $('search-label').textContent = '';   // empty = hidden; placeholder speaks
     }
 
     // `ask` guards the deliberate deletion of a pick from the middle of the
@@ -848,13 +901,14 @@
         shown++;
         var row = el('div', 'sheet-row' + (isGone ? ' gone' : ''));
         row.appendChild(el('span', 'num', String(p.rank)));
-        row.appendChild(posBadge(p.position));
         var label = el('span', 'grow');
         label.appendChild(el('span', 'sname', p.name));
-        var meta = [];
-        if (p.team) meta.push(p.team);
-        if (p.adp) meta.push('ADP ' + p.adp.toFixed(1));
-        if (meta.length) label.appendChild(el('div', 'raw-note', meta.join(' · ')));
+        var meta = el('span', 'smeta');
+        meta.appendChild(posBadge(p.position));
+        var bits = (p.team || '') + (p.bye ? (p.team ? ' ' : '') + '(Bye ' + p.bye + ')' : '');
+        if (bits) meta.appendChild(el('span', null, bits));
+        if (p.adp) meta.appendChild(el('span', null, '· ADP ' + p.adp.toFixed(1)));
+        label.appendChild(meta);
         row.appendChild(label);
         row.appendChild(availCell(p, myNext, isGone));
         wrap.appendChild(row);
