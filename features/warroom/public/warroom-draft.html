@@ -57,6 +57,22 @@
     .arow.unmatched .aname { color: var(--warn-text); }
 
     /* --- Recent picks --- */
+    /* Collapsed, this is a one-line bar; the marker is moved inline so the
+       row reads as a header rather than a list item. */
+    #recent-card { padding-top: 10px; padding-bottom: 10px; }
+    #recent-card[open] { padding-bottom: 14px; }
+    .recent-summary {
+      display: flex; align-items: center; gap: 10px;
+      cursor: pointer; list-style: none; user-select: none;
+    }
+    .recent-summary::-webkit-details-marker { display: none; }
+    .recent-summary::before {
+      content: '▸'; color: var(--text-dim); font-size: .8rem;
+      transition: transform .12s ease; display: inline-block;
+    }
+    #recent-card[open] .recent-summary::before { transform: rotate(90deg); }
+    .recent-summary .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .recent-summary button { padding: 4px 12px; font-size: .78rem; white-space: nowrap; }
     .recent { list-style: none; padding: 0; margin: 0; }
     .recent li { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--border); }
     .recent .num { font-variant-numeric: tabular-nums; color: var(--text-dim); font-size: .8rem; min-width: 42px; }
@@ -160,6 +176,21 @@
         <p class="muted small" id="search-hint" style="margin-top:8px">Tap a player to record him at the pick shown above.</p>
       </div>
 
+      <!-- Above the player list so a fix is one tap away instead of a scroll
+           past 40 rows — and shut by default so it costs almost no height,
+           with the last pick and Undo readable without opening it. -->
+      <details class="card" id="recent-card">
+        <summary class="recent-summary">
+          <span class="grow">
+            <strong>Recent picks</strong>
+            <span id="recent-last" class="muted small"></span>
+          </span>
+          <button id="undo-btn" class="secondary">Undo last</button>
+        </summary>
+        <div class="chip-row section-gap" id="recent-chips"></div>
+        <ul class="recent" id="recent-list"></ul>
+      </details>
+
       <!-- The fast path: most picks come off the top of this list, so it needs
            no typing at all — one tap records. Search above is for the reaches. -->
       <div class="card" id="avail-card">
@@ -170,14 +201,6 @@
         <div class="chip-row section-gap" id="avail-chips"></div>
         <div id="avail-list"><div class="muted small">Loading ADP…</div></div>
         <p class="muted small" id="avail-note" style="margin-bottom:0"></p>
-      </div>
-
-      <div class="card">
-        <div class="row" style="align-items:baseline">
-          <h3 style="margin:0">Recent picks</h3>
-          <button id="undo-btn" class="secondary" style="margin-left:auto">Undo last</button>
-        </div>
-        <ul class="recent" id="recent-list"></ul>
       </div>
 
       <div class="card">
@@ -257,6 +280,7 @@
       adp: null,             // the ADP board that orders "Best available"
       adpSites: [],          // every stored board, so the source is choosable
       availPos: '',          // position filter on the one-tap list
+      recentPos: '',         // position filter on the recent-picks list
       availLimit: 40,        // keep the phone's DOM small; "show more" extends it
     };
 
@@ -321,12 +345,44 @@
       note.classList.toggle('stale', age > 20);
     }
 
+    // The position chips on the recent list answer "who's gone at RB lately?",
+    // which is a different question from the one the Best available chips
+    // answer — so they filter independently rather than sharing one setting.
+    function renderRecentChips() {
+      var wrap = $('recent-chips');
+      if (wrap.childNodes.length) return;
+      ['', 'QB', 'RB', 'WR', 'TE', 'K', 'DST'].forEach(function (pos) {
+        var b = el('button', 'chip-btn' + (pos === state.recentPos ? ' on' : ''), pos || 'All');
+        b.addEventListener('click', function () {
+          state.recentPos = pos;
+          Array.prototype.forEach.call(wrap.children, function (c) { c.classList.remove('on'); });
+          b.classList.add('on');
+          renderRecent();
+        });
+        wrap.appendChild(b);
+      });
+    }
+
     function renderRecent() {
+      renderRecentChips();
       var list = $('recent-list');
       list.textContent = '';
-      var recent = state.picks.slice().sort(function (a, b) { return b.overall_pick - a.overall_pick; }).slice(0, 8);
+      var newestFirst = state.picks.slice().sort(function (a, b) { return b.overall_pick - a.overall_pick; });
+
+      // The summary line has to stay useful while the card is shut, so it shows
+      // the very last pick regardless of what the position filter is set to.
+      var last = newestFirst[0];
+      $('recent-last').textContent = last
+        ? '· ' + SN.pickLabel(last.overall_pick, teams()) + ' ' + (last.name || last.player_name)
+        : '· nothing yet';
+
+      var recent = newestFirst.filter(function (p) {
+        return !state.recentPos || p.position === state.recentPos;
+      }).slice(0, 8);
       if (!recent.length) {
-        list.appendChild(el('li', 'muted', 'Nothing recorded yet.'));
+        list.appendChild(el('li', 'muted', state.recentPos
+          ? 'No ' + state.recentPos + ' picks recorded yet.'
+          : 'Nothing recorded yet.'));
       }
       recent.forEach(function (p) {
         var li = el('li');
@@ -651,18 +707,25 @@
       $('search-label').textContent = 'Who was just picked?';
     }
 
-    function removePick(pick) {
-      if (!confirm('Remove ' + (pick.name || pick.player_name) + ' from pick ' +
+    // `ask` guards the deliberate deletion of a pick from the middle of the
+    // board. Undo skips it: that intent is unambiguous and costs one tap to
+    // put back, and a dialog between the owner and a fix is exactly the
+    // friction this panel exists to remove.
+    function removePick(pick, ask) {
+      if (ask !== false && !confirm('Remove ' + (pick.name || pick.player_name) + ' from pick ' +
           SN.pickLabel(pick.overall_pick, teams()) + '?')) return;
       apiPost('/api/warroom/drafts/' + state.id + '/picks/' + pick.id, null, 'DELETE')
         .then(function (data) { cancelEdit(); applyState(data); toast('Pick removed'); })
         .catch(function (err) { if (err && err.data) applyState(err.data); });
     }
 
-    $('undo-btn').addEventListener('click', function () {
+    $('undo-btn').addEventListener('click', function (ev) {
+      // It sits inside <summary>; without this, undoing also opens/closes the card.
+      ev.preventDefault();
+      ev.stopPropagation();
       if (!state.picks.length) return;
       var last = state.picks.slice().sort(function (a, b) { return b.overall_pick - a.overall_pick; })[0];
-      removePick(last);
+      removePick(last, false);
     });
 
     $('finish-btn').addEventListener('click', function () {
