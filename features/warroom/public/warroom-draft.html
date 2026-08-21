@@ -38,6 +38,24 @@
     .hit.typed { color: var(--text-dim); font-style: italic; }
     .editing-banner { padding: 8px 12px; border-radius: var(--radius); background: var(--chip); border: 1px solid var(--accent); margin-bottom: 8px; }
 
+    /* --- Best available: the one-tap list. Rows are deliberately tall — this
+       gets used at arm's length, in a noisy room, in a hurry. --- */
+    .tap-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .tap-list:empty { display: none; }
+    .arow {
+      display: flex; align-items: center; gap: 10px; width: 100%;
+      padding: 13px 12px; border: none; border-bottom: 1px solid var(--border);
+      background: var(--surface); color: var(--text-body); text-align: left;
+      border-radius: 0; font-size: .95rem; cursor: pointer;
+    }
+    .arow:last-child { border-bottom: none; }
+    .arow:hover, .arow:focus { background: var(--chip); filter: none; }
+    .arow:active { background: var(--accent); color: #fff; }
+    .arow .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .arow .aname { font-weight: 600; }
+    .arow .aadp { font-variant-numeric: tabular-nums; color: var(--text-dim); font-size: .8rem; white-space: nowrap; }
+    .arow.unmatched .aname { color: var(--warn-text); }
+
     /* --- Recent picks --- */
     .recent { list-style: none; padding: 0; margin: 0; }
     .recent li { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--border); }
@@ -142,6 +160,18 @@
         <p class="muted small" id="search-hint" style="margin-top:8px">Tap a player to record him at the pick shown above.</p>
       </div>
 
+      <!-- The fast path: most picks come off the top of this list, so it needs
+           no typing at all — one tap records. Search above is for the reaches. -->
+      <div class="card" id="avail-card">
+        <div class="row" style="align-items:baseline;gap:8px">
+          <h3 style="margin:0">Best available</h3>
+          <select id="avail-site" class="inline" style="margin-left:auto;width:auto" title="Which ADP board orders this list"></select>
+        </div>
+        <div class="chip-row section-gap" id="avail-chips"></div>
+        <div id="avail-list"><div class="muted small">Loading ADP…</div></div>
+        <p class="muted small" id="avail-note" style="margin-bottom:0"></p>
+      </div>
+
       <div class="card">
         <div class="row" style="align-items:baseline">
           <h3 style="margin:0">Recent picks</h3>
@@ -224,6 +254,10 @@
       sheetNote: '',
       posFilter: '',
       panel: 'record',
+      adp: null,             // the ADP board that orders "Best available"
+      adpSites: [],          // every stored board, so the source is choosable
+      availPos: '',          // position filter on the one-tap list
+      availLimit: 40,        // keep the phone's DOM small; "show more" extends it
     };
 
     function el(tag, className, text) {
@@ -357,6 +391,7 @@
       renderClock();
       renderSync();
       renderRecent();
+      renderAvailable();
       if (state.panel === 'board') renderBoard();
       if (state.panel === 'sheet') renderSheet();
       $('finish-note').textContent = state.draft.status === 'live'
@@ -371,7 +406,12 @@
       clearTimeout(searchTimer);
       state.pendingDupName = '';
       var q = $('search').value.trim();
-      if (q.length < 2) { $('search-results').textContent = ''; return; }
+      if (q.length < 2) {
+        $('search-results').textContent = '';
+        $('avail-card').hidden = false;
+        return;
+      }
+      $('avail-card').hidden = true;
       searchTimer = setTimeout(function () { runSearch(q); }, 220);
     });
 
@@ -405,6 +445,140 @@
       wrap.appendChild(typed);
     }
 
+    // -------------------------------------------------- best available (ADP)
+    // Loaded once per draft alongside the cheat sheet: ADP doesn't change
+    // mid-draft, only who's gone does — and the poll already tells us that.
+    function loadAvailable(site) {
+      var url = '/api/warroom/drafts/' + state.id + '/cheatsheet' +
+        (site ? '?site=' + encodeURIComponent(site) : '');
+      return apiFetch(url).then(function (data) {
+        state.sheet = data.rows || [];
+        state.sheetNote = data.note || '';
+        state.adp = data.adp;
+        state.adpSites = data.sites || [];
+        renderSitePicker();
+        renderAvailable();
+        if (state.panel === 'sheet') renderSheet();
+      }).catch(function () {
+        state.sheet = state.sheet || [];
+        state.adp = state.adp || null;
+        renderAvailable();
+      });
+    }
+
+    function renderSitePicker() {
+      var sel = $('avail-site');
+      sel.textContent = '';
+      if (state.adpSites.length < 2) { sel.hidden = true; return; }
+      sel.hidden = false;
+      state.adpSites.forEach(function (b) {
+        var o = document.createElement('option');
+        o.value = b.site;
+        o.textContent = b.site + (b.teams ? ' · ' + b.teams + '-team' : ' · site-wide');
+        if (state.adp && b.site === state.adp.site) o.selected = true;
+        sel.appendChild(o);
+      });
+    }
+
+    $('avail-site').addEventListener('change', function () {
+      var site = $('avail-site').value;
+      $('avail-list').textContent = '';
+      $('avail-list').appendChild(el('div', 'muted small', 'Loading ' + site + '…'));
+      // Remembered server-side: everyone recording should see the same order.
+      apiPost('/api/warroom/adp-site', { site: site }, 'PUT').catch(function () {});
+      state.availLimit = 40;
+      loadAvailable(site);
+    });
+
+    function renderAvailChips() {
+      var wrap = $('avail-chips');
+      if (wrap.childNodes.length) return;
+      ['', 'QB', 'RB', 'WR', 'TE', 'K', 'DST'].forEach(function (pos) {
+        var b = el('button', 'chip-btn' + (pos === state.availPos ? ' on' : ''), pos || 'All');
+        b.addEventListener('click', function () {
+          state.availPos = pos;
+          state.availLimit = 40;
+          Array.prototype.forEach.call(wrap.children, function (c) { c.classList.remove('on'); });
+          b.classList.add('on');
+          renderAvailable();
+        });
+        wrap.appendChild(b);
+      });
+    }
+
+    // Everyone the ADP source lists who hasn't been taken yet, in draft order.
+    function availablePlayers() {
+      if (!state.adp) return [];
+      var goneIds = draftedPlayerIds();
+      // A pick typed free-hand has no player_id, so also match on name — the
+      // list must never offer someone who is already on the board.
+      var goneKeys = {};
+      state.picks.forEach(function (p) {
+        goneKeys[nameKey(p.name || p.player_name)] = true;
+      });
+      return state.adp.rows.filter(function (r) {
+        if (r.player_id && goneIds.has(r.player_id)) return false;
+        if (goneKeys[nameKey(r.name)]) return false;
+        if (state.availPos && r.position !== state.availPos) return false;
+        return true;
+      });
+    }
+
+    // Loose name key for the free-typed case: lowercase, no punctuation.
+    // Deliberately simpler than the server's matcher — this only hides a row,
+    // and the server still refuses a true duplicate.
+    function nameKey(n) {
+      return String(n || '').toLowerCase().replace(/[^a-z]/g, '');
+    }
+
+    function renderAvailable() {
+      renderAvailChips();
+      var wrap = $('avail-list');
+      wrap.textContent = '';
+      if (!state.adp) {
+        wrap.appendChild(el('div', 'muted small',
+          'No ADP collected for this format yet — use the search box above. Edge Rush collects daily.'));
+        $('avail-note').textContent = '';
+        return;
+      }
+      var open = availablePlayers();
+      var shown = open.slice(0, state.availLimit);
+      var list = el('div', 'tap-list');
+      shown.forEach(function (r) {
+        list.appendChild(availRow(r));
+      });
+      wrap.appendChild(list);
+
+      if (open.length > shown.length) {
+        var more = el('button', 'secondary', 'Show ' + Math.min(40, open.length - shown.length) + ' more');
+        more.style.marginTop = '10px';
+        more.addEventListener('click', function () { state.availLimit += 40; renderAvailable(); });
+        wrap.appendChild(more);
+      }
+      if (!open.length) {
+        wrap.appendChild(el('div', 'muted small', 'Everyone on this ADP board is drafted — use the search box.'));
+      }
+      $('avail-note').textContent = state.adp.site + ' ADP · ' + state.adp.date +
+        ' · ' + open.length + ' available';
+    }
+
+    function availRow(r) {
+      var b = el('button', 'arow' + (r.player_id ? '' : ' unmatched'));
+      b.appendChild(el('span', 'aadp', String(r.adp_rank)));
+      b.appendChild(posBadge(r.position));
+      var label = el('span', 'grow');
+      label.appendChild(el('span', 'aname', r.name));
+      if (r.team) label.appendChild(el('span', 'muted small', '  ' + r.team));
+      b.appendChild(label);
+      b.appendChild(el('span', 'aadp', r.adp ? r.adp.toFixed(1) : ''));
+      b.addEventListener('click', function () {
+        // An ADP row the registry never matched has no id — record the name as
+        // published rather than dropping the tap; it shows as needs-review.
+        submitPlayer(r.player_id ? { player_id: r.player_id } : { name: r.name, position: r.position, team: r.team }, r.name);
+      });
+      return b;
+    }
+
     // ------------------------------------------------------------- mutations
     function applyState(data) {
       if (!data) return;
@@ -419,6 +593,7 @@
     function clearSearch() {
       $('search').value = '';
       $('search-results').textContent = '';
+      $('avail-card').hidden = false;
       state.pendingDupName = '';
     }
 
@@ -516,11 +691,7 @@
     // ----------------------------------------------------------- cheat sheet
     function loadSheet() {
       if (state.sheet) return;                      // rankings don't change mid-draft
-      apiFetch('/api/warroom/drafts/' + state.id + '/cheatsheet').then(function (data) {
-        state.sheet = data.rows || [];
-        state.sheetNote = data.note || '';
-        renderSheet();
-      }).catch(function () { state.sheet = []; renderSheet(); });
+      loadAvailable();                              // one fetch serves both lists
     }
 
     function renderPosChips() {
@@ -769,6 +940,7 @@
         return apiFetch('/api/warroom/drafts/' + state.id + '/state');
       }).then(function (data) {
         applyState(data);
+        loadAvailable();          // the one-tap list is the primary surface
         $('search').focus();
         setInterval(poll, POLL_MS);
         setInterval(renderSync, 5000);
