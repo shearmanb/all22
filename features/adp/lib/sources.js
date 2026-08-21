@@ -8,6 +8,15 @@
 //           collector runs at most daily to match (their stated etiquette).
 //           Free for personal use with attribution (shown on the page).
 //
+//   ESPN    the public read API behind ESPN's own draft tools. Carries the
+//           ADP their drafts actually produce (ownership.averageDraftPosition)
+//           plus ESPN's PPR/standard draft ranks and auction values. It is
+//           UNDOCUMENTED, so the parser shape-checks hard and throws a plain
+//           message rather than inventing a board — a silently wrong ADP on
+//           draft day is worse than no ADP. Sitewide, not per league size, so
+//           it stores as teams = 0 like Sleeper. Confirm the first real pull
+//           on Railway (see docs/INTEGRATIONS.md).
+//
 //   Sleeper the projections endpoint of the same free API family that already
 //           seeds players_master. Carries draft-room ADP for every format in
 //           one call, keyed by the SAME sleeper_id players_master stores — so
@@ -162,6 +171,121 @@ async function fetchSleeper({ year } = {}) {
   return { rows, url, year: y };
 }
 
+// ---------------------------------------------------------------------------
+// ESPN
+// ---------------------------------------------------------------------------
+
+// ESPN identifies positions and teams by number. Both maps are stable and
+// long-lived; an id outside them yields '' rather than a wrong guess.
+const ESPN_POSITIONS = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 16: 'DST' };
+const ESPN_TEAMS = {
+  1: 'ATL', 2: 'BUF', 3: 'CHI', 4: 'CIN', 5: 'CLE', 6: 'DAL', 7: 'DEN', 8: 'DET',
+  9: 'GB', 10: 'TEN', 11: 'IND', 12: 'KC', 13: 'LV', 14: 'LAR', 15: 'MIA',
+  16: 'MIN', 17: 'NE', 18: 'NO', 19: 'NYG', 20: 'NYJ', 21: 'PHI', 22: 'ARI',
+  23: 'PIT', 24: 'LAC', 25: 'SF', 26: 'SEA', 27: 'TB', 28: 'WAS', 29: 'CAR',
+  30: 'JAX', 33: 'BAL', 34: 'HOU',
+};
+
+// ESPN publishes draft ranks for PPR and STANDARD only — no half-PPR. Half and
+// superflex borrow PPR, which is the closer of the two; the board is labelled
+// with the site so the owner knows whose numbers these are.
+const ESPN_RANK_TYPES = { ppr: 'PPR', standard: 'STANDARD', half: 'PPR', superflex: 'PPR' };
+
+function espnRankType(format) {
+  return ESPN_RANK_TYPES[String(format || '').toLowerCase()] || 'PPR';
+}
+
+// The human-facing ESPN ADP page (the "View source ↗" link).
+function espnPageUrl() {
+  return 'https://fantasy.espn.com/football/livedraftresults';
+}
+
+// ESPN player JSON -> normalized rows. Pure, so the shape is golden-tested
+// without touching the network.
+//
+// Two numbers matter and they are NOT the same thing:
+//   ownership.averageDraftPosition  where he actually goes in ESPN drafts (ADP)
+//   draftRanksByRankType[T].rank    where ESPN's own board says he should go
+// We use the former as the ADP and keep the latter only as a fallback, because
+// a projected rank is not a draft result.
+function parseEspn(json, { format } = {}) {
+  const players = json && Array.isArray(json.players) ? json.players : null;
+  if (!players) {
+    throw new Error('ESPN response had no players array — their API shape may have changed.');
+  }
+  const rankType = espnRankType(format);
+  const rows = [];
+  for (const item of players) {
+    const p = (item && item.player) || null;
+    if (!p) continue;
+    const name = String(p.fullName || '').trim();
+    if (!name) continue;
+
+    const ranks = p.draftRanksByRankType || {};
+    const entry = ranks[rankType] || {};
+    const own = p.ownership || {};
+    // ESPN uses 0 (and sometimes negative) to mean "undrafted / no data".
+    let adp = toNum(own.averageDraftPosition);
+    if (adp === null || adp <= 0) adp = toNum(entry.rank);
+    if (adp === null || adp <= 0) continue;
+
+    rows.push({
+      espn_id: String(p.id || (item && item.id) || ''),
+      name,
+      position: ESPN_POSITIONS[p.defaultPositionId] || '',
+      team: ESPN_TEAMS[p.proTeamId] || '',
+      adp,
+      auction_value: toNum(entry.auctionValue),
+    });
+  }
+  if (!rows.length) {
+    throw new Error('ESPN returned players but no draft positions — their API shape may have changed.');
+  }
+  rows.sort((a, b) => a.adp - b.adp);
+  return rows;
+}
+
+async function fetchEspn({ year, format, limit = 400 } = {}) {
+  const y = year || seasonYear();
+  const rankType = espnRankType(format);
+  // leaguedefaults/3 is ESPN's PPR default league; the rank type inside the
+  // filter is what actually selects the scoring, so this is stable for both.
+  const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${y}` +
+    '/segments/0/leaguedefaults/3?view=kona_player_info';
+  const filter = {
+    players: {
+      limit,
+      sortDraftRanks: { sortPriority: 100, sortAsc: true, value: rankType },
+    },
+  };
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: {
+        'x-fantasy-filter': JSON.stringify(filter),
+        accept: 'application/json',
+        'user-agent': USER_AGENT,
+      },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+  } catch (err) {
+    const timedOut = err && (err.name === 'TimeoutError' || err.name === 'AbortError');
+    throw new Error(timedOut
+      ? `ESPN did not answer within ${Math.round(FETCH_TIMEOUT_MS / 1000)}s`
+      : `Could not reach ESPN (${err && err.message ? err.message : 'network error'})`);
+  }
+  if (!res.ok) {
+    throw new Error(`ESPN ADP request failed (HTTP ${res.status}). They may be blocking this server.`);
+  }
+  let json;
+  try {
+    json = await res.json();
+  } catch (err) {
+    throw new Error('ESPN returned something that was not JSON (they may be serving a block page).');
+  }
+  return { rows: parseEspn(json, { format }), year: y, url, rankType };
+}
+
 module.exports = {
   FFC_FORMATS,
   FFC_TEAMS,
@@ -169,8 +293,15 @@ module.exports = {
   clampTeams,
   ffcPageUrl,
   seasonYear,
+  ESPN_POSITIONS,
+  ESPN_TEAMS,
+  ESPN_RANK_TYPES,
+  espnRankType,
+  espnPageUrl,
   parseFfc,
   parseSleeper,
+  parseEspn,
   fetchFfc,
   fetchSleeper,
+  fetchEspn,
 };
