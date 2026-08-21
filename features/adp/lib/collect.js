@@ -193,6 +193,55 @@ async function collectSleeper({ force, year, index, date }) {
   return summaries;
 }
 
+// ESPN publishes one ADP per rank type, sitewide rather than per league size,
+// so it stores at teams = 0 exactly like Sleeper. One fetch per rank type
+// covers every format the owner uses (half and superflex borrow PPR).
+async function collectEspn({ force, year, index, date }) {
+  const formats = ['standard', 'ppr', 'half', 'superflex'];
+  const pending = formats.filter(() => true);
+  const todo = [];
+  for (const f of pending) {
+    if (force || !(await haveSnapshot('espn', f, 0, date))) todo.push(f);
+  }
+  if (!todo.length) return [{ site: 'espn', skipped: 'already collected today' }];
+
+  // Group by rank type so PPR is fetched once even though three formats use it.
+  const byRankType = new Map();
+  for (const f of todo) {
+    const rt = sources.espnRankType(f);
+    if (!byRankType.has(rt)) byRankType.set(rt, []);
+    byRankType.get(rt).push(f);
+  }
+
+  const summaries = [];
+  for (const [rankType, formatsForType] of byRankType) {
+    const { rows } = await sources.fetchEspn({ year, format: formatsForType[0] });
+    // ESPN has its own player ids we do not store, so identity is name
+    // matching — high confidence only, per the never-guess invariant. The rest
+    // keep their raw name and stay visibly unmatched.
+    const out = [];
+    let unmatched = 0;
+    for (const r of rows) {
+      const m = ingest.matchRow({ name: r.name, position: r.position, team: r.team }, index);
+      const playerId = (m.player_id && m.confidence === 'high') ? m.player_id : null;
+      if (!playerId) unmatched++;
+      out.push({
+        player_id: playerId,
+        raw_name: r.name,
+        raw_position: r.position,
+        raw_team: r.team,
+        bye: null, adp: r.adp, high: null, low: null, stdev: null, times_drafted: null,
+      });
+    }
+    out.sort((a, b) => a.adp - b.adp);
+    for (const f of formatsForType) {
+      const inserted = await writeSnapshot('espn', f, 0, date, out);
+      summaries.push({ site: 'espn', format: f, teams: 0, rank_type: rankType, inserted, unmatched });
+    }
+  }
+  return summaries;
+}
+
 // User-added sources (settings 'adp.custom_sources'): each is fetched through
 // the custom adapter dispatcher, name-matched high-confidence-only, and stored
 // under its own site slug so it appears as its own board.
@@ -313,6 +362,14 @@ async function collectNow({ force = false } = {}) {
     } catch (err) {
       console.error(`adp: sleeper collect failed: ${err.message}`);
       summaries.push({ site: 'sleeper', error: err.message });
+    }
+    try {
+      summaries.push(...await collectEspn({ force, year, index, date }));
+    } catch (err) {
+      // ESPN's API is undocumented and may block a cloud IP: report it and
+      // carry on, so one dead source never costs the others their collection.
+      console.error(`adp: espn collect failed: ${err.message}`);
+      summaries.push({ site: 'espn', error: err.message });
     }
     const customSources = await settings.get('adp.custom_sources', []);
     for (const entry of (Array.isArray(customSources) ? customSources : [])) {

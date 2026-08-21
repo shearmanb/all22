@@ -63,9 +63,11 @@
         </label>
         <span class="grow"></span>
         <a id="view-source" class="pill accent" target="_blank" rel="noopener noreferrer" hidden>View source ↗</a>
+        <button id="espn-test-btn" class="secondary" type="button" title="Check whether ESPN answers this server">Test ESPN</button>
         <button id="collect-btn" class="secondary" type="button">Collect now</button>
       </div>
       <div id="freshness" class="src-note section-gap"></div>
+      <div id="espn-result" class="src-note section-gap" hidden></div>
     </div>
 
     <section id="movers-section" class="section-gap" hidden>
@@ -406,6 +408,29 @@
         .then(loadBoard)
         .catch(function () {})
         .finally(function () { btn.disabled = false; btn.textContent = 'Collect now'; });
+    });
+
+    // ESPN's API is undocumented and may refuse a cloud IP. This answers
+    // "does it work from MY server?" without waiting for a nightly collection.
+    $('espn-test-btn').addEventListener('click', function () {
+      var btn = $('espn-test-btn');
+      var out = $('espn-result');
+      btn.disabled = true; btn.textContent = 'Testing…';
+      out.hidden = false;
+      out.textContent = 'Asking ESPN…';
+      var snap = selectedSnap();
+      apiPost('/api/adp/test-espn', { format: (snap && snap.format) || 'half' })
+        .then(function (d) {
+          if (d.working) {
+            out.textContent = 'ESPN answered: ' + d.players + ' players (' + d.rank_type +
+              ', ' + d.year + '). Top: ' + d.sample.join(' · ');
+          } else {
+            out.textContent = 'ESPN did not work from this server: ' + d.reason +
+              ' — the other ADP sources are unaffected.';
+          }
+        })
+        .catch(function () { out.textContent = ''; })
+        .finally(function () { btn.disabled = false; btn.textContent = 'Test ESPN'; });
     });
 
     $('key-select').addEventListener('change', loadBoard);

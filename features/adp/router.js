@@ -24,6 +24,7 @@ const hasDb = () => Boolean(process.env.DATABASE_URL);
 async function sourceUrlFor(site, format, teams) {
   if (site === 'ffc') return sources.ffcPageUrl(format, teams);
   if (site === 'sleeper') return 'https://sleeper.com/';
+  if (site === 'espn') return sources.espnPageUrl();
   const list = await settings.get('adp.custom_sources', []);
   for (const e of (Array.isArray(list) ? list : [])) {
     const id = e && e.url && custom.identify(e.url);
@@ -56,6 +57,31 @@ router.get('/latest', async (req, res) => {
   } catch (err) {
     console.error(`GET /api/adp/latest: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not load ADP.' });
+  }
+});
+
+// Try ESPN once and report exactly what happened. ESPN's API is undocumented
+// and may refuse a cloud IP, so the owner must be able to find that out on a
+// quiet afternoon rather than an hour before a draft.
+router.post('/test-espn', async (req, res) => {
+  try {
+    const format = String((req.body && req.body.format) || 'half').toLowerCase();
+    const out = await sources.fetchEspn({ format, limit: 25 });
+    const sample = out.rows.slice(0, 5).map((r) => `${r.name} (${r.position} ${r.team}) ${r.adp}`);
+    res.json({
+      ok: true,
+      data: {
+        working: true,
+        year: out.year,
+        rank_type: out.rankType,
+        players: out.rows.length,
+        sample,
+      },
+    });
+  } catch (err) {
+    console.error(`POST /api/adp/test-espn: ${err.message}`);
+    // Not a 500: "ESPN said no" is an answer, and the page shows it as one.
+    res.json({ ok: true, data: { working: false, reason: err.message } });
   }
 });
 
