@@ -72,3 +72,48 @@ test('a zero or negative published stdev is ignored, not divided by', () => {
   assert.equal(av.spreadFor(0, null).basis, 'default');
   assert.equal(av.spreadFor(-3, { high: 30, low: 10 }).basis, 'range');
 });
+
+// --- conditioning on "he's still on the board" ------------------------------
+// The mid-draft question is never "what were his odds of reaching the current
+// pick" — he did. It's "given that, does he last the gap to mine".
+test('a faller shows real odds, not the 0% the unconditional model gives', () => {
+  // ADP 7, tight spread, still available at pick 21, my pick is 24.
+  const uncond = av.pctAvailable(7, 3, 24);
+  const cond = av.pctAvailable(7, 3, 24, null, 21);
+  assert.ok(uncond < 0.001, `unconditional=${uncond} (the nonsense reading)`);
+  assert.ok(cond > 0 && cond < 20, `conditional=${cond} (small but real)`);
+});
+
+test('conditioning never lowers the odds', () => {
+  for (const at of [10, 20, 30, 50]) {
+    const uncond = av.pctAvailable(24, 6, at);
+    const cond = av.pctAvailable(24, 6, at, null, 8);
+    assert.ok(cond >= uncond - 1e-9, `at=${at}: cond=${cond} uncond=${uncond}`);
+  }
+});
+
+test('when my pick IS the pick on the clock, he is simply there: 100%', () => {
+  assert.equal(av.pctAvailable(24, 6, 15, null, 15), 100);
+  assert.equal(av.pctAvailable(3, 2, 15, null, 15), 100, 'even a long-gone ADP');
+});
+
+test('the shorter the gap to my pick, the better the odds', () => {
+  const seq = [16, 20, 24, 30].map((at) => av.pctAvailable(24, 6, at, null, 15));
+  for (let i = 1; i < seq.length; i++) assert.ok(seq[i] < seq[i - 1], seq.join(','));
+});
+
+test('omitting fromPick keeps the old unconditional behaviour exactly', () => {
+  assert.ok(Math.abs(av.pctAvailable(24, 6, 24) - 50) < 0.01);
+  assert.equal(av.detail(24, 6, 30).conditioned, false);
+  assert.equal(av.detail(24, 6, 30, null, 20).conditioned, true);
+});
+
+test('deep-tail survival is finite and sane, not erf-polynomial noise', () => {
+  // z = 4 and z = 6 are far beyond the erf approximation's usable range.
+  const s4 = av.survival(4), s6 = av.survival(6);
+  assert.ok(s4 > 1e-6 && s4 < 1e-4, `S(4)=${s4}`);
+  assert.ok(s6 > 0 && s6 < s4, `S(6)=${s6}`);
+  // Continuity across the switchover: no cliff at z=3.5.
+  const below = av.survival(3.49), above = av.survival(3.51);
+  assert.ok(below > above && below / above < 1.35, `${below} vs ${above}`);
+});

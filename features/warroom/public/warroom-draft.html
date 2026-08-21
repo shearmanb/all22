@@ -693,13 +693,15 @@
       }
       var open = availablePlayers();
       renderAvailChips(open);
+      var clock = onClock();
+      var myNext = (clock && state.draft) ? SN.myNextPick(clock - 1, state.draft.my_slot, teams(), rounds()) : null;
       var filtered = state.availPos
         ? open.filter(function (r) { return r.position === state.availPos; })
         : open;
       var shown = filtered.slice(0, state.availLimit);
       var list = el('div', 'tap-list');
       shown.forEach(function (r) {
-        list.appendChild(availRow(r));
+        list.appendChild(availRow(r, myNext, clock));
       });
       wrap.appendChild(list);
 
@@ -717,7 +719,7 @@
       $('avail-note').textContent = state.adp.site + ' ADP · ' + state.adp.date;
     }
 
-    function availRow(r) {
+    function availRow(r, myNext, clock) {
       var b = el('button', 'arow' + (r.player_id ? '' : ' unmatched'));
       b.appendChild(el('span', 'arank', String(r.adp_rank)));
       var label = el('span', 'grow');
@@ -729,6 +731,7 @@
       if (r.adp) meta.appendChild(el('span', null, '· ADP ' + r.adp.toFixed(1)));
       label.appendChild(meta);
       b.appendChild(label);
+      b.appendChild(availCell(r, myNext, false, clock));
       b.appendChild(el('span', 'draft-pill', 'Draft'));
       b.addEventListener('click', function () {
         // An ADP row the registry never matched has no id — record the name as
@@ -910,19 +913,22 @@
         if (p.adp) meta.appendChild(el('span', null, '· ADP ' + p.adp.toFixed(1)));
         label.appendChild(meta);
         row.appendChild(label);
-        row.appendChild(availCell(p, myNext, isGone));
+        row.appendChild(availCell(p, myNext, isGone, clock));
         wrap.appendChild(row);
       }
       if (!shown) wrap.appendChild(el('div', 'muted', 'Nobody left matching that filter.'));
     }
 
-    function availCell(p, myNext, isGone) {
+    // "Will he make it back to me?" — conditioned on the player still being on
+    // the board at the pick that's on the clock, because that is the question
+    // actually being asked. `fromPick` = the current open overall.
+    function availCell(p, myNext, isGone, fromPick) {
       if (isGone || !myNext || !window.WarRoomAvailability) return el('span', 'avail', '');
-      var pct = window.WarRoomAvailability.pctAvailable(p.adp, p.stdev, myNext, { high: p.high, low: p.low });
+      var pct = window.WarRoomAvailability.pctAvailable(p.adp, p.stdev, myNext, { high: p.high, low: p.low }, fromPick);
       if (pct === null) return el('span', 'avail muted', '—');
       var cls = pct < 25 ? 'low' : (pct < 65 ? 'mid' : 'high');
       var cell = el('span', 'avail ' + cls, Math.round(pct) + '%');
-      cell.title = 'Chance he is still there at your next pick (' + SN.pickLabel(myNext, teams()) + ')';
+      cell.title = 'Chance he is still there at your next pick (' + SN.pickLabel(myNext, teams()) + '), given he is available now';
       return cell;
     }
     $('hide-gone').addEventListener('change', renderSheet);

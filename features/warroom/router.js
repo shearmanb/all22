@@ -289,6 +289,9 @@ router.get('/drafts/:id/cheatsheet', async (req, res) => {
       team: r.team,
       bye: r.bye === undefined ? null : r.bye,
       adp: r.adp,
+      stdev: r.stdev === undefined ? null : r.stdev,
+      high: r.high === undefined ? null : r.high,
+      low: r.low === undefined ? null : r.low,
       matched: r.matched,
     }));
 
