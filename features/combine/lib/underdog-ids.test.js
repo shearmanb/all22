@@ -43,3 +43,46 @@ test('matchReport counts matches and flags a miss with a suggestion', () => {
   assert.ok(r.matched >= 1);
   assert.equal(r.total, 3);
 });
+
+// A contest pool is small (a 4-team slate is ~100 players), so a unique last
+// name must NOT be enough: the wrong Robinson at the top of an upload is the
+// bug this guards against.
+const SLATE =
+  '"id","playerId","firstName","lastName","slotName","teamName"\n' +
+  '"u1","p1","Demarcus","Robinson","WR","San Francisco 49ers"\n' +
+  '"u2","p2","Hunter","Henry","TE","New England Patriots"\n' +
+  '"u3","p3","A.J.","Brown","WR","New England Patriots"\n' +
+  '"u4","p4","Jaxon","Smith-Njigba","WR","Seattle Seahawks"\n' +
+  '"u5","p5","Kenneth","Walker III","RB","Seattle Seahawks"';
+
+test('a last-name-only hit on a small slate is rejected, full names still match', () => {
+  const { matched, unmatched, csv } = buildExport(SLATE, [
+    { name: 'Bijan Robinson', position: 'RB' },     // only Robinson on the slate — NOT him
+    { name: 'Derrick Henry', position: 'RB' },      // only Henry — NOT him
+    { name: 'Amon-Ra St. Brown', position: 'WR' },  // same position, different first name — NOT him
+    { name: 'A.J. Brown', position: 'WR' },         // exact
+    { name: 'Jaxson Smith-Njigba', position: 'WR' },// one-letter first-name typo — fine
+    { name: 'Ken Walker', position: 'RB' },         // first-name prefix — fine
+  ]);
+  assert.equal(matched, 3);
+  assert.deepEqual(unmatched, ['Bijan Robinson', 'Derrick Henry', 'Amon-Ra St. Brown']);
+  const lines = csv.replace(/^﻿/, '').trim().split('\r\n');
+  assert.ok(lines[1].includes('"A.J."'));
+  assert.ok(lines[2].includes('Smith-Njigba'));
+  assert.ok(lines[3].includes('Walker'));
+  assert.ok(lines[4].includes('Demarcus')); // unranked, keeps its place after the ranked block
+});
+
+test('position disagreement rejects a match even when the full name is the same', () => {
+  const r = matchReport(SLATE, [{ name: 'Hunter Henry', position: 'RB' }, { name: 'Hunter Henry' }]);
+  // RB "Hunter Henry" is not the TE; a positionless row still matches by name.
+  assert.equal(r.matched, 1);
+  assert.equal(r.unmatched.length, 1);
+  assert.equal(r.unmatched[0].name, 'Hunter Henry');
+});
+
+test('parse carries slotName and teamName when present', () => {
+  const { rows } = parse(SLATE);
+  assert.equal(rows[0].position, 'WR');
+  assert.equal(rows[0].team, 'San Francisco 49ers');
+});

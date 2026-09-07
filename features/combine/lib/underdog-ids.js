@@ -74,6 +74,8 @@ function parse(csvText) {
   const idIdx = colIndex(headers, 'id');
   const firstIdx = colIndex(headers, 'firstName');
   const lastIdx = colIndex(headers, 'lastName');
+  const posIdx = colIndex(headers, 'slotName');
+  const teamIdx = colIndex(headers, 'teamName');
   if (idIdx < 0 || firstIdx < 0 || lastIdx < 0) {
     throw new Error('That does not look like an Underdog rankings CSV — it needs "id", "firstName" and "lastName" columns. Download a fresh file from Underdog\'s Rankings page.');
   }
@@ -86,7 +88,9 @@ function parse(csvText) {
     const id = (fields[idIdx] || '').trim();
     const name = `${first} ${last}`.trim();
     if (!name) continue; // skip stray/blank rows
-    rows.push({ rawLine, name, id });
+    const position = posIdx >= 0 ? (fields[posIdx] || '').trim() : '';
+    const team = teamIdx >= 0 ? (fields[teamIdx] || '').trim() : '';
+    rows.push({ rawLine, name, id, position, team });
   }
   return { headerLine, rows, count: rows.length };
 }
@@ -99,9 +103,60 @@ function summarize(csvText) {
   return { count };
 }
 
+
+// --- Matching --------------------------------------------------------------
+// The name engine anchors on the LAST name because it was built for OCR-garbled
+// screenshots against a full-league roster. An Underdog file is a different
+// animal: it is one contest's pool, and a 4-team slate holds ~100 players. In a
+// pool that small a unique last name proves nothing — "Bijan Robinson" must not
+// resolve to Demarcus Robinson just because he is the only Robinson on the
+// slate, and that is exactly how wrong players ended up at the top of the
+// upload. So here a full-name match (exact / spaceless / alias) stands on its
+// own, while any last-name-anchored or edit-distance match must ALSO agree on
+// the first name and, when both sides publish one, the position. A miss is
+// visible (the owner sees "not in the Underdog file"); a wrong hit is silent.
+const FULL_NAME_VIAS = new Set(['exact', 'compact', 'alias']);
+
+function normPos(p) {
+  const s = String(p || '').trim().toUpperCase();
+  if (!s) return '';
+  if (s === 'PK') return 'K';
+  if (s === 'DEF' || s === 'D/ST' || s === 'DST') return 'DST';
+  return s;
+}
+
+function positionsAgree(a, b) {
+  const x = normPos(a), y = normPos(b);
+  return !x || !y || x === y;
+}
+
+function firstNamesAgree(a, b) {
+  const fa = players.key(a).split(' ')[0] || '';
+  const fb = players.key(b).split(' ')[0] || '';
+  if (!fa || !fb) return false;
+  if (fa === fb) return true;
+  // "Ken" / "Kenneth", "Cam" / "Cameron" — one is a prefix of the other.
+  if (fa.length >= 3 && fb.length >= 3 && (fa.startsWith(fb) || fb.startsWith(fa))) return true;
+  // A single typo in a real first name ("Jaxon" / "Jaxson").
+  return fa.length >= 4 && fb.length >= 4 && players.editDistance(fa, fb) <= 1;
+}
+
+// Resolve one ranked player against the parsed Underdog rows. Returns the row
+// index, or null when nothing is trustworthy enough to put in an upload.
+function resolveRow(index, rows, p) {
+  const name = players.display((p && p.name) || '');
+  if (!name) return null;
+  const m = players.matchName(name, index);
+  if (!m.entry) return null;
+  const row = rows[m.entry.idx];
+  if (!positionsAgree(p && p.position, row.position)) return null;
+  if (FULL_NAME_VIAS.has(m.via)) return m.entry.idx;
+  return firstNamesAgree(name, row.name) ? m.entry.idx : null;
+}
+
 // Build the reordered Underdog CSV for a ranked list of the owner's players.
 //   csvText     the stored Underdog file (one contest's download)
-//   rankedList  the owner's list in rank order: [{ name }, ...]
+//   rankedList  the owner's list in rank order: [{ name, position? }, ...]
 // Returns { csv, total, matched, unmatched } where unmatched is the list of the
 // owner's names that had no Underdog row (so they can fix spelling).
 function buildExport(csvText, rankedList) {
@@ -118,12 +173,12 @@ function buildExport(csvText, rankedList) {
   for (const p of (rankedList || [])) {
     const name = players.display((p && p.name) || '');
     if (!name) continue;
-    const hit = players.findName(name, index);
-    if (hit && !used.has(hit.idx)) {
-      used.add(hit.idx);
-      orderedTop.push(rows[hit.idx].rawLine);
+    const hit = resolveRow(index, rows, p);
+    if (hit !== null && !used.has(hit)) {
+      used.add(hit);
+      orderedTop.push(rows[hit].rawLine);
       matched++;
-    } else if (!hit) {
+    } else if (hit === null) {
       unmatched.push(name);
     }
     // (hit already used = the owner listed the same player twice — silently skip)
@@ -158,9 +213,9 @@ function matchReport(csvText, rankedList) {
   for (const p of (rankedList || [])) {
     const name = players.display((p && p.name) || '');
     if (!name) continue;
-    const hit = players.findName(name, index);
-    if (hit && !used.has(hit.idx)) { used.add(hit.idx); matched++; continue; }
-    if (hit) continue; // duplicate of an already-matched player — ignore
+    const hit = resolveRow(index, rows, p);
+    if (hit !== null && !used.has(hit)) { used.add(hit); matched++; continue; }
+    if (hit !== null) continue; // duplicate of an already-matched player — ignore
 
     // No match: suggest the nearest Underdog name by compact-key edit distance.
     const mc = players.compactKey(name);
@@ -176,4 +231,4 @@ function matchReport(csvText, rankedList) {
   return { total: rows.length, matched, unmatched };
 }
 
-module.exports = { parse, summarize, buildExport, matchReport, parseCsvLine };
+module.exports = { parse, summarize, buildExport, matchReport, resolveRow, parseCsvLine };
