@@ -118,7 +118,8 @@ function summarize(csvText) {
 const FULL_NAME_VIAS = new Set(['exact', 'compact', 'alias']);
 
 function normPos(p) {
-  const s = String(p || '').trim().toUpperCase();
+  // FantasyPros publishes the ordinal in the position ("RB12"): strip it.
+  const s = String(p || '').trim().toUpperCase().replace(/\d+$/, '');
   if (!s) return '';
   if (s === 'PK') return 'K';
   if (s === 'DEF' || s === 'D/ST' || s === 'DST') return 'DST';

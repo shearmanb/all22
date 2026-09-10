@@ -16,6 +16,7 @@ const ingest = require('./lib/ingest');
 const store = require('./lib/store');
 const converters = require('./lib/converters');
 const underdogIds = require('./lib/underdog-ids');
+const underdogQuick = require('./lib/underdog-quick');
 const master = require('../../lib/players-master');
 const settings = require('../../lib/settings');
 const pool = require('../../db/pool');
@@ -653,6 +654,33 @@ router.post('/underdog/export', async (req, res) => {
     });
   } catch (err) {
     console.error(`POST /api/combine/underdog/export: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not build the Underdog upload file.' });
+  }
+});
+
+// Stateless weekly path: Underdog's downloaded CSV + any rankings file in one
+// request, the reordered upload file back. Nothing is saved and no DB is
+// touched — Underdog's IDs change every contest and every week, so there is
+// nothing worth keeping. Body: { underdog_csv, rankings, label? }.
+router.post('/underdog/quick', (req, res) => {
+  try {
+    const { underdog_csv, rankings, label } = req.body || {};
+    if (!underdog_csv || !String(underdog_csv).trim()) return res.status(400).json({ ok: false, error: 'Choose the CSV you downloaded from Underdog first.' });
+    if (!rankings || !String(rankings).trim()) return res.status(400).json({ ok: false, error: 'Choose or paste the rankings to upload.' });
+    let result;
+    try { result = underdogQuick.build(String(underdog_csv), String(rankings)); }
+    catch (e) { return res.status(400).json({ ok: false, error: e.message }); }
+    const slug = String(label || 'rankings').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'rankings';
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.json({
+      ok: true,
+      data: {
+        filename: `underdog-${slug}-${stamp}.csv`,
+        csv: result.csv, total: result.total, ranked: result.ranked, matched: result.matched, unmatched: result.unmatched,
+      },
+    });
+  } catch (err) {
+    console.error(`POST /api/combine/underdog/quick: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not build the Underdog upload file.' });
   }
 });

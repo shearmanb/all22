@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Underdog Upload — All22</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/theme.js"></script>
+  <script src="/module-icon.js"></script>
+  <script src="/module-nav.js"></script>
+  <style>
+    .step-num { display: inline-block; min-width: 1.6em; font-weight: 700; color: var(--accent-strong); }
+    .file-note { display: block; margin-top: 6px; }
+    #uq-preview li { padding: 2px 0; }
+    #uq-unmatched li { padding: 3px 0; }
+    #uq-unmatched .sugg { color: var(--warn-text); }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">All<em>22</em></span>
+    <a href="/">Hub</a>
+    <a href="/combine.html" class="active">Combine</a>
+    <a href="/myrankings.html">My Rankings</a>
+    <a href="/boards.html">Big Board</a>
+    <a href="/auction.html">War Chest</a>
+    <a href="/drafts.html">Playbook</a>
+    <a href="/adp.html">Edge Rush</a>
+    <a href="/warroom.html">War Room</a>
+    <a href="/players.html">Player DB</a>
+    <a href="/notes.html">Notes</a>
+    <a href="/wire.html">The Wire</a>
+    <a href="/settings.html">Settings</a>
+    <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
+  </nav>
+  <div id="error-banner"></div>
+
+  <main>
+    <h1>Underdog Upload <span class="muted small">weekly quick path</span></h1>
+    <p class="muted">Underdog's uploader only accepts its own file, with its own per-contest player IDs — and those IDs change every contest and every week. Give it Underdog's download plus any rankings file; you get Underdog's file back, reordered to the rankings, ready to upload. Nothing is saved.</p>
+
+    <div class="card">
+      <h2><span class="step-num">1.</span> Underdog's CSV</h2>
+      <p class="muted small">On Underdog's Rankings page for the contest, click <strong>CSV download</strong>. Season-long contests list ~1,400 players; a weekly slate lists only the teams playing.</p>
+      <div class="row">
+        <input id="uq-ud-file" type="file" accept=".csv,text/csv" class="inline">
+        <span id="uq-ud-note" class="muted small"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2><span class="step-num">2.</span> The rankings to upload</h2>
+      <p class="muted small">A FantasyPros weekly CSV export, Scott Barrett's sheet, any spreadsheet with a player-name column — or paste a list, one player per line. Columns are detected from the header.</p>
+      <div class="row">
+        <input id="uq-rk-file" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" class="inline">
+        <span id="uq-rk-note" class="muted small"></span>
+      </div>
+      <details class="section-gap">
+        <summary class="muted small">…or paste rankings as text</summary>
+        <textarea id="uq-rk-text" rows="8" placeholder="1. Jahmyr Gibbs RB DET&#10;2. Bijan Robinson RB ATL&#10;…"></textarea>
+      </details>
+      <div class="row section-gap">
+        <label class="grow">
+          <span class="field-label">Label for the file name (optional)</span>
+          <input id="uq-label" placeholder="e.g. FantasyPros week 2">
+        </label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2><span class="step-num">3.</span> Build</h2>
+      <div class="row">
+        <button id="uq-build">Build Underdog upload file</button>
+        <button id="uq-download" class="secondary" hidden>Download again</button>
+      </div>
+      <div id="uq-result" class="section-gap" hidden>
+        <p id="uq-summary"></p>
+        <div id="uq-warning" class="notice-banner"></div>
+        <h3>Top of the upload</h3>
+        <ol id="uq-preview" class="muted small"></ol>
+        <div id="uq-unmatched-wrap" hidden>
+          <h3>Not in Underdog's file <span id="uq-unmatched-count" class="muted small"></span></h3>
+          <p class="muted small">These ranked players have no row in the Underdog file, so they can't be uploaded. A player from a team not on this slate, a defense or a kicker is expected here. A spelling gap shows Underdog's closest name so you can fix the rankings file.</p>
+          <ul id="uq-unmatched"></ul>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+    // The Underdog file is remembered in THIS browser only, so a re-run after a
+    // Thursday rankings update doesn't need the download again. Nothing goes to
+    // the server until Build.
+    var LS_KEY = 'all22.underdog.quick.udfile';
+    var state = { udCsv: '', udName: '', rkText: '', rkName: '', lastCsv: null, lastFilename: null };
+
+    function readFile(file) {
+      return new Promise(function (resolve, reject) {
+        var r = new FileReader();
+        r.onload = function () { resolve(r.result); };
+        r.onerror = function () { reject(new Error('Could not read ' + file.name)); };
+        r.readAsText(file);
+      });
+    }
+
+    function countLines(text) {
+      return String(text || '').split(/\r?\n/).filter(function (l) { return l.trim(); }).length;
+    }
+
+    function rememberUd() {
+      try { localStorage.setItem(LS_KEY, JSON.stringify({ name: state.udName, csv: state.udCsv, at: Date.now() })); } catch (e) { /* storage full or off — fine */ }
+    }
+    function restoreUd() {
+      try {
+        var saved = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
+        if (saved && saved.csv) {
+          state.udCsv = saved.csv; state.udName = saved.name || 'Underdog file';
+          $('uq-ud-note').textContent = 'Using ' + state.udName + ' from ' + timeAgo(saved.at) + ' (' + (countLines(saved.csv) - 1) + ' players). Choose a file to replace it.';
+        }
+      } catch (e) { /* nothing remembered */ }
+    }
+
+    $('uq-ud-file').addEventListener('change', async function () {
+      var f = this.files[0];
+      if (!f) return;
+      try {
+        state.udCsv = await readFile(f); state.udName = f.name;
+        rememberUd();
+        $('uq-ud-note').textContent = f.name + ' — ' + (countLines(state.udCsv) - 1) + ' players';
+      } catch (e) { showError(e.message); }
+    });
+
+    $('uq-rk-file').addEventListener('change', async function () {
+      var f = this.files[0];
+      if (!f) return;
+      try {
+        state.rkText = await readFile(f); state.rkName = f.name;
+        $('uq-rk-note').textContent = f.name + ' — ' + (countLines(state.rkText) - 1) + ' rows';
+        if (!$('uq-label').value) $('uq-label').value = f.name.replace(/\.[a-z]+$/i, '');
+      } catch (e) { showError(e.message); }
+    });
+
+    $('uq-build').addEventListener('click', async function () {
+      clearError();
+      var pasted = $('uq-rk-text').value.trim();
+      var rankings = pasted || state.rkText;
+      if (!state.udCsv) { showError('Choose the CSV you downloaded from Underdog first (step 1).'); return; }
+      if (!rankings) { showError('Choose a rankings file or paste the rankings (step 2).'); return; }
+      var btn = this;
+      btn.disabled = true; btn.textContent = 'Building…';
+      try {
+        var data = await apiPost('/api/combine/underdog/quick', {
+          underdog_csv: state.udCsv, rankings: rankings, label: $('uq-label').value.trim(),
+        });
+        state.lastCsv = data.csv; state.lastFilename = data.filename;
+        triggerDownload(new Blob([data.csv], { type: 'text/csv' }), data.filename);
+        render(data);
+        toast('Downloaded ' + data.filename);
+      } catch (e) {
+        /* banner already shown by apiPost */
+      } finally {
+        btn.disabled = false; btn.textContent = 'Build Underdog upload file';
+      }
+    });
+
+    $('uq-download').addEventListener('click', function () {
+      if (state.lastCsv) triggerDownload(new Blob([state.lastCsv], { type: 'text/csv' }), state.lastFilename);
+    });
+
+    function render(data) {
+      $('uq-result').hidden = false;
+      $('uq-download').hidden = false;
+      $('uq-summary').textContent = 'Matched ' + data.matched + ' of ' + data.ranked + ' ranked players to Underdog IDs. ' +
+        'The file holds all ' + data.total + ' of Underdog\'s players: your ' + data.matched + ' on top in rank order, the rest after in Underdog\'s order.';
+
+      var warn = $('uq-warning');
+      var missRatio = data.ranked ? (data.ranked - data.matched) / data.ranked : 0;
+      if (data.matched === 0) {
+        warn.textContent = 'Nothing matched. Check that step 1 is Underdog\'s download for the right contest and step 2 has a player-name column.';
+        warn.classList.add('visible');
+      } else if (missRatio > 0.5) {
+        warn.textContent = 'More than half the ranked players are not in this Underdog file. That is normal for a weekly slate (only the teams playing are listed) — make sure it is the contest you meant.';
+        warn.classList.add('visible');
+      } else {
+        warn.textContent = ''; warn.classList.remove('visible');
+      }
+
+      // Top of the upload, straight from the CSV that was just built.
+      var lines = String(data.csv || '').replace(/^﻿/, '').split(/\r?\n/).filter(function (l) { return l.trim(); });
+      var prev = $('uq-preview');
+      prev.textContent = '';
+      var head = parseCsvLine(lines[0] || '');
+      var iF = head.indexOf('firstName'), iL = head.indexOf('lastName'), iP = head.indexOf('slotName'), iT = head.indexOf('teamName');
+      var n = Math.min(data.matched, 12);
+      for (var i = 1; i <= n; i++) {
+        var f = parseCsvLine(lines[i] || '');
+        var li = document.createElement('li');
+        li.textContent = ((f[iF] || '') + ' ' + (f[iL] || '')).trim() + (iP >= 0 && f[iP] ? ' · ' + f[iP] : '') + (iT >= 0 && f[iT] ? ' · ' + f[iT] : '');
+        prev.appendChild(li);
+      }
+      if (data.matched > n) {
+        var more = document.createElement('li');
+        more.textContent = '… and ' + (data.matched - n) + ' more in rank order';
+        prev.appendChild(more);
+      }
+
+      var wrap = $('uq-unmatched-wrap');
+      var ul = $('uq-unmatched');
+      ul.textContent = '';
+      var um = data.unmatched || [];
+      wrap.hidden = !um.length;
+      $('uq-unmatched-count').textContent = um.length ? '(' + um.length + ')' : '';
+      um.forEach(function (u) {
+        var li = document.createElement('li');
+        li.textContent = '#' + u.rank + ' ' + u.name + (u.position ? ' · ' + u.position : '') + (u.team ? ' · ' + u.team : '');
+        if (u.suggestion) {
+          var s = document.createElement('span');
+          s.className = 'sugg';
+          s.textContent = ' — closest on Underdog: ' + u.suggestion;
+          li.appendChild(s);
+        }
+        ul.appendChild(li);
+      });
+    }
+
+    // Minimal one-line CSV field splitter for the preview (quotes + "" escapes).
+    function parseCsvLine(line) {
+      var out = [], field = '', q = false;
+      for (var i = 0; i < line.length; i++) {
+        var c = line[i];
+        if (q) {
+          if (c === '"') { if (line[i + 1] === '"') { field += '"'; i++; } else q = false; }
+          else field += c;
+        } else if (c === '"') q = true;
+        else if (c === ',') { out.push(field); field = ''; }
+        else field += c;
+      }
+      out.push(field);
+      return out;
+    }
+
+    restoreUd();
+  </script>
+</body>
+</html>
