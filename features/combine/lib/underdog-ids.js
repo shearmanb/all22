@@ -232,15 +232,72 @@ function buildExport(csvText, rankedList) {
   return { csv, total: rows.length, matched, unmatched, flagged };
 }
 
+// Who on Underdog COULD this missed player be? Three signals, best first:
+//   1. the same last name  — this is what a nickname looks like ("Cheetah Hill"
+//      for Tyreek Hill), and edit distance never finds it
+//   2. the same position on the same team — a name spelled nothing alike
+//   3. the nearest name by edit distance — an ordinary misspelling
+// The owner picks from these to teach the pairing once, so it holds every week.
+//
+// Nothing is offered when the ranked player's TEAM or POSITION has no players
+// in this Underdog file at all: a weekly contest carries only the teams playing
+// and no kickers or defenses, so he is absent rather than renamed, and every
+// same-last-name "candidate" would be a different person. Inviting that pairing
+// would be worse than staying quiet — a wrong alias is permanent and silently
+// wrong every week after.
+function candidatesFor(ranked, rows, compacts, present) {
+  const name = players.display((ranked && ranked.name) || '');
+  const k = players.key(name);
+  const lastName = k.split(' ').slice(-1)[0] || '';
+  const mc = players.compactKey(name);
+  const wantPos = normPos(ranked && ranked.position);
+  const wantTeam = players.teamDefenseName(players.primaryTeam((ranked && ranked.team) || ''));
+  const teams = (present && present.teams) || new Set();
+  const positions = (present && present.positions) || new Set();
+  if (wantTeam && teams.size && !teams.has(wantTeam)) return { suggestion: null, candidates: [] };
+  if (wantPos && positions.size && !positions.has(wantPos)) return { suggestion: null, candidates: [] };
+
+  const out = [];
+  const seen = new Set();
+  const add = (n) => { if (n && !seen.has(n)) { seen.add(n); out.push(n); } };
+
+  for (const r of rows) {
+    if (lastName && (players.key(r.name).split(' ').slice(-1)[0] === lastName)) add(r.name);
+  }
+  if (wantPos && wantTeam) {
+    for (const r of rows) {
+      if (normPos(r.position) === wantPos && r.team === wantTeam) add(r.name);
+    }
+  }
+  let best = null, bestD = Infinity;
+  for (const c of compacts) {
+    if (Math.abs(c.compact.length - mc.length) > 3) continue;
+    const d = players.editDistance(mc, c.compact);
+    if (d < bestD) { bestD = d; best = c.name; }
+  }
+  const thresh = Math.max(2, Math.floor(mc.length / 4));
+  const suggestion = (best && bestD <= thresh) ? best : null;
+  if (suggestion) out.unshift(suggestion), seen.add(suggestion);
+  return { suggestion, candidates: out.slice(0, 8) };
+}
+
 // Live match report for a ranked list against a stored Underdog file, WITHOUT
-// building the export. Used to show inline match status while editing. Returns
-//   { total, matched, unmatched: [{ name, suggestion }] }
-// where suggestion is the closest Underdog name for a miss (or null), so the UI
-// can offer a one-click "did you mean?" fix.
+// building the export. Returns
+//   { total, matched, unmatched: [{ name, suggestion, candidates }] }
+// where suggestion is the closest Underdog name for a miss (or null) and
+// candidates are every Underdog player this could plausibly be, so the UI can
+// offer a "did you mean?" fix and a one-tap pairing to remember.
 function matchReport(csvText, rankedList) {
   const { rows } = parse(csvText);
   const index = buildIndex(rows);
   const compacts = rows.map((r) => ({ name: r.name, compact: players.compactKey(r.name) }));
+  // Which teams and positions this contest actually carries — the test for
+  // "absent, not renamed". Either set is empty when the file publishes no such
+  // column, which disables that test rather than suppressing everything.
+  const present = {
+    teams: new Set(rows.map((r) => r.team).filter(Boolean)),
+    positions: new Set(rows.map((r) => normPos(r.position)).filter(Boolean)),
+  };
 
   const used = new Set();
   const unmatched = [];
@@ -253,18 +310,10 @@ function matchReport(csvText, rankedList) {
     if (hit && !used.has(hit.idx)) { used.add(hit.idx); matched++; continue; }
     if (hit) continue; // duplicate of an already-matched player — ignore
 
-    // No match: suggest the nearest Underdog name by compact-key edit distance.
-    const mc = players.compactKey(name);
-    let best = null, bestD = Infinity;
-    for (const c of compacts) {
-      if (Math.abs(c.compact.length - mc.length) > 3) continue;
-      const d = players.editDistance(mc, c.compact);
-      if (d < bestD) { bestD = d; best = c.name; }
-    }
-    const thresh = Math.max(2, Math.floor(mc.length / 4));
-    unmatched.push({ name, suggestion: (best && bestD <= thresh) ? best : null });
+    const { suggestion, candidates } = candidatesFor(p, rows, compacts, present);
+    unmatched.push({ name, suggestion, candidates });
   }
   return { total: rows.length, matched, unmatched };
 }
 
-module.exports = { parse, summarize, buildExport, matchReport, resolveRow, buildIndex, parseCsvLine };
+module.exports = { parse, summarize, buildExport, matchReport, resolveRow, buildIndex, candidatesFor, parseCsvLine };

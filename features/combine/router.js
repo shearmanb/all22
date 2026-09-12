@@ -590,7 +590,7 @@ router.get('/sets/:id/export/:format', async (req, res) => {
 router.get('/underdog/sets', async (req, res) => {
   try {
     if (!hasDb()) return res.json({ ok: true, data: [] });
-    const { rows } = await pool.query('SELECT id, name, player_count, created_at FROM underdog_id_sets ORDER BY created_at DESC');
+    const { rows } = await pool.query('SELECT id, name, player_count, nfl_week, season, created_at FROM underdog_id_sets ORDER BY created_at DESC');
     res.json({ ok: true, data: rows });
   } catch (err) {
     console.error(`GET /api/combine/underdog/sets: ${err.message}`);
@@ -601,20 +601,39 @@ router.get('/underdog/sets', async (req, res) => {
 router.post('/underdog/sets', async (req, res) => {
   try {
     if (!hasDb()) return res.status(400).json({ ok: false, error: 'Saving an Underdog file needs a database.' });
-    const { name, csv } = req.body || {};
+    const { name, csv, nfl_week, season } = req.body || {};
     if (!name || !String(name).trim()) return res.status(400).json({ ok: false, error: 'Give this Underdog file a name (e.g. the contest) before saving.' });
     if (!csv || !String(csv).trim()) return res.status(400).json({ ok: false, error: 'Paste or choose the CSV you downloaded from Underdog first.' });
     let count;
     try { ({ count } = underdogIds.summarize(String(csv))); }
     catch (e) { return res.status(400).json({ ok: false, error: e.message }); }
+    const week = Number.isFinite(Number(nfl_week)) && Number(nfl_week) > 0 ? Number(nfl_week) : null;
+    const yr = Number.isFinite(Number(season)) && Number(season) > 2000 ? Number(season) : null;
     const { rows } = await pool.query(
-      'INSERT INTO underdog_id_sets (name, csv, player_count) VALUES ($1, $2, $3) RETURNING id, name, player_count, created_at',
-      [String(name).trim(), String(csv), count]
+      'INSERT INTO underdog_id_sets (name, csv, player_count, nfl_week, season) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, player_count, nfl_week, season, created_at',
+      [String(name).trim(), String(csv), count, week, yr]
     );
     res.json({ ok: true, data: rows[0] });
   } catch (err) {
     console.error(`POST /api/combine/underdog/sets: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not save that Underdog file.' });
+  }
+});
+
+// Read a saved Underdog file back, CSV and all. This is what lets the owner
+// save the download once on a laptop and build the upload from a phone.
+router.get('/underdog/sets/:id', async (req, res) => {
+  try {
+    if (!hasDb()) return res.status(400).json({ ok: false, error: 'Saved Underdog files need a database.' });
+    const { rows } = await pool.query(
+      'SELECT id, name, csv, player_count, nfl_week, season, created_at FROM underdog_id_sets WHERE id = $1',
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'That Underdog file was not found — it may have been deleted.' });
+    res.json({ ok: true, data: rows[0] });
+  } catch (err) {
+    console.error(`GET /api/combine/underdog/sets/:id: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not load that Underdog file.' });
   }
 });
 
@@ -658,6 +677,48 @@ router.post('/underdog/export', async (req, res) => {
   }
 });
 
+// What does this rankings file cover? Answers before anything is built, so the
+// page can name the download and warn that a saved Underdog file is from an
+// earlier week. Body: { rankings, file_modified? }.
+router.post('/underdog/inspect', (req, res) => {
+  try {
+    const { rankings, file_modified } = req.body || {};
+    if (!rankings || !String(rankings).trim()) return res.status(400).json({ ok: false, error: 'Choose or paste the rankings first.' });
+    const meta = underdogQuick.detectMeta(String(rankings));
+    res.json({
+      ok: true,
+      data: { rows: meta.rows, week: meta.week, season: meta.season, label: underdogQuick.suggestLabel(meta, file_modified) },
+    });
+  } catch (err) {
+    console.error(`POST /api/combine/underdog/inspect: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not read that rankings file.' });
+  }
+});
+
+// Teach the app that Underdog spells a player differently, so next week's
+// upload matches him without being told again. Writes through the SAME alias
+// store the Player DB edits (players_master.aliases, keyed by site) — there is
+// one cross-reference in this app, not a second one for Underdog.
+// Body: { ranked_name, underdog_name }.
+router.post('/underdog/teach', async (req, res) => {
+  try {
+    if (!hasDb()) return res.status(400).json({ ok: false, error: 'Remembering a name needs a database.' });
+    const rankedName = String((req.body || {}).ranked_name || '').trim();
+    const underdogName = String((req.body || {}).underdog_name || '').trim();
+    if (!rankedName || !underdogName) return res.status(400).json({ ok: false, error: 'Say which two names are the same player.' });
+    const hit = await master.match(rankedName);
+    if (!hit.player) {
+      return res.status(400).json({ ok: false, error: `"${rankedName}" is not in the player list yet, so there is nothing to attach "${underdogName}" to. Add him in Player DB first.` });
+    }
+    await master.learnAlias(hit.player.player_id, underdogName, 'underdog');
+    master.invalidateIndex();
+    res.json({ ok: true, data: { player: hit.player.name, learned: underdogName } });
+  } catch (err) {
+    console.error(`POST /api/combine/underdog/teach: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not remember that name.' });
+  }
+});
+
 // Stateless weekly path: Underdog's downloaded CSV + any rankings file in one
 // request, the reordered upload file back. Nothing is saved and no DB is
 // touched — Underdog's IDs change every contest and every week, so there is
@@ -670,12 +731,15 @@ router.post('/underdog/quick', (req, res) => {
     let result;
     try { result = underdogQuick.build(String(underdog_csv), String(rankings)); }
     catch (e) { return res.status(400).json({ ok: false, error: e.message }); }
-    const slug = String(label || 'rankings').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'rankings';
-    const stamp = new Date().toISOString().slice(0, 10);
+    // The label IS the file name — the owner reads it in a phone's download
+    // list, so keep his capitalisation and only replace what a file name can't
+    // hold. With no label, fall back to a dated generic name.
+    const clean = String(label || '').trim().replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').slice(0, 120);
+    const filename = clean ? `${clean}.csv` : `underdog-rankings-${new Date().toISOString().slice(0, 10)}.csv`;
     res.json({
       ok: true,
       data: {
-        filename: `underdog-${slug}-${stamp}.csv`,
+        filename, label: clean,
         csv: result.csv, total: result.total, ranked: result.ranked, matched: result.matched, unmatched: result.unmatched, flagged: result.flagged,
       },
     });

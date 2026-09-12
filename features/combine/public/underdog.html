@@ -10,10 +10,11 @@
   <script src="/module-nav.js"></script>
   <style>
     .step-num { display: inline-block; min-width: 1.6em; font-weight: 700; color: var(--accent-strong); }
-    .file-note { display: block; margin-top: 6px; }
-    #uq-preview li { padding: 2px 0; }
-    #uq-unmatched li { padding: 3px 0; }
+    #uq-preview li, #uq-unmatched li, #uq-flagged li { padding: 3px 0; }
     #uq-unmatched .sugg { color: var(--warn-text); }
+    #uq-unmatched li button, #uq-unmatched li select { margin-left: 6px; font-size: 0.85em; }
+    #uq-unmatched li button { padding: 2px 8px; }
+    #uq-unmatched li.taught { opacity: 0.65; }
   </style>
 </head>
 <body>
@@ -37,12 +38,18 @@
 
   <main>
     <h1>Underdog Upload <span class="muted small">weekly quick path</span></h1>
-    <p class="muted">Underdog's uploader only accepts its own file, with its own per-contest player IDs — and those IDs change every contest and every week. Give it Underdog's download plus any rankings file; you get Underdog's file back, reordered to the rankings, ready to upload. Nothing is saved.</p>
+    <p class="muted">Underdog only accepts its own file, carrying its own player IDs — and those IDs change every contest and every week. Give it Underdog's download plus any rankings file; you get Underdog's file back, reordered to the rankings, ready to upload.</p>
 
     <div class="card">
       <h2><span class="step-num">1.</span> Underdog's CSV</h2>
-      <p class="muted small">On Underdog's Rankings page for the contest, click <strong>CSV download</strong>. Season-long contests list ~1,400 players; a weekly slate lists only the teams playing.</p>
+      <p class="muted small">On Underdog's Rankings page for the contest, tap <strong>CSV download</strong>. Saved files are kept here, so you can download once on a laptop and build from your phone.</p>
       <div class="row">
+        <select id="uq-saved" class="inline grow"></select>
+        <button id="uq-forget" class="danger" hidden>Delete</button>
+      </div>
+      <div id="uq-saved-note" class="muted small section-gap"></div>
+      <div id="uq-stale" class="notice-banner"></div>
+      <div class="row section-gap">
         <input id="uq-ud-file" type="file" accept=".csv,text/csv" class="inline">
         <span id="uq-ud-note" class="muted small"></span>
       </div>
@@ -50,7 +57,7 @@
 
     <div class="card">
       <h2><span class="step-num">2.</span> The rankings to upload</h2>
-      <p class="muted small">A FantasyPros weekly CSV export, Scott Barrett's sheet, any spreadsheet with a player-name column — or paste a list, one player per line. Columns are detected from the header.</p>
+      <p class="muted small">A Fantasy Points weekly export, a FantasyPros CSV, Scott Barrett's sheet, any spreadsheet with a player-name column — or paste a list, one player per line. Columns are detected from the header.</p>
       <div class="row">
         <input id="uq-rk-file" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" class="inline">
         <span id="uq-rk-note" class="muted small"></span>
@@ -61,8 +68,8 @@
       </details>
       <div class="row section-gap">
         <label class="grow">
-          <span class="field-label">Label for the file name (optional)</span>
-          <input id="uq-label" placeholder="e.g. FantasyPros week 2">
+          <span class="field-label">Name for the download</span>
+          <input id="uq-label" placeholder="UD RANKINGS - Week 1 FP …">
         </label>
       </div>
     </div>
@@ -80,12 +87,12 @@
         <ol id="uq-preview" class="muted small"></ol>
         <div id="uq-flagged-wrap" hidden>
           <h3>Matched, but the two sources disagree <span id="uq-flagged-count" class="muted small"></span></h3>
-          <p class="muted small">These are in the upload on an exact name match. Fantasy Points and Underdog just file them at different positions, which is normal for a player who moves around. Worth a glance, nothing to fix.</p>
+          <p class="muted small">These are in the upload on an exact name match. The two sources just file them at different positions, which is normal for a player who moves around. Worth a glance, nothing to fix.</p>
           <ul id="uq-flagged"></ul>
         </div>
         <div id="uq-unmatched-wrap" hidden>
           <h3>Not in Underdog's file <span id="uq-unmatched-count" class="muted small"></span></h3>
-          <p class="muted small">These ranked players have no row in the Underdog file, so they can't be uploaded. Expect a lot of them: kickers and defenses (Underdog's contests carry neither) and every player whose team isn't in this contest. Where a close name exists, Underdog's spelling is shown so you can tell a real absence from a spelling gap.</p>
+          <p class="muted small">These ranked players have no row in the Underdog file, so they can't be uploaded. Expect a lot of them: kickers and defenses (Underdog's contests carry neither) and every player whose team isn't in this contest. Where Underdog has someone this could be — a shared last name, or the same position on the same team — pick him and tap <strong>Same player</strong>. That pairing is remembered in the app's player list and applies every week from then on, so you only ever teach a name once.</p>
           <ul id="uq-unmatched"></ul>
         </div>
       </div>
@@ -94,11 +101,11 @@
 
   <script src="/app.js"></script>
   <script>
-    // The Underdog file is remembered in THIS browser only, so a re-run after a
-    // Thursday rankings update doesn't need the download again. Nothing goes to
-    // the server until Build.
-    var LS_KEY = 'all22.underdog.quick.udfile';
-    var state = { udCsv: '', udName: '', rkText: '', rkName: '', lastCsv: null, lastFilename: null };
+    var state = {
+      udCsv: '', udName: '', udFromFile: false, savedWeek: null, savedAt: null,
+      rkText: '', rkName: '', rkModified: null, meta: { week: null, season: null },
+      lastCsv: null, lastFilename: null,
+    };
 
     function readFile(file) {
       return new Promise(function (resolve, reject) {
@@ -109,48 +116,145 @@
       });
     }
 
-    function countLines(text) {
-      return String(text || '').split(/\r?\n/).filter(function (l) { return l.trim(); }).length;
+    function countRows(text) {
+      return String(text || '').split(/\r?\n/).filter(function (l) { return l.trim(); }).length - 1;
     }
 
-    function rememberUd() {
-      try { localStorage.setItem(LS_KEY, JSON.stringify({ name: state.udName, csv: state.udCsv, at: Date.now() })); } catch (e) { /* storage full or off — fine */ }
+    function notice(el, text) {
+      el.textContent = text || '';
+      el.classList.toggle('visible', !!text);
     }
-    function restoreUd() {
-      try {
-        var saved = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
-        if (saved && saved.csv) {
-          state.udCsv = saved.csv; state.udName = saved.name || 'Underdog file';
-          $('uq-ud-note').textContent = 'Using ' + state.udName + ' from ' + timeAgo(saved.at) + ' (' + (countLines(saved.csv) - 1) + ' players). Choose a file to replace it.';
-        }
-      } catch (e) { /* nothing remembered */ }
+
+    // ---------- step 1: saved Underdog files ----------
+    async function loadSaved(selectId) {
+      var sets = await apiFetch('/api/combine/underdog/sets').catch(function () { return []; });
+      var sel = $('uq-saved');
+      sel.textContent = '';
+      var none = document.createElement('option');
+      none.value = '';
+      none.textContent = sets.length ? 'Choose a saved Underdog file…' : 'No Underdog file saved yet — choose one below';
+      sel.appendChild(none);
+      sets.forEach(function (s) {
+        var o = document.createElement('option');
+        o.value = s.id;
+        o.textContent = s.name + ' · ' + s.player_count + ' players' + (s.nfl_week ? ' · week ' + s.nfl_week : '');
+        o.dataset.week = s.nfl_week || '';
+        o.dataset.at = s.created_at || '';
+        sel.appendChild(o);
+      });
+      // Default to the newest saved file (the list comes back newest first).
+      var want = selectId || (sets.length ? sets[0].id : '');
+      if (want) { sel.value = String(want); await useSaved(); }
+      $('uq-forget').hidden = !sel.value;
     }
+
+    async function useSaved() {
+      var sel = $('uq-saved');
+      $('uq-forget').hidden = !sel.value;
+      if (!sel.value) {
+        state.udCsv = ''; state.udName = ''; state.savedWeek = null; state.savedAt = null;
+        $('uq-saved-note').textContent = '';
+        checkStale();
+        return;
+      }
+      var opt = sel.options[sel.selectedIndex];
+      var set = await apiFetch('/api/combine/underdog/sets/' + sel.value);
+      state.udCsv = set.csv;
+      state.udName = set.name;
+      state.udFromFile = false;
+      state.savedWeek = set.nfl_week || null;
+      state.savedAt = set.created_at || null;
+      $('uq-ud-file').value = '';
+      $('uq-ud-note').textContent = '';
+      $('uq-saved-note').textContent = 'Using ' + set.name + ' — ' + set.player_count + ' players, saved ' + timeAgo(set.created_at) + '.';
+      checkStale();
+    }
+
+    // A saved Underdog file is only good for the week it was downloaded in:
+    // the IDs are reissued, so last week's file builds an upload that looks
+    // right and is wrong. The rankings say which week this is, so compare.
+    function checkStale() {
+      var el = $('uq-stale');
+      var rankWeek = state.meta.week;
+      if (!state.udCsv || state.udFromFile || !rankWeek) { notice(el, ''); return; }
+      if (state.savedWeek && state.savedWeek < rankWeek) {
+        notice(el, 'That saved Underdog file is from week ' + state.savedWeek + ' and these rankings are week ' + rankWeek +
+          '. Underdog reissues its player IDs every week — download a fresh CSV from Underdog and choose it below.');
+      } else if (state.savedWeek && state.savedWeek > rankWeek) {
+        notice(el, 'That saved Underdog file is from week ' + state.savedWeek + ' but these rankings are week ' + rankWeek + '. Check you picked the right pair.');
+      } else if (!state.savedWeek) {
+        notice(el, 'That saved Underdog file has no week recorded (it was saved before the app tracked that), so it cannot be checked against these week ' +
+          rankWeek + ' rankings. If it is older than this week, download a fresh one.');
+      } else {
+        notice(el, '');
+      }
+    }
+
+    $('uq-saved').addEventListener('change', function () { useSaved().catch(function () {}); });
+
+    $('uq-forget').addEventListener('click', async function () {
+      var id = $('uq-saved').value;
+      if (!id) return;
+      await apiPost('/api/combine/underdog/sets/' + id, {}, 'DELETE');
+      toast('Deleted');
+      await loadSaved();
+    });
 
     $('uq-ud-file').addEventListener('change', async function () {
       var f = this.files[0];
       if (!f) return;
       try {
-        state.udCsv = await readFile(f); state.udName = f.name;
-        rememberUd();
-        $('uq-ud-note').textContent = f.name + ' — ' + (countLines(state.udCsv) - 1) + ' players';
+        state.udCsv = await readFile(f);
+        state.udName = f.name;
+        state.udFromFile = true;
+        state.savedWeek = null;
+        $('uq-saved').value = '';
+        $('uq-forget').hidden = true;
+        $('uq-saved-note').textContent = '';
+        $('uq-ud-note').textContent = f.name + ' — ' + countRows(state.udCsv) + ' players. Saved when you build.';
+        checkStale();
       } catch (e) { showError(e.message); }
     });
+
+    // ---------- step 2: the rankings ----------
+    async function inspectRankings(text, modified) {
+      var data = await apiPost('/api/combine/underdog/inspect', {
+        rankings: text, file_modified: modified || null,
+      }).catch(function () { return null; });
+      if (!data) return;
+      state.meta = { week: data.week, season: data.season };
+      $('uq-label').value = data.label;
+      $('uq-rk-note').textContent = (state.rkName ? state.rkName + ' — ' : '') + data.rows + ' rows' +
+        (data.week ? ' · week ' + data.week : ' · no week published');
+      checkStale();
+    }
 
     $('uq-rk-file').addEventListener('change', async function () {
       var f = this.files[0];
       if (!f) return;
       try {
-        state.rkText = await readFile(f); state.rkName = f.name;
-        $('uq-rk-note').textContent = f.name + ' — ' + (countLines(state.rkText) - 1) + ' rows';
-        if (!$('uq-label').value) $('uq-label').value = f.name.replace(/\.[a-z]+$/i, '');
+        state.rkText = await readFile(f);
+        state.rkName = f.name;
+        state.rkModified = f.lastModified || null;
+        $('uq-rk-note').textContent = f.name + ' — reading…';
+        await inspectRankings(state.rkText, state.rkModified);
       } catch (e) { showError(e.message); }
     });
 
+    $('uq-rk-text').addEventListener('change', async function () {
+      var t = this.value.trim();
+      if (!t) return;
+      state.rkName = '';
+      state.rkModified = null;
+      await inspectRankings(t, null);
+    });
+
+    // ---------- step 3: build ----------
     $('uq-build').addEventListener('click', async function () {
       clearError();
       var pasted = $('uq-rk-text').value.trim();
       var rankings = pasted || state.rkText;
-      if (!state.udCsv) { showError('Choose the CSV you downloaded from Underdog first (step 1).'); return; }
+      if (!state.udCsv) { showError('Choose a saved Underdog file, or the CSV you downloaded from Underdog (step 1).'); return; }
       if (!rankings) { showError('Choose a rankings file or paste the rankings (step 2).'); return; }
       var btn = this;
       btn.disabled = true; btn.textContent = 'Building…';
@@ -162,12 +266,28 @@
         triggerDownload(new Blob([data.csv], { type: 'text/csv' }), data.filename);
         render(data);
         toast('Downloaded ' + data.filename);
+        // A freshly chosen Underdog file is worth keeping, now that the week is
+        // known — that is what makes next week's build a two-tap job on a phone.
+        if (state.udFromFile) await saveUnderdogFile();
       } catch (e) {
         /* banner already shown by apiPost */
       } finally {
         btn.disabled = false; btn.textContent = 'Build Underdog upload file';
       }
     });
+
+    async function saveUnderdogFile() {
+      var week = state.meta.week;
+      var name = 'Underdog ' + (week ? 'week ' + week : state.udName.replace(/\.csv$/i, '').slice(0, 40));
+      try {
+        var saved = await apiPost('/api/combine/underdog/sets', {
+          name: name, csv: state.udCsv, nfl_week: week, season: state.meta.season,
+        });
+        state.udFromFile = false;
+        await loadSaved(saved.id);
+        toast('Underdog file saved as "' + name + '"');
+      } catch (e) { /* banner already shown; the upload file is already downloaded */ }
+    }
 
     $('uq-download').addEventListener('click', function () {
       if (state.lastCsv) triggerDownload(new Blob([state.lastCsv], { type: 'text/csv' }), state.lastFilename);
@@ -182,16 +302,13 @@
       var warn = $('uq-warning');
       var missRatio = data.ranked ? (data.ranked - data.matched) / data.ranked : 0;
       if (data.matched === 0) {
-        warn.textContent = 'Nothing matched. Check that step 1 is Underdog\'s download for the right contest and step 2 has a player-name column.';
-        warn.classList.add('visible');
+        notice(warn, 'Nothing matched. Check that step 1 is Underdog\'s download for the right contest and step 2 has a player-name column.');
       } else if (missRatio > 0.5) {
-        warn.textContent = 'More than half the ranked players are not in this Underdog file. That is normal for a weekly slate (only the teams playing are listed) — make sure it is the contest you meant.';
-        warn.classList.add('visible');
+        notice(warn, 'More than half the ranked players are not in this Underdog file. That is normal for a weekly slate, which carries only the teams playing and no kickers or defenses — make sure it is the contest you meant.');
       } else {
-        warn.textContent = ''; warn.classList.remove('visible');
+        notice(warn, '');
       }
 
-      // Top of the upload, straight from the CSV that was just built.
       var lines = String(data.csv || '').replace(/^﻿/, '').split(/\r?\n/).filter(function (l) { return l.trim(); });
       var prev = $('uq-preview');
       prev.textContent = '';
@@ -210,36 +327,65 @@
         prev.appendChild(more);
       }
 
-      var fwrap = $('uq-flagged-wrap');
+      var fl = data.flagged || [];
+      $('uq-flagged-wrap').hidden = !fl.length;
+      $('uq-flagged-count').textContent = fl.length ? '(' + fl.length + ')' : '';
       var ful = $('uq-flagged');
       ful.textContent = '';
-      var fl = data.flagged || [];
-      fwrap.hidden = !fl.length;
-      $('uq-flagged-count').textContent = fl.length ? '(' + fl.length + ')' : '';
       fl.forEach(function (f) {
         var li = document.createElement('li');
-        li.textContent = f.name + ' — your list says ' + (f.ranked_position || '?') +
-          ', Underdog says ' + (f.underdog_position || '?');
+        li.textContent = f.name + ' — your list says ' + (f.ranked_position || '?') + ', Underdog says ' + (f.underdog_position || '?');
         ful.appendChild(li);
       });
 
-      var wrap = $('uq-unmatched-wrap');
+      var um = data.unmatched || [];
+      $('uq-unmatched-wrap').hidden = !um.length;
+      $('uq-unmatched-count').textContent = um.length ? '(' + um.length + ')' : '';
       var ul = $('uq-unmatched');
       ul.textContent = '';
-      var um = data.unmatched || [];
-      wrap.hidden = !um.length;
-      $('uq-unmatched-count').textContent = um.length ? '(' + um.length + ')' : '';
       um.forEach(function (u) {
         var li = document.createElement('li');
-        li.textContent = '#' + u.rank + ' ' + u.name + (u.position ? ' · ' + u.position : '') + (u.team ? ' · ' + u.team : '');
-        if (u.suggestion) {
+        li.appendChild(document.createTextNode('#' + u.rank + ' ' + u.name + (u.position ? ' · ' + u.position : '') + (u.team ? ' · ' + u.team : '')));
+        var cands = u.candidates || [];
+        if (cands.length) {
           var s = document.createElement('span');
           s.className = 'sugg';
-          s.textContent = ' — closest on Underdog: ' + u.suggestion;
+          s.textContent = u.suggestion ? ' — closest on Underdog: ' : ' — on Underdog, could be: ';
           li.appendChild(s);
+          var sel = document.createElement('select');
+          sel.className = 'inline';
+          cands.forEach(function (c) {
+            var o = document.createElement('option');
+            o.value = c; o.textContent = c;
+            sel.appendChild(o);
+          });
+          li.appendChild(sel);
+          var b = document.createElement('button');
+          b.className = 'secondary';
+          b.textContent = 'Same player';
+          b.addEventListener('click', function () { teach(u.name, sel.value, b, li); });
+          li.appendChild(b);
         }
         ul.appendChild(li);
       });
+    }
+
+    // Remember that Underdog spells this player differently. It goes into the
+    // app's one player cross-reference (the same aliases the Player DB shows),
+    // so every future week matches him without being asked again.
+    async function teach(rankedName, underdogName, button, li) {
+      if (!underdogName) return;
+      button.disabled = true;
+      button.textContent = 'Saving…';
+      try {
+        var r = await apiPost('/api/combine/underdog/teach', { ranked_name: rankedName, underdog_name: underdogName });
+        li.classList.add('taught');
+        button.textContent = 'Remembered';
+        toast('Underdog\'s "' + r.learned + '" now means ' + r.player + '. Build again to include him.');
+      } catch (e) {
+        button.disabled = false;
+        button.textContent = 'Same player';
+      }
     }
 
     // Minimal one-line CSV field splitter for the preview (quotes + "" escapes).
@@ -258,7 +404,7 @@
       return out;
     }
 
-    restoreUd();
+    loadSaved().catch(function () { /* banner already shown */ });
   </script>
 </body>
 </html>

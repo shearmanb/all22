@@ -275,7 +275,10 @@ function importCsv(text) {
     if (noteParts.length) out.notes = noteParts.join(' · ');
     rows.push(out);
   }
-  return { rows, mapping: map, headerFound: headerIdx >= 0 };
+  // headerIdx/dataRows let a caller read a column this detector has no opinion
+  // about (Fantasy Points publishes WEEK and SEASON) without re-deriving which
+  // row the header was — there must be exactly one answer to that question.
+  return { rows, mapping: map, headerFound: headerIdx >= 0, headerIdx, dataRows };
 }
 
 // Human-readable list of which fields were detected (for the UI note).
