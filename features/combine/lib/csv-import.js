@@ -108,6 +108,48 @@ function extraNotes(row, map) {
   return out;
 }
 
+// A cell that looks like a player's NAME: it has letters and isn't a lone
+// position/team token or a money figure. One definition, shared by the header
+// validator and the headerless column inference — never a second name engine.
+function isNameish(cell) {
+  const c = String(cell == null ? '' : cell).trim();
+  return /[a-z]{2}/i.test(c) && !players.isPosition(c) && !players.teamFromToken(c) &&
+    !/^\$/.test(c) && c.split(/\s+/).length <= 6;
+}
+
+// What share (0..1) of a column's filled cells look like player names.
+function nameShare(rows, col, limit) {
+  const filled = [];
+  for (const r of rows) {
+    const v = String(r[col] == null ? '' : r[col]).trim();
+    if (v) filled.push(v);
+    if (filled.length >= (limit || 20)) break;
+  }
+  if (!filled.length) return 0;
+  return filled.filter(isNameish).length / filled.length;
+}
+
+// A header doesn't always NAME the team column: Fantasy Points labels both the
+// position and the team "POS", so the header detector finds no team at all.
+// When that happens, claim an unclaimed column whose cells are almost entirely
+// NFL team tokens — skipping any column labelled as the OPPONENT, which looks
+// identical and is emphatically not the player's team.
+function rescueTeamColumn(dataRows, map) {
+  if (map.team >= 0) return;
+  const claimed = new Set([map.name, map.pos, map.rank, map.auction, map.notes, map.bye]);
+  const labels = map.labels || [];
+  const sample = dataRows.slice(0, 40);
+  const width = sample.reduce((w, r) => Math.max(w, r.length), 0);
+  for (let i = 0; i < width; i++) {
+    if (claimed.has(i)) continue;
+    if (/\bopp|opponent|\bvs\b|\bat\b/i.test(String(labels[i] || ''))) continue;
+    const filled = sample.map((r) => String(r[i] == null ? '' : r[i]).trim()).filter(Boolean);
+    if (filled.length < 3) continue;
+    const teamish = filled.filter((c) => !!players.teamFromToken(c)).length / filled.length;
+    if (teamish >= 0.9) { map.team = i; return; }
+  }
+}
+
 // Infer columns from the DATA when there's no recognizable header row — a
 // spreadsheet range pasted without its header, e.g. "1 | Jahmyr Gibbs | RB |
 // DET | 6 | $60". Each column is scored by what its cells actually look like,
@@ -124,9 +166,6 @@ function inferColumns(dataRows) {
     return filled.length ? filled.filter(fn).length / filled.length : 0;
   };
   const isInt = (c) => /^\d{1,4}$/.test(c);
-  // A name cell: has letters, and isn't a lone position/team token.
-  const isNameish = (c) => /[a-z]{2}/i.test(c) && !players.isPosition(c) && !players.teamFromToken(c) &&
-    !/^\$/.test(c) && c.split(/\s+/).length <= 6;
 
   const cols = [];
   for (let i = 0; i < width; i++) {
@@ -178,17 +217,29 @@ function importCsv(text) {
   if (!table.length) return { rows: [], mapping: {}, headerFound: false };
 
   // Find the header row: the first of the first few rows that has a name column
-  // (real exports sometimes carry a title/blank line above the header).
+  // AND whose name column actually holds player names underneath (real exports
+  // carry a title/blank line above the header — and worse, a merged-cell GROUP
+  // header: Fantasy Points writes "Player Details" across the name/pos/team
+  // block, which matches the name-column regex while the column beneath it
+  // holds positions). Checking the data is what tells the two rows apart.
   let headerIdx = -1, mapping = null;
+  let looseIdx = -1, looseMapping = null;
   for (let i = 0; i < Math.min(8, table.length); i++) {
     const m = detectColumns(table[i]);
-    if (m.name >= 0) { headerIdx = i; mapping = m; break; }
+    if (m.name < 0) continue;
+    if (looseIdx < 0) { looseIdx = i; looseMapping = m; }
+    if (nameShare(table.slice(i + 1), m.name) >= 0.6) { headerIdx = i; mapping = m; break; }
   }
+  // No candidate's column held names (a one-row file, or names we don't
+  // recognize): fall back to the first labelled candidate, which is what a
+  // header match alone has always accepted.
+  if (headerIdx < 0 && looseIdx >= 0) { headerIdx = looseIdx; mapping = looseMapping; }
 
   let dataRows, map;
   if (headerIdx >= 0) {
     dataRows = table.slice(headerIdx + 1);
     map = mapping;
+    rescueTeamColumn(dataRows, map);
   } else {
     // No recognizable header. Multi-column data still tells us what each column
     // is; a single-column file is a bare one-name-per-line list.
@@ -239,4 +290,4 @@ function detectedFields(mapping) {
   return out;
 }
 
-module.exports = { importCsv, parseTable, detectColumns, inferColumns, extraNotes, detectedFields };
+module.exports = { importCsv, parseTable, detectColumns, inferColumns, rescueTeamColumn, extraNotes, detectedFields };

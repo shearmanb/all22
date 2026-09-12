@@ -73,12 +73,45 @@ test('a last-name-only hit on a small slate is rejected, full names still match'
   assert.ok(lines[4].includes('Demarcus')); // unranked, keeps its place after the ranked block
 });
 
-test('position disagreement rejects a match even when the full name is the same', () => {
-  const r = matchReport(SLATE, [{ name: 'Hunter Henry', position: 'RB' }, { name: 'Hunter Henry' }]);
-  // RB "Hunter Henry" is not the TE; a positionless row still matches by name.
+test('a full-name match survives a position disagreement, and reports it', () => {
+  // Sources routinely file the same player differently (a move tight end listed
+  // WR on one site). The name is the identity, so he keeps his slot — but the
+  // disagreement is surfaced, never swallowed.
+  const r = buildExport(SLATE, [{ name: 'Hunter Henry', position: 'RB' }]);
   assert.equal(r.matched, 1);
-  assert.equal(r.unmatched.length, 1);
-  assert.equal(r.unmatched[0].name, 'Hunter Henry');
+  assert.equal(r.unmatched.length, 0);
+  assert.deepEqual(r.flagged, [{
+    name: 'Hunter Henry', underdog_name: 'Hunter Henry',
+    ranked_position: 'RB', underdog_position: 'TE',
+  }]);
+  // Agreeing (or absent) positions raise no flag.
+  assert.equal(buildExport(SLATE, [{ name: 'Hunter Henry', position: 'TE' }]).flagged.length, 0);
+  assert.equal(buildExport(SLATE, [{ name: 'Hunter Henry' }]).flagged.length, 0);
+});
+
+test('position still gates a last-name-only hit, where identity is not proven', () => {
+  // "Derrick Henry" reaches Hunter Henry only through the last name, so the
+  // position mismatch is the evidence that they are different people.
+  const r = buildExport(SLATE, [{ name: 'Derrick Henry', position: 'RB' }]);
+  assert.equal(r.matched, 0);
+  assert.deepEqual(r.unmatched, ['Derrick Henry']);
+});
+
+test('Underdog\'s nickname resolves to the legal name the rankings use', () => {
+  // The alias table maps variant -> canonical; here UNDERDOG prints the
+  // nickname, so rows are indexed under both.
+  const csv = SLATE + '\n"u6","p6","Hollywood","Brown","WR","Philadelphia Eagles"';
+  const r = buildExport(csv, [{ name: 'Marquise Brown', position: 'WR' }]);
+  assert.equal(r.matched, 1);
+  assert.ok(r.csv.split('\r\n')[1].includes('Hollywood'));
+});
+
+test('a short first name that is the TAIL of the long one still matches', () => {
+  const csv = SLATE + '\n"u7","p7","Drew","Ogletree","TE","Indianapolis Colts"';
+  assert.equal(buildExport(csv, [{ name: 'Andrew Ogletree', position: 'TE' }]).matched, 1);
+  // ...but a 3-letter coincidence inside a longer name does not.
+  const csv2 = SLATE + '\n"u8","p8","Brian","Thomas","WR","Jacksonville Jaguars"';
+  assert.equal(buildExport(csv2, [{ name: 'Ian Thomas', position: 'WR' }]).matched, 0);
 });
 
 test('parse carries slotName and teamName when present', () => {

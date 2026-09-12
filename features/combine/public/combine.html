@@ -883,6 +883,10 @@
       r.textContent = 'Matched ' + data.matched + ' of ' + data.total + ' ranked players.' +
         (data.unmatched && data.unmatched.length
           ? ' Not in the Underdog file: ' + data.unmatched.map(function (u) { return u.name || u; }).slice(0, 10).join(', ')
+          : '') +
+        (data.flagged && data.flagged.length
+          ? ' Matched but filed at a different position on Underdog: ' +
+            data.flagged.map(function (f) { return f.name + ' (' + f.ranked_position + '/' + f.underdog_position + ')'; }).slice(0, 10).join(', ')
           : '');
     });
 

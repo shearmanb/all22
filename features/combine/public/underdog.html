@@ -78,9 +78,14 @@
         <div id="uq-warning" class="notice-banner"></div>
         <h3>Top of the upload</h3>
         <ol id="uq-preview" class="muted small"></ol>
+        <div id="uq-flagged-wrap" hidden>
+          <h3>Matched, but the two sources disagree <span id="uq-flagged-count" class="muted small"></span></h3>
+          <p class="muted small">These are in the upload on an exact name match. Fantasy Points and Underdog just file them at different positions, which is normal for a player who moves around. Worth a glance, nothing to fix.</p>
+          <ul id="uq-flagged"></ul>
+        </div>
         <div id="uq-unmatched-wrap" hidden>
           <h3>Not in Underdog's file <span id="uq-unmatched-count" class="muted small"></span></h3>
-          <p class="muted small">These ranked players have no row in the Underdog file, so they can't be uploaded. A player from a team not on this slate, a defense or a kicker is expected here. A spelling gap shows Underdog's closest name so you can fix the rankings file.</p>
+          <p class="muted small">These ranked players have no row in the Underdog file, so they can't be uploaded. Expect a lot of them: kickers and defenses (Underdog's contests carry neither) and every player whose team isn't in this contest. Where a close name exists, Underdog's spelling is shown so you can tell a real absence from a spelling gap.</p>
           <ul id="uq-unmatched"></ul>
         </div>
       </div>
@@ -204,6 +209,19 @@
         more.textContent = '… and ' + (data.matched - n) + ' more in rank order';
         prev.appendChild(more);
       }
+
+      var fwrap = $('uq-flagged-wrap');
+      var ful = $('uq-flagged');
+      ful.textContent = '';
+      var fl = data.flagged || [];
+      fwrap.hidden = !fl.length;
+      $('uq-flagged-count').textContent = fl.length ? '(' + fl.length + ')' : '';
+      fl.forEach(function (f) {
+        var li = document.createElement('li');
+        li.textContent = f.name + ' — your list says ' + (f.ranked_position || '?') +
+          ', Underdog says ' + (f.underdog_position || '?');
+        ful.appendChild(li);
+      });
 
       var wrap = $('uq-unmatched-wrap');
       var ul = $('uq-unmatched');

@@ -649,7 +649,7 @@ router.post('/underdog/export', async (req, res) => {
       ok: true,
       data: {
         filename: `underdog-${slug}-${stamp}.csv`,
-        csv: result.csv, total: result.total, matched: result.matched, unmatched: result.unmatched,
+        csv: result.csv, total: result.total, matched: result.matched, unmatched: result.unmatched, flagged: result.flagged,
       },
     });
   } catch (err) {
@@ -676,7 +676,7 @@ router.post('/underdog/quick', (req, res) => {
       ok: true,
       data: {
         filename: `underdog-${slug}-${stamp}.csv`,
-        csv: result.csv, total: result.total, ranked: result.ranked, matched: result.matched, unmatched: result.unmatched,
+        csv: result.csv, total: result.total, ranked: result.ranked, matched: result.matched, unmatched: result.unmatched, flagged: result.flagged,
       },
     });
   } catch (err) {

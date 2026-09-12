@@ -52,10 +52,14 @@ function parseRankings(text) {
 }
 
 // Build the upload. Returns
-//   { csv, total, ranked, matched, unmatched: [{ rank, name, position, team, suggestion }] }
+//   { csv, total, ranked, matched,
+//     unmatched: [{ rank, name, position, team, suggestion }],
+//     flagged:   [{ name, underdog_name, ranked_position, underdog_position }] }
 // `unmatched` is every ranked player with no trustworthy Underdog row, with the
 // nearest Underdog name when there is a close one (so a spelling gap is a
-// one-glance fix rather than a mystery).
+// one-glance fix rather than a mystery). `flagged` is every player who DID make
+// the upload on an exact name while the two sources file him at different
+// positions — worth an eyeball, never silently dropped.
 function build(underdogCsv, rankingsText) {
   const ranked = parseRankings(rankingsText);
   const exp = underdogIds.buildExport(underdogCsv, ranked);
@@ -65,7 +69,7 @@ function build(underdogCsv, rankingsText) {
   const unmatched = ranked
     .filter((r) => missing.has(players.key(r.name)))
     .map((r) => ({ rank: r.rank, name: r.name, position: r.position, team: r.team, suggestion: suggestions.get(players.key(r.name)) || null }));
-  return { csv: exp.csv, total: exp.total, ranked: ranked.length, matched: exp.matched, unmatched };
+  return { csv: exp.csv, total: exp.total, ranked: ranked.length, matched: exp.matched, unmatched, flagged: exp.flagged };
 }
 
 module.exports = { parseRankings, build };

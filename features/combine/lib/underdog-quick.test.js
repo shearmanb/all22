@@ -11,6 +11,28 @@ const UD =
   '"u4","p4","Demarcus","Robinson","200.0","WR","San Francisco 49ers"\n' +
   '"u5","p5","Patrick","Mahomes","40.0","QB","Kansas City Chiefs"';
 
+test('parseRankings reads a Fantasy Points export, whose header is TWO rows', () => {
+  // Row 1 is a merged-cell group header: "Player Details" spans the name /
+  // position / team block and matches the name-column regex, while the column
+  // beneath it holds positions. Picking that row yields a list of "RB", "WR"
+  // and nothing matches — the bug this guards against.
+  const rows = parseRankings(
+    '"","","Player Details","","","","","Projection"\n' +
+    '"#","NAME","POS","POS","SEASON","WEEK","OPP","FPTS"\n' +
+    '"1","Jahmyr Gibbs","RB","DET","2026","1","NO","24.5"\n' +
+    '"2","Puka Nacua","WR","LA","2026","1","SF","21.0"\n' +
+    '"3","Derrick Henry","RB","BLT","2026","1","IND","17.6"\n'
+  );
+  assert.deepEqual(rows.map((r) => [r.rank, r.name, r.position, r.team]), [
+    [1, 'Jahmyr Gibbs', 'RB', 'DET'],
+    // The team column is unlabelled ("POS" twice), so it is recovered from the
+    // data — taking the team, not the identical-looking OPP column beside it.
+    // Fantasy Points' own abbreviations are recognized as teams.
+    [2, 'Puka Nacua', 'WR', 'LA'],
+    [3, 'Derrick Henry', 'RB', 'BLT'],
+  ]);
+});
+
 test('parseRankings reads a FantasyPros-style CSV (RK / PLAYER NAME / POS with rank)', () => {
   const rows = parseRankings(
     '"RK","TIERS","PLAYER NAME","TEAM","POS","OPP"\n' +
