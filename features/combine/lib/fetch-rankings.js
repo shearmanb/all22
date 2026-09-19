@@ -106,16 +106,40 @@ function extractEcrData(html) {
   return null;
 }
 
+// A published number, or null when the page doesn't publish it. FantasyPros
+// writes most of these as strings ("1.37") and omits them entirely on a player
+// only one expert ranked — a missing spread must stay missing, never a 0.
+function ecrNumber(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 // ecrData -> rows for the ingest pipeline, in consensus order.
+//
+// name/position/team are what ingest consumes. The consensus numbers ride
+// along for callers that compare a list against the field — `rank` is the
+// published ECR rank, and min/max/ave/std are how much the experts DISAGREE
+// about him, which is the whole point of a "vs the field" read. Every one of
+// them is null when the page doesn't publish it.
 function rowsFromEcr(data) {
   const players = (data.players || [])
     .filter((p) => p && p.player_name)
     .slice()
     .sort((a, b) => (Number(a.rank_ecr) || 1e9) - (Number(b.rank_ecr) || 1e9));
-  return players.map((p) => ({
+  return players.map((p, i) => ({
     name: String(p.player_name),
     position: String(p.player_position_id || '').toUpperCase().replace('DEF', 'DST'),
     team: String(p.player_team_id || '').toUpperCase(),
+    // Consensus order is the identity of the list; without a published rank the
+    // player's place in that order is the honest stand-in.
+    rank: ecrNumber(p.rank_ecr) === null ? i + 1 : ecrNumber(p.rank_ecr),
+    ave: ecrNumber(p.rank_ave),
+    std: ecrNumber(p.rank_std),
+    best: ecrNumber(p.rank_min),
+    worst: ecrNumber(p.rank_max),
+    tier: ecrNumber(p.tier),
+    pos_rank: p.pos_rank ? String(p.pos_rank) : '',
   }));
 }
 

@@ -37,18 +37,30 @@ function parseRankings(text) {
       name: players.display(r.name),
       // FantasyPros publishes "RB12": drop the ordinal before recognising it.
       position: players.findPosition([String(r.position || '').trim().replace(/\d+$/, '')]) || '',
+      // …but keep what it actually printed, because "RB12" IS the positional
+      // rank and the comparison view shows it.
+      position_raw: String(r.position || '').trim(),
       team: players.teamFromToken(r.team || '') || String(r.team || '').trim().toUpperCase(),
+      // csv-import folds every column it doesn't claim into the row's note
+      // under its own header label, so a FantasyPros download's BEST / WORST /
+      // AVG / STD.DEV survive here — that is the expert spread, and the
+      // comparison reads it back out rather than losing it to the upload path.
+      notes: r.notes || '',
     })).filter((r) => r.name);
     if (rows.length && rows.every((r) => r.rank !== null)) {
       rows.sort((a, b) => (a.rank - b.rank) || (a.order - b.order));
     }
   } else {
     rows = rankings.parse(raw).players.map((p, i) => ({
-      order: i, rank: p.rank, name: p.name, position: p.position || '', team: p.team || '',
+      order: i, rank: p.rank, name: p.name, position: p.position || '',
+      position_raw: p.position || '', team: p.team || '', notes: p.notes || '',
     }));
   }
   if (!rows.length) throw new Error('No player rows were found in the rankings file. It needs a player-name column (or one player per line).');
-  return rows.map((r, i) => ({ rank: i + 1, name: r.name, position: r.position, team: r.team }));
+  return rows.map((r, i) => ({
+    rank: i + 1, name: r.name, position: r.position,
+    position_raw: r.position_raw || '', team: r.team, notes: r.notes || '',
+  }));
 }
 
 // Read what a rankings file says about WHICH week it covers. Fantasy Points

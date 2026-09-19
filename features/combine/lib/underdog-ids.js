@@ -52,6 +52,18 @@ function colIndex(headers, name) {
   return headers.findIndex((h) => h.trim().toLowerCase() === want);
 }
 
+// Read a numeric cell, or null when the file leaves it blank. Underdog writes
+// every number as a quoted string and sometimes writes nothing at all (a player
+// with no ADP yet), and a blank must stay blank rather than becoming a 0 that
+// would sort him to the top of a board.
+function numberAt(fields, idx) {
+  if (idx < 0) return null;
+  const raw = String(fields[idx] == null ? '' : fields[idx]).trim();
+  if (!raw) return null;
+  const n = Number(raw.replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
 // Parse a raw Underdog CSV into { headerLine, rows, count } where each row keeps
 // its original raw text plus the bits we match on. Throws a human-readable error
 // if it doesn't look like an Underdog rankings file.
@@ -76,6 +88,14 @@ function parse(csvText) {
   const lastIdx = colIndex(headers, 'lastName');
   const posIdx = colIndex(headers, 'slotName');
   const teamIdx = colIndex(headers, 'teamName');
+  // Underdog's own opinion of the player, carried through for the comparison
+  // view. `adp` is where the field actually drafts him and `projectedPoints` is
+  // Underdog's model; neither is touched by the owner re-uploading his own
+  // order, which is why the comparison ranks off them rather than file order.
+  const adpIdx = colIndex(headers, 'adp');
+  const projIdx = colIndex(headers, 'projectedPoints');
+  const posRankIdx = colIndex(headers, 'positionRank');
+  const byeIdx = colIndex(headers, 'byeWeek');
   if (idIdx < 0 || firstIdx < 0 || lastIdx < 0) {
     throw new Error('That does not look like an Underdog rankings CSV — it needs "id", "firstName" and "lastName" columns. Download a fresh file from Underdog\'s Rankings page.');
   }
@@ -90,7 +110,13 @@ function parse(csvText) {
     if (!name) continue; // skip stray/blank rows
     const position = posIdx >= 0 ? (fields[posIdx] || '').trim() : '';
     const team = teamIdx >= 0 ? (fields[teamIdx] || '').trim() : '';
-    rows.push({ rawLine, name, id, position, team });
+    rows.push({
+      rawLine, name, id, position, team,
+      adp: numberAt(fields, adpIdx),
+      projected: numberAt(fields, projIdx),
+      position_rank: posRankIdx >= 0 ? (fields[posRankIdx] || '').trim() : '',
+      bye: numberAt(fields, byeIdx),
+    });
   }
   return { headerLine, rows, count: rows.length };
 }
@@ -316,4 +342,4 @@ function matchReport(csvText, rankedList) {
   return { total: rows.length, matched, unmatched };
 }
 
-module.exports = { parse, summarize, buildExport, matchReport, resolveRow, buildIndex, candidatesFor, parseCsvLine };
+module.exports = { parse, summarize, buildExport, matchReport, resolveRow, buildIndex, candidatesFor, parseCsvLine, normPos };

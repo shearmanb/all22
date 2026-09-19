@@ -15,6 +15,25 @@
     #uq-unmatched li button, #uq-unmatched li select { margin-left: 6px; font-size: 0.85em; }
     #uq-unmatched li button { padding: 2px 8px; }
     #uq-unmatched li.taught { opacity: 0.65; }
+    #fc-table td.gap { font-weight: 700; white-space: nowrap; }
+    #fc-table td.src { white-space: nowrap; }
+    #fc-table tr.no-field td.player { opacity: 0.6; }
+    #fc-legend { line-height: 1.5; }
+    #fc-missing ul { margin: 4px 0 0; padding-left: 18px; }
+    /* On a phone the gap columns are the whole point, so the extras step
+       aside rather than pushing them off the right edge: the raw ADP /
+       positional rank (still in the downloaded CSV, and in the cell's tooltip)
+       and the experts' range column. */
+    #fc-table .narrow-only { display: none; }
+    @media (max-width: 720px) {
+      #fc-table { font-size: 0.82rem; }
+      #fc-table .sub, #fc-table .wide-only, #fc-legend .wide-only { display: none; }
+      #fc-table .narrow-only { display: inline; }
+      #fc-table th:nth-child(8), #fc-table td:nth-child(8) { display: none; }
+      #fc-table th, #fc-table td { padding-left: 4px; padding-right: 4px; }
+      #fc-table td.player { white-space: normal; max-width: 118px; }
+      #fc-table .pos-badge { min-width: 26px; padding: 1px 4px; }
+    }
   </style>
 </head>
 <body>
@@ -97,6 +116,87 @@
         </div>
       </div>
     </div>
+    <div class="card">
+      <h2><span class="step-num">4.</span> Compare to the field</h2>
+      <p class="muted small">Your rankings from step 2, in their own order, next to Underdog's board and the expert consensus &mdash; so you can see where your source is out on a limb. Nothing here changes the upload file.</p>
+
+      <div class="row">
+        <label class="grow">
+          <span class="field-label">Expert consensus &mdash; a FantasyPros rankings page</span>
+          <input id="fc-url" placeholder="https://www.fantasypros.com/nfl/rankings/half-point-ppr-flex.php">
+        </label>
+        <label>
+          <span class="field-label">Common lists</span>
+          <select id="fc-preset" class="inline">
+            <option value="">Fill the box with&hellip;</option>
+            <option value="https://www.fantasypros.com/nfl/rankings/half-point-ppr-flex.php">Weekly flex &middot; half-PPR</option>
+            <option value="https://www.fantasypros.com/nfl/rankings/ppr-flex.php">Weekly flex &middot; full PPR</option>
+            <option value="https://www.fantasypros.com/nfl/rankings/flex.php">Weekly flex &middot; standard</option>
+            <option value="https://www.fantasypros.com/nfl/rankings/superflex.php">Weekly superflex (has QBs)</option>
+            <option value="https://www.fantasypros.com/nfl/rankings/qb.php">Weekly QB</option>
+            <option value="https://www.fantasypros.com/nfl/rankings/half-point-ppr-cheatsheets.php">Season-long draft &middot; half-PPR</option>
+          </select>
+        </label>
+      </div>
+      <p class="muted small">A weekly flex list holds no quarterbacks and a slate holds no kickers or defenses, so some of your players simply won't be in one &mdash; they show a blank rather than a made-up rank.</p>
+      <details class="section-gap">
+        <summary class="muted small">&hellip;or use a FantasyPros file you downloaded (use this if the fetch is blocked)</summary>
+        <div class="row section-gap">
+          <input id="fc-ecr-file" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" class="inline">
+          <span id="fc-ecr-note" class="muted small"></span>
+          <button id="fc-ecr-clear" class="secondary" hidden>Use the link instead</button>
+        </div>
+      </details>
+
+      <div class="row section-gap">
+        <label>
+          <span class="field-label">Underdog's order comes from</span>
+          <select id="fc-basis" class="inline">
+            <option value="adp">ADP &mdash; where the field actually drafts him</option>
+            <option value="projection">Underdog's projected points</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="row section-gap">
+        <button id="fc-run">Compare</button>
+        <button id="fc-csv" class="secondary" hidden>Download this comparison</button>
+      </div>
+      <div id="fc-notice" class="notice-banner"></div>
+
+      <div id="fc-out" hidden>
+        <p id="fc-summary" class="muted small"></p>
+        <div class="row">
+          <span class="chip-row" id="fc-sorts"></span>
+          <span class="chip-row" id="fc-pos"></span>
+        </div>
+        <div class="table-wrap section-gap">
+          <table class="data" id="fc-table">
+            <thead>
+              <tr>
+                <th title="Your rankings' own order">#</th>
+                <th>Player</th>
+                <th>Pos</th>
+                <th title="Where Underdog's board has him"><span class="wide-only">Underdog</span><span class="narrow-only">UD</span></th>
+                <th title="How far apart you and Underdog are">&plusmn;</th>
+                <th title="Where the expert consensus has him"><span class="wide-only">Experts</span><span class="narrow-only">ECR</span></th>
+                <th title="How far apart you and the experts are">&plusmn;</th>
+                <th title="Highest and lowest rank any expert gave him">Range</th>
+              </tr>
+            </thead>
+            <tbody id="fc-body"></tbody>
+          </table>
+        </div>
+        <p id="fc-legend" class="muted small"></p>
+        <div id="fc-missing" hidden>
+          <h3>The field ranks these, your list doesn't</h3>
+          <p class="muted small">Inside the range your own list reaches, so these are players it skipped rather than players below your cut-off.</p>
+          <div id="fc-missing-ud"></div>
+          <div id="fc-missing-ecr"></div>
+        </div>
+      </div>
+    </div>
+
   </main>
 
   <script src="/app.js"></script>
@@ -403,6 +503,303 @@
       out.push(field);
       return out;
     }
+
+    // ---------- step 4: compare to the field ----------
+    // Read-only: this never touches the upload file. It answers "where is my
+    // source out on a limb?" against two fields kept deliberately apart —
+    // Underdog's own board and the expert consensus — because an ADP and a
+    // consensus rank measure different things and averaging them would hide a
+    // modelling decision the owner never made.
+    var fc = { data: null, sort: 'mine', pos: '', ecrText: '', ecrName: '' };
+
+    function el(tag, className, text) {
+      var n = document.createElement(tag);
+      if (className) n.className = className;
+      if (text !== undefined && text !== null) n.textContent = text;
+      return n;
+    }
+    function posBadge(pos) { return el('span', 'pos-badge' + (pos ? ' pos-' + pos : ''), pos || '—'); }
+
+    // The gap between two lists, already computed over the players they share.
+    // Colour is DIRECTION, not judgement — the legend says so.
+    function gapCell(cell, poolSize, label) {
+      if (!cell || cell.delta === null || cell.delta === undefined) return el('td', 'muted', '');
+      var d = cell.delta;
+      // "even" rather than a dash: a dash already means "not in that list" in
+      // the column beside this one, and the two must not look the same.
+      var td = el('td', 'gap ' + (d > 0 ? 'delta-up' : (d < 0 ? 'delta-down' : 'delta-flat')),
+        d > 0 ? '▲ +' + d : (d < 0 ? '▼ ' + d : 'even'));
+      td.title = 'Of the ' + poolSize + ' players your list and ' + label + ' both carry, yours has him ' +
+        cell.my_pool_rank + ' and ' + label + ' has him ' + cell.pool_rank + '.';
+      return td;
+    }
+
+    function fcNotice(text) { notice($('fc-notice'), text || ''); }
+
+    $('fc-preset').addEventListener('change', function () {
+      if (this.value) { $('fc-url').value = this.value; this.value = ''; }
+    });
+
+    $('fc-ecr-file').addEventListener('change', async function () {
+      var f = this.files[0];
+      if (!f) return;
+      try {
+        fc.ecrText = await readFile(f);
+        fc.ecrName = f.name;
+        $('fc-ecr-note').textContent = f.name + ' — ' + countRows(fc.ecrText) + ' rows. Used instead of the link.';
+        $('fc-ecr-clear').hidden = false;
+      } catch (e) { showError(e.message); }
+    });
+
+    $('fc-ecr-clear').addEventListener('click', function () {
+      fc.ecrText = ''; fc.ecrName = '';
+      $('fc-ecr-file').value = '';
+      $('fc-ecr-note').textContent = '';
+      this.hidden = true;
+    });
+
+    $('fc-run').addEventListener('click', async function () {
+      clearError();
+      var pasted = $('uq-rk-text').value.trim();
+      var rankings = pasted || state.rkText;
+      if (!rankings) { showError('Choose a rankings file or paste the rankings (step 2) — that is the list this compares.'); return; }
+      var url = $('fc-url').value.trim();
+      if (!state.udCsv && !url && !fc.ecrText) {
+        showError('Nothing to compare against yet. Pick an Underdog file (step 1), paste an expert rankings link, or both.');
+        return;
+      }
+      var btn = this;
+      btn.disabled = true; btn.textContent = 'Comparing…';
+      try {
+        fc.data = await apiPost('/api/combine/underdog/compare', {
+          rankings: rankings,
+          underdog_csv: state.udCsv || '',
+          ecr_url: fc.ecrText ? '' : url,
+          ecr_text: fc.ecrText || '',
+          ud_basis: $('fc-basis').value,
+        });
+        fc.sort = 'mine';
+        fc.pos = '';
+        renderCompare();
+      } catch (e) {
+        /* banner already shown by apiPost */
+      } finally {
+        btn.disabled = false; btn.textContent = 'Compare';
+      }
+    });
+
+    function renderCompare() {
+      var d = fc.data;
+      if (!d) return;
+      $('fc-out').hidden = false;
+      $('fc-csv').hidden = false;
+
+      // A source that failed has to say so out loud — the other comparison
+      // still stands, which is the whole point of not coupling them.
+      var problems = [];
+      if (d.underdog_error) problems.push('Underdog: ' + d.underdog_error);
+      if (d.ecr_error) problems.push('Expert consensus: ' + d.ecr_error + ' (you can download the list from FantasyPros and use the file box above.)');
+      if (d.underdog && d.underdog.note) problems.push(d.underdog.note);
+      fcNotice(problems.join(' '));
+
+      var bits = [d.ranked + ' ranked players'];
+      if (d.underdog) {
+        bits.push('Underdog: ' + d.underdog.matched + ' of them on this slate, ordered by ' +
+          ({ adp: 'ADP', projection: 'projected points', file: "the file's own row order" }[d.underdog.basis] || d.underdog.basis));
+      }
+      if (d.ecr) {
+        var e = 'Experts: ' + d.ecr.matched + ' of them in the consensus list';
+        if (d.ecr.experts) e += ' (' + d.ecr.experts + ' experts)';
+        if (d.ecr.meta && d.ecr.meta.last_updated) e += ', updated ' + d.ecr.meta.last_updated;
+        // Which list this actually was — a file chosen earlier sits inside a
+        // collapsed box, so the summary has to say so or the numbers have no
+        // provenance on screen.
+        e += (d.ecr.meta && d.ecr.meta.source === 'file')
+          ? ', from ' + (fc.ecrName || 'the file you chose')
+          : ', fetched from FantasyPros';
+        bits.push(e);
+      }
+      var sum = $('fc-summary');
+      sum.textContent = bits.join(' · ');
+      if (d.ecr && d.ecr.meta && d.ecr.meta.url) {
+        sum.appendChild(document.createTextNode(' · '));
+        var a = el('a', null, 'View source');
+        a.href = d.ecr.meta.url; a.target = '_blank'; a.rel = 'noopener';
+        sum.appendChild(a);
+      }
+
+      var legend = $('fc-legend');
+      legend.textContent =
+        '# is your rankings’ own order. Underdog and Experts show where each of them has the player. ' +
+        'The ± columns compare both lists renumbered over only the players they SHARE — a slate carries fewer ' +
+        'players than your file, so raw ranks are not the same scale. ▲ +5 means your list is five spots higher ' +
+        'on him than they are; ▼ -5 means five spots lower. Colour is direction, not right or wrong. ';
+      // The Range column steps aside on a phone, so its explanation goes with it.
+      legend.appendChild(el('span', 'wide-only',
+        'Range is the highest and lowest rank any single expert gave him, where the page publishes it.'));
+
+      renderSorts();
+      renderPosChips();
+      renderRows();
+      renderMissing();
+    }
+
+    function renderSorts() {
+      var d = fc.data;
+      var opts = [{ k: 'mine', t: 'Your order' }];
+      if (d.underdog) opts.push({ k: 'ud', t: 'Biggest gap vs Underdog' });
+      if (d.ecr) opts.push({ k: 'ecr', t: 'Biggest gap vs experts' });
+      var wrap = $('fc-sorts');
+      wrap.textContent = '';
+      opts.forEach(function (o) {
+        var b = el('button', 'chip-btn' + (fc.sort === o.k ? ' on' : ''), o.t);
+        b.addEventListener('click', function () { fc.sort = o.k; renderSorts(); renderRows(); });
+        wrap.appendChild(b);
+      });
+    }
+
+    function renderPosChips() {
+      var seen = [];
+      fc.data.rows.forEach(function (r) { if (r.position && seen.indexOf(r.position) < 0) seen.push(r.position); });
+      var wrap = $('fc-pos');
+      wrap.textContent = '';
+      [''].concat(seen).forEach(function (pos) {
+        var b = el('button', 'chip-btn' + (fc.pos === pos ? ' on' : ''), pos || 'All');
+        b.addEventListener('click', function () { fc.pos = pos; renderPosChips(); renderRows(); });
+        wrap.appendChild(b);
+      });
+    }
+
+    // Rows in the owner's order, or worst-disagreement first. Sorting by a gap
+    // puts the players with no gap to measure (not on that slate, not in that
+    // expert list) at the bottom rather than pretending they scored zero.
+    function visibleRows() {
+      var rows = fc.data.rows.filter(function (r) { return !fc.pos || r.position === fc.pos; });
+      if (fc.sort === 'mine') return rows;
+      var key = fc.sort === 'ud' ? 'ud' : 'ecr';
+      return rows.slice().sort(function (a, b) {
+        var da = a[key] && a[key].delta !== null ? Math.abs(a[key].delta) : -1;
+        var db = b[key] && b[key].delta !== null ? Math.abs(b[key].delta) : -1;
+        return (db - da) || (a.rank - b.rank);
+      });
+    }
+
+    function renderRows() {
+      var d = fc.data;
+      var body = $('fc-body');
+      body.textContent = '';
+      var udPool = d.underdog ? d.underdog.pool : 0;
+      var ecrPool = d.ecr ? d.ecr.pool : 0;
+      var rows = visibleRows();
+      rows.forEach(function (r) {
+        var tr = el('tr', (!r.ud && !r.ecr) ? 'no-field' : null);
+        tr.appendChild(el('td', 'num', String(r.rank)));
+        var nameTd = el('td', 'player', r.name);
+        if (r.team) { nameTd.appendChild(document.createTextNode(' ')); nameTd.appendChild(el('span', 'muted sub', r.team)); }
+        tr.appendChild(nameTd);
+        var pTd = el('td'); pTd.appendChild(posBadge(r.position)); tr.appendChild(pTd);
+
+        tr.appendChild(udCell(r, d));
+        tr.appendChild(gapCell(r.ud, udPool, 'Underdog'));
+        tr.appendChild(ecrCell(r));
+        tr.appendChild(gapCell(r.ecr, ecrPool, 'the experts'));
+        tr.appendChild(el('td', 'muted', (r.ecr && r.ecr.best !== null && r.ecr.worst !== null) ? r.ecr.best + '–' + r.ecr.worst : ''));
+        body.appendChild(tr);
+      });
+      if (!rows.length) {
+        var tr2 = el('tr');
+        var td = el('td', 'muted', 'Nothing matches that filter.');
+        td.colSpan = 8;
+        tr2.appendChild(td);
+        body.appendChild(tr2);
+      }
+    }
+
+    function udCell(r, d) {
+      if (!r.ud) {
+        var none = el('td', 'muted', '—');
+        none.title = 'Not in this Underdog file. A weekly slate carries only the teams playing, and no kickers or defenses.';
+        return none;
+      }
+      var td = el('td', 'src', r.ud.rank === null ? '—' : String(r.ud.rank));
+      var extra = (d.underdog && d.underdog.basis === 'projection')
+        ? (r.ud.projected === null ? '' : r.ud.projected + ' pts')
+        : (r.ud.adp === null ? '' : 'ADP ' + r.ud.adp);
+      if (extra) {
+        td.title = extra;
+        td.appendChild(document.createTextNode(' '));
+        td.appendChild(el('span', 'muted sub', extra));
+      }
+      return td;
+    }
+
+    function ecrCell(r) {
+      if (!r.ecr) {
+        var none = el('td', 'muted', '—');
+        none.title = 'Not in the expert list you compared against — a weekly flex list has no quarterbacks, kickers or defenses.';
+        return none;
+      }
+      var td = el('td', 'src', String(r.ecr.rank));
+      if (r.ecr.pos_rank) {
+        td.title = r.ecr.pos_rank + (r.ecr.best !== null ? ' · experts had him as high as ' + r.ecr.best + ' and as low as ' + r.ecr.worst : '');
+        td.appendChild(document.createTextNode(' '));
+        td.appendChild(el('span', 'muted sub', r.ecr.pos_rank));
+      }
+      return td;
+    }
+
+    function renderMissing() {
+      var d = fc.data;
+      var ud = (d.underdog && d.underdog.missing) || [];
+      var ecr = (d.ecr && d.ecr.missing) || [];
+      $('fc-missing').hidden = !(ud.length || ecr.length);
+      fillMissing($('fc-missing-ud'), 'Underdog has, your list skips', ud);
+      fillMissing($('fc-missing-ecr'), 'The experts rank, your list skips', ecr);
+    }
+
+    function fillMissing(wrap, title, list) {
+      wrap.textContent = '';
+      if (!list.length) return;
+      wrap.appendChild(el('p', 'muted small', title + ':'));
+      var ul = el('ul');
+      list.forEach(function (m) {
+        ul.appendChild(el('li', 'muted small',
+          '#' + m.rank + ' ' + m.name + (m.position ? ' · ' + m.position : '') + (m.team ? ' · ' + m.team : '')));
+      });
+      wrap.appendChild(ul);
+    }
+
+    // The whole comparison as a spreadsheet, pool ranks included — the table
+    // shows what fits on a phone, the file keeps every number behind it.
+    $('fc-csv').addEventListener('click', function () {
+      var d = fc.data;
+      if (!d) return;
+      var head = ['Rank', 'Player', 'Pos', 'Team',
+        'Underdog rank', 'Underdog ADP', 'Underdog projection', 'Your rank in shared pool (UD)', 'Underdog rank in shared pool', 'Gap vs Underdog',
+        'Expert rank', 'Expert pos rank', 'Expert best', 'Expert worst', 'Expert std dev', 'Your rank in shared pool (experts)', 'Expert rank in shared pool', 'Gap vs experts'];
+      var lines = [head.map(csvCell).join(',')];
+      d.rows.forEach(function (r) {
+        var u = r.ud || {}, e = r.ecr || {};
+        lines.push([r.rank, r.name, r.position, r.team,
+          u.rank, u.adp, u.projected, u.my_pool_rank, u.pool_rank, u.delta,
+          e.rank, e.pos_rank, e.best, e.worst, e.std, e.my_pool_rank, e.pool_rank, e.delta].map(csvCell).join(','));
+      });
+      var stamp = new Date().toISOString().slice(0, 10);
+      var base = ($('uq-label').value.trim() || 'rankings').replace(/[\\/:*?"<>|]+/g, '-');
+      triggerDownload(new Blob(['﻿' + lines.join('\r\n') + '\r\n'], { type: 'text/csv' }),
+        base + ' vs the field ' + stamp + '.csv');
+    });
+
+    function csvCell(v) {
+      if (v === null || v === undefined) return '';
+      var s = String(v);
+      return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }
+
+    // Last week's expert link, so the usual comparison is one tap.
+    apiFetch('/api/settings').then(function (s) {
+      if (s && s['combine.ecr_url'] && !$('fc-url').value) $('fc-url').value = s['combine.ecr_url'];
+    }).catch(function () { /* a missing default is not worth a banner */ });
 
     loadSaved().catch(function () { /* banner already shown */ });
   </script>

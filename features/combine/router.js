@@ -17,6 +17,7 @@ const store = require('./lib/store');
 const converters = require('./lib/converters');
 const underdogIds = require('./lib/underdog-ids');
 const underdogQuick = require('./lib/underdog-quick');
+const fieldCompare = require('./lib/field-compare');
 const master = require('../../lib/players-master');
 const settings = require('../../lib/settings');
 const pool = require('../../db/pool');
@@ -746,6 +747,80 @@ router.post('/underdog/quick', (req, res) => {
   } catch (err) {
     console.error(`POST /api/combine/underdog/quick: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not build the Underdog upload file.' });
+  }
+});
+
+// How do these rankings read against the field? Same two inputs as the build —
+// Underdog's contest CSV and the rankings file — plus expert consensus, either
+// fetched from a FantasyPros rankings page or read out of a file the owner
+// downloaded from one. Nothing is saved but the ECR link, which is remembered
+// so next week is one tap.
+//
+// One dead source never costs the other its comparison (the rule Edge Rush's
+// collector follows): a FantasyPros fetch that fails comes back as a visible
+// `ecr_error` alongside a complete Underdog comparison, not as a 500.
+// Body: { rankings, underdog_csv?, ecr_url?, ecr_text?, ud_basis? }.
+router.post('/underdog/compare', async (req, res) => {
+  try {
+    const { rankings, underdog_csv, ecr_url, ecr_text, ud_basis } = req.body || {};
+    if (!rankings || !String(rankings).trim()) {
+      return res.status(400).json({ ok: false, error: 'Choose or paste the rankings to compare (step 2).' });
+    }
+    const url = String(ecr_url || '').trim();
+    const text = String(ecr_text || '').trim();
+    const csv = String(underdog_csv || '').trim();
+    if (!csv && !url && !text) {
+      return res.status(400).json({ ok: false, error: 'Nothing to compare against — pick an Underdog file, an expert consensus link, or both.' });
+    }
+
+    let ranked;
+    try { ranked = underdogQuick.parseRankings(String(rankings)); }
+    catch (e) { return res.status(400).json({ ok: false, error: e.message }); }
+
+    const boards = {};
+    let underdogError = null;
+    if (csv) {
+      try { boards.underdog = fieldCompare.underdogBoard(csv, ud_basis); }
+      catch (e) { underdogError = e.message; }
+    }
+
+    // Expert consensus: a pasted/uploaded FantasyPros file wins over the link,
+    // because the owner choosing a file is him saying the fetch is not what he
+    // wants right now (it may be blocked from this server).
+    let ecrError = null;
+    let fetchFailed = false;
+    if (text) {
+      try {
+        const rows = underdogQuick.parseRankings(text);
+        boards.ecr = fieldCompare.ecrBoard(rows, { source: 'file' });
+      } catch (e) { ecrError = `Could not read that expert rankings file: ${e.message}`; }
+    } else if (url) {
+      try {
+        const { rows, meta } = await fetchRankings.fetchRankings(url);
+        boards.ecr = fieldCompare.ecrBoard(rows, meta);
+        // It worked, so it is worth prefilling next time.
+        if (hasDb()) await settings.set('combine.ecr_url', meta.url || url);
+      } catch (e) { ecrError = e.message; fetchFailed = true; }
+    }
+
+    if (!boards.underdog && !boards.ecr) {
+      // 502 only when the far end let us down; a file we could not read is the
+      // owner's to fix, and a 400 is what tells him that.
+      const remoteOnly = fetchFailed && !underdogError;
+      return res.status(remoteOnly ? 502 : 400)
+        .json({ ok: false, error: underdogError || ecrError || 'Nothing could be compared.' });
+    }
+
+    const data = fieldCompare.compare(ranked, boards);
+    res.json({
+      ok: true,
+      // Each board carries its own meta; the errors ride alongside so a
+      // half-working comparison still renders with the reason on screen.
+      data: Object.assign(data, { ecr_error: ecrError, underdog_error: underdogError }),
+    });
+  } catch (err) {
+    console.error(`POST /api/combine/underdog/compare: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not compare those rankings.' });
   }
 });
 
