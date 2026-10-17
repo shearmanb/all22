@@ -17,6 +17,7 @@ test('idFor: every app route maps to a module that actually exists', () => {
     '/drafts.html': 'playbook',
     '/warroom.html': 'warroom',
     '/adp.html': 'edgerush',
+    '/paydirt.html': 'paydirt',
     '/players.html': 'playerdb',
     '/notes.html': 'notes',
     '/wire.html': 'thewire',

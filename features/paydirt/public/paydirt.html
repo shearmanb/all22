@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pay Dirt — All22</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/theme.js"></script>
+  <script src="/module-icon.js"></script>
+  <script src="/module-nav.js"></script>
+  <style>
+    .step-num { display: inline-block; min-width: 1.6em; font-weight: 700; color: var(--accent-strong); }
+    #pd-table th.sort { cursor: pointer; user-select: none; }
+    #pd-table th.sort.on { color: var(--accent-strong); }
+    #pd-table th.sort.on::after { content: ' \25BE'; }
+    #pd-table th.sort.on.asc::after { content: ' \25B4'; }
+    #pd-table td.r, #pd-table th.r { text-align: right; }
+    #pd-table td.val { font-weight: 700; }
+    #pd-table td.val.hot { color: var(--green); }
+    #pd-table td.val.cold { color: var(--text-dim); font-weight: 500; }
+    #pd-table .alt { color: var(--text-dim); font-size: 0.78rem; }
+    #pd-table-wrap { max-height: 75vh; overflow: auto; }
+    .filters input[type=search] { flex: 2 1 200px; }
+    .filters input[type=number] { width: 96px; }
+    .filters label.check { display: inline-flex; align-items: center; gap: 6px; }
+    .filters label.check input { width: auto; margin: 0; }
+    #pd-misses li { padding: 2px 0; }
+    input[type=file], #pd-saved { max-width: 100%; min-width: 0; }
+    /* On a phone the table scrolls sideways; the player's name stays put. */
+    #pd-table th:nth-child(2), #pd-table td:nth-child(2) { position: sticky; left: 0; background: var(--surface); }
+    #pd-table th:nth-child(2) { background: var(--field); z-index: 2; }
+    #pd-table td:nth-child(2) { white-space: normal; min-width: 130px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">All<em>22</em></span>
+    <a href="/">Hub</a>
+    <a href="/combine.html">Combine</a>
+    <a href="/myrankings.html">My Rankings</a>
+    <a href="/boards.html">Big Board</a>
+    <a href="/auction.html">War Chest</a>
+    <a href="/drafts.html">Playbook</a>
+    <a href="/adp.html">Edge Rush</a>
+    <a href="/warroom.html">War Room</a>
+    <a href="/paydirt.html" class="active">Pay Dirt</a>
+    <a href="/players.html">Player DB</a>
+    <a href="/notes.html">Notes</a>
+    <a href="/wire.html">The Wire</a>
+    <a href="/settings.html">Settings</a>
+    <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
+  </nav>
+  <div id="error-banner"></div>
+
+  <main>
+    <h1>Pay Dirt <span class="muted small">FanDuel points per dollar</span></h1>
+    <p class="muted">Fantasy Points' weekly projections against FanDuel salaries — projected points per $1,000 of salary for every player on the slate. 3.0 means 3 points per $1K: a $7,000 player projected for 21.</p>
+
+    <div class="card">
+      <div class="row">
+        <select id="pd-saved" class="inline grow"></select>
+        <button id="pd-forget" class="danger" hidden>Delete</button>
+      </div>
+      <div id="pd-saved-note" class="muted small section-gap"></div>
+      <details id="pd-new" class="section-gap">
+        <summary><strong>New slate</strong> <span class="muted small">— upload this week's two files</span></summary>
+        <h3 class="section-gap"><span class="step-num">1.</span> Fantasy Points projections</h3>
+        <p class="muted small">The same weekly export you use for the Underdog upload (it has the FPTS column). FanDuel scores half-PPR, so download it in Half PPR.</p>
+        <div class="row">
+          <input id="pd-fp-file" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" class="inline">
+          <span id="pd-fp-note" class="muted small"></span>
+        </div>
+        <h3 class="section-gap"><span class="step-num">2.</span> FanDuel salaries</h3>
+        <p class="muted small">In the FanDuel contest lobby, <strong>Download players list</strong> (a CSV) — or paste salaries, one player per line, like <code>Josh Allen QB BUF $9,200</code>.</p>
+        <div class="row">
+          <input id="pd-fd-file" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" class="inline">
+          <span id="pd-fd-note" class="muted small"></span>
+        </div>
+        <details class="section-gap">
+          <summary class="muted small">…or paste salaries as text</summary>
+          <textarea id="pd-fd-text" rows="8" placeholder="Josh Allen QB BUF $9,200&#10;Bijan Robinson RB ATL $8,800&#10;…"></textarea>
+        </details>
+        <div class="row section-gap">
+          <label class="grow">
+            <span class="field-label">Name for this slate</span>
+            <input id="pd-name" placeholder="FanDuel Week 7 — Sunday main">
+          </label>
+        </div>
+        <div class="row section-gap">
+          <button id="pd-build">Build &amp; save</button>
+        </div>
+      </details>
+    </div>
+
+    <div id="pd-result" class="card" hidden>
+      <p id="pd-summary"></p>
+      <div class="row filters">
+        <input id="pd-search" type="search" placeholder="Search player, team, opponent…" class="inline">
+        <label class="small muted">Min $ <input id="pd-min-sal" type="number" step="100" min="0" placeholder="0" class="inline"></label>
+        <label class="small muted">Min proj <input id="pd-min-proj" type="number" step="0.5" min="0" placeholder="0" class="inline"></label>
+        <label class="small check"><input id="pd-hide-out" type="checkbox" checked> Hide players ruled out</label>
+      </div>
+      <div class="row section-gap">
+        <span class="chip-row" id="pd-pos"></span>
+        <span id="pd-count" class="muted small"></span>
+      </div>
+      <div id="pd-table-wrap" class="table-wrap section-gap">
+        <table class="data" id="pd-table">
+          <thead><tr id="pd-head"></tr></thead>
+          <tbody id="pd-body"></tbody>
+        </table>
+      </div>
+      <div id="pd-misses" class="section-gap"></div>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+    var POSITIONS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'FLEX', 'DST', 'K'];
+    var COLUMNS = [
+      { key: 'rank', label: 'FP #', num: true, asc: true },
+      { key: 'name', label: 'Player', asc: true },
+      { key: 'position', label: 'Pos', asc: true },
+      { key: 'team', label: 'Team', asc: true },
+      { key: 'opp', label: 'Opp', asc: true },
+      { key: 'salary', label: 'Salary', num: true },
+      { key: 'fpts', label: 'Proj', num: true },
+      { key: 'value', label: 'Pts/$1K', num: true },
+      { key: 'pos_value_rank', label: 'Pos val #', num: true, asc: true },
+    ];
+    var state = {
+      fpText: '', fdText: '', rows: [], data: null,
+      sort: 'value', dir: -1, pos: 'ALL',
+    };
+
+    function readFile(file) {
+      return new Promise(function (resolve, reject) {
+        var r = new FileReader();
+        r.onload = function () { resolve(r.result); };
+        r.onerror = function () { reject(new Error('Could not read ' + file.name)); };
+        r.readAsText(file);
+      });
+    }
+    function countRows(text) {
+      return String(text || '').split(/\r?\n/).filter(function (l) { return l.trim(); }).length - 1;
+    }
+    function money(n) { return '$' + Number(n).toLocaleString(); }
+    function el(tag, cls, text) {
+      var e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text != null) e.textContent = text;
+      return e;
+    }
+    function posBadge(pos) { return el('span', 'pos-badge' + (pos ? ' pos-' + pos : ''), pos || '—'); }
+
+    // ---------- saved slates ----------
+    async function loadSaved(selectId) {
+      var slates = await apiFetch('/api/paydirt/slates').catch(function () { return []; });
+      var sel = $('pd-saved');
+      sel.textContent = '';
+      var none = el('option', null, slates.length ? 'Choose a saved slate…' : 'No slate saved yet — upload one below');
+      none.value = '';
+      sel.appendChild(none);
+      slates.forEach(function (s) {
+        var o = el('option', null, s.name + ' · saved ' + timeAgo(s.created_at));
+        o.value = s.id;
+        sel.appendChild(o);
+      });
+      // The newest slate opens by itself: upload on the laptop, read on the phone.
+      var want = selectId || (slates.length ? slates[0].id : '');
+      if (want) { sel.value = String(want); await openSaved(); }
+      else { $('pd-new').open = true; }
+      $('pd-forget').hidden = !sel.value;
+    }
+
+    async function openSaved() {
+      var id = $('pd-saved').value;
+      $('pd-forget').hidden = !id;
+      if (!id) { $('pd-result').hidden = true; $('pd-saved-note').textContent = ''; return; }
+      var data = await apiFetch('/api/paydirt/slates/' + id);
+      show(data);
+    }
+
+    $('pd-saved').addEventListener('change', function () { openSaved().catch(function () {}); });
+    $('pd-forget').addEventListener('click', async function () {
+      var id = $('pd-saved').value;
+      if (!id || !confirm('Delete this saved slate?')) return;
+      await apiPost('/api/paydirt/slates/' + id, {}, 'DELETE');
+      toast('Deleted');
+      $('pd-result').hidden = true;
+      await loadSaved();
+    });
+
+    // ---------- new slate ----------
+    $('pd-fp-file').addEventListener('change', async function () {
+      var f = this.files[0];
+      if (!f) return;
+      try {
+        state.fpText = await readFile(f);
+        $('pd-fp-note').textContent = f.name + ' — ' + countRows(state.fpText) + ' rows';
+      } catch (e) { showError(e.message); }
+    });
+    $('pd-fd-file').addEventListener('change', async function () {
+      var f = this.files[0];
+      if (!f) return;
+      try {
+        state.fdText = await readFile(f);
+        $('pd-fd-note').textContent = f.name + ' — ' + countRows(state.fdText) + ' players';
+      } catch (e) { showError(e.message); }
+    });
+
+    $('pd-build').addEventListener('click', async function () {
+      clearError();
+      var salaries = $('pd-fd-text').value.trim() || state.fdText;
+      if (!state.fpText) { showError('Choose the Fantasy Points projections file (step 1).'); return; }
+      if (!salaries) { showError('Choose the FanDuel salaries file or paste the salaries (step 2).'); return; }
+      var btn = this;
+      btn.disabled = true;
+      try {
+        var data = await apiPost('/api/paydirt/slates', {
+          projections: state.fpText, salaries: salaries, name: $('pd-name').value.trim(),
+        });
+        toast('Saved ' + data.slate.name);
+        $('pd-new').open = false;
+        await loadSaved(data.slate.id);
+      } catch (e) {
+        /* banner already shown by apiPost */
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // ---------- the table ----------
+    function show(data) {
+      state.data = data;
+      // Value rank within position, over the whole slate (not the filtered view),
+      // so "WR3 by value" means the same thing however the table is narrowed.
+      var byPos = {};
+      data.rows.forEach(function (r) { (byPos[r.position] = byPos[r.position] || []).push(r); });
+      Object.keys(byPos).forEach(function (p) {
+        byPos[p].sort(function (a, b) { return b.value - a.value; })
+          .forEach(function (r, i) { r.pos_value_rank = i + 1; });
+      });
+      state.rows = data.rows;
+      var s = data.slate;
+      $('pd-saved-note').textContent = s ? (s.name + (data.week ? ' · week ' + data.week : '') + ' · saved ' + timeAgo(s.created_at)) : '';
+      $('pd-summary').textContent = data.rows.length + ' players with both a projection and a salary' +
+        (data.week ? ' · Fantasy Points week ' + data.week : '') + '.';
+      $('pd-result').hidden = false;
+      render();
+      renderMisses();
+    }
+
+    function renderHead() {
+      var head = $('pd-head');
+      head.textContent = '';
+      COLUMNS.forEach(function (c) {
+        var th = el('th', 'sort' + (c.num ? ' r' : '') + (state.sort === c.key ? ' on' + (state.dir > 0 ? ' asc' : '') : ''), c.label);
+        th.addEventListener('click', function () {
+          if (state.sort === c.key) state.dir = -state.dir;
+          else { state.sort = c.key; state.dir = c.asc ? 1 : -1; }
+          render();
+        });
+        head.appendChild(th);
+      });
+    }
+
+    function renderPos() {
+      var wrap = $('pd-pos');
+      wrap.textContent = '';
+      POSITIONS.forEach(function (p) {
+        var b = el('button', 'chip-btn' + (state.pos === p ? ' on' : ''), p === 'ALL' ? 'All' : p);
+        b.addEventListener('click', function () { state.pos = p; render(); });
+        wrap.appendChild(b);
+      });
+    }
+
+    function filtered() {
+      var q = $('pd-search').value.trim().toLowerCase();
+      var minSal = Number($('pd-min-sal').value) || 0;
+      var minProj = Number($('pd-min-proj').value) || 0;
+      var hideOut = $('pd-hide-out').checked;
+      return state.rows.filter(function (r) {
+        if (state.pos === 'FLEX') { if (['RB', 'WR', 'TE'].indexOf(r.position) < 0) return false; }
+        else if (state.pos !== 'ALL' && r.position !== state.pos) return false;
+        if (r.salary < minSal || r.fpts < minProj) return false;
+        if (hideOut && (r.injury === 'O' || r.injury === 'IR')) return false;
+        if (q) {
+          var hay = [r.name, r.fd_name, r.team, r.opp, r.position].join(' ').toLowerCase();
+          if (hay.indexOf(q) < 0) return false;
+        }
+        return true;
+      });
+    }
+
+    function render() {
+      renderHead();
+      renderPos();
+      var key = state.sort, dir = state.dir;
+      var col = COLUMNS.filter(function (c) { return c.key === key; })[0];
+      var rows = filtered().sort(function (a, b) {
+        var x = a[key], y = b[key];
+        if (col && col.num) return ((x == null ? -Infinity : x) - (y == null ? -Infinity : y)) * dir || (b.value - a.value);
+        return String(x || '').localeCompare(String(y || '')) * dir || (b.value - a.value);
+      });
+      $('pd-count').textContent = rows.length + ' of ' + state.rows.length + ' shown';
+      var body = $('pd-body');
+      body.textContent = '';
+      rows.forEach(function (r) {
+        var tr = document.createElement('tr');
+        tr.appendChild(el('td', 'num r', r.rank));
+        var name = el('td');
+        name.appendChild(el('strong', null, r.name));
+        if (r.injury) { name.appendChild(document.createTextNode(' ')); name.appendChild(el('span', 'pill ' + (r.injury === 'O' || r.injury === 'IR' ? 'bad' : 'warn'), r.injury)); }
+        if (r.fd_name) { name.appendChild(el('div', 'alt', 'FanDuel: ' + r.fd_name)); }
+        tr.appendChild(name);
+        var pos = el('td'); pos.appendChild(posBadge(r.position)); tr.appendChild(pos);
+        tr.appendChild(el('td', null, r.team || '—'));
+        tr.appendChild(el('td', 'muted', r.opp || '—'));
+        tr.appendChild(el('td', 'r', money(r.salary)));
+        tr.appendChild(el('td', 'r', r.fpts.toFixed(1)));
+        tr.appendChild(el('td', 'r val' + (r.value >= 3 ? ' hot' : r.value < 2 ? ' cold' : ''), r.value.toFixed(2)));
+        tr.appendChild(el('td', 'r muted', r.position + r.pos_value_rank));
+        body.appendChild(tr);
+      });
+    }
+
+    function renderMisses() {
+      var wrap = $('pd-misses');
+      wrap.textContent = '';
+      var d = state.data;
+      function list(title, note, items, fmt) {
+        if (!items.length) return;
+        var det = el('details');
+        det.appendChild(el('summary', 'muted small', title + ' (' + items.length + ')'));
+        det.appendChild(el('p', 'muted small', note));
+        var ul = el('ul', 'small');
+        items.forEach(function (it) { ul.appendChild(el('li', null, fmt(it))); });
+        det.appendChild(ul);
+        wrap.appendChild(det);
+      }
+      list('Projected, but no FanDuel salary', 'Usually a player whose game is not on this FanDuel slate. If one of these IS on the slate, the two sites spell his name differently — teach the name in Player DB and reopen the slate.',
+        d.no_salary, function (r) { return '#' + r.rank + ' ' + r.name + ' · ' + (r.position || '?') + ' ' + (r.team || '') + ' · ' + r.fpts + ' proj'; });
+      list('On the FanDuel slate, no projection', 'FanDuel lists every rostered player; Fantasy Points only projects the ones likely to play. Most expensive first.',
+        d.no_projection, function (r) { return r.name + ' · ' + (r.position || '?') + ' ' + (r.team || '') + ' · ' + money(r.salary); });
+    }
+
+    ['pd-search', 'pd-min-sal', 'pd-min-proj'].forEach(function (id) { $(id).addEventListener('input', render); });
+    $('pd-hide-out').addEventListener('change', render);
+
+    loadSaved().catch(function () {});
+  </script>
+</body>
+</html>

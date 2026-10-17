@@ -63,6 +63,13 @@ module.exports = [
     publicDir: path.join(__dirname, 'warroom', 'public'),
   },
   {
+    name: 'paydirt',
+    label: 'Pay Dirt',
+    apiMount: '/api/paydirt',
+    router: require('./paydirt/router'),
+    publicDir: path.join(__dirname, 'paydirt', 'public'),
+  },
+  {
     name: 'notes',
     label: 'Notes',
     apiMount: '/api/notes',
