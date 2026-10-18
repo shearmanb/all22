@@ -8,7 +8,7 @@ built), **Playbook** (draft log, seeded), **Notes** (built), **Player DB**
 (registry viewer, built), **War Room** (live draft recorder, built — first slice
 of PRD Phase 5; the mock-draft simulator is still to come), **Pay Dirt** (FanDuel
 points-per-dollar, built).
-Deploys to Railway: push to `main` = production deploy. Postgres lives on
+Deploys to Railway: push to `main` = production deploy (live at https://all22-production.up.railway.app). Postgres lives on
 Railway (`DATABASE_URL`).
 
 ## Architecture invariants (never violate)
