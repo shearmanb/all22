@@ -25,6 +25,25 @@
     .filters label.check { display: inline-flex; align-items: center; gap: 6px; }
     .filters label.check input { width: auto; margin: 0; }
     #pd-misses li { padding: 2px 0; }
+    /* Two-handle salary range: two range inputs stacked on one track. */
+    .sal-range { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .sal-range .track { position: relative; flex: 1 1 220px; height: 28px; }
+    .sal-range input[type=range] {
+      position: absolute; left: 0; top: 0; width: 100%; height: 28px; margin: 0; padding: 0;
+      background: none; border: none; pointer-events: none; -webkit-appearance: none; appearance: none;
+    }
+    .sal-range input[type=range]::-webkit-slider-runnable-track { height: 4px; background: var(--border-strong); border-radius: 2px; }
+    .sal-range input[type=range] + input[type=range]::-webkit-slider-runnable-track { background: transparent; }
+    .sal-range input[type=range]::-moz-range-track { height: 4px; background: var(--border-strong); border-radius: 2px; }
+    .sal-range input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; pointer-events: auto; width: 24px; height: 24px; margin-top: -10px;
+      border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); cursor: pointer;
+    }
+    .sal-range input[type=range]::-moz-range-thumb {
+      pointer-events: auto; width: 22px; height: 22px; border-radius: 50%;
+      background: var(--accent); border: 2px solid var(--surface); cursor: pointer;
+    }
+    .sal-range .readout { font-weight: 700; min-width: 140px; }
     input[type=file], #pd-saved { max-width: 100%; min-width: 0; }
     /* On a phone the table scrolls sideways; the player's name stays put. */
     #pd-table th:nth-child(2), #pd-table td:nth-child(2) { position: sticky; left: 0; background: var(--surface); }
@@ -100,6 +119,14 @@
         <label class="small muted">Max $ <input id="pd-max-sal" type="number" step="100" min="0" placeholder="any" class="inline"></label>
         <label class="small muted">Min proj <input id="pd-min-proj" type="number" step="0.5" min="0" placeholder="0" class="inline"></label>
         <label class="small check"><input id="pd-hide-out" type="checkbox" checked> Hide players ruled out</label>
+      </div>
+      <div class="sal-range section-gap">
+        <span class="small muted">Salary range</span>
+        <div class="track">
+          <input id="pd-range-lo" type="range" step="100" aria-label="Lowest salary">
+          <input id="pd-range-hi" type="range" step="100" aria-label="Highest salary">
+        </div>
+        <span id="pd-range-out" class="readout small"></span>
       </div>
       <div class="row section-gap">
         <span class="chip-row" id="pd-pos"></span>
@@ -243,6 +270,7 @@
           .forEach(function (r, i) { r.pos_value_rank = i + 1; });
       });
       state.rows = data.rows;
+      setRangeBounds();
       var s = data.slate;
       $('pd-saved-note').textContent = s ? (s.name + (data.week ? ' · week ' + data.week : '') + ' · saved ' + timeAgo(s.created_at)) : '';
       $('pd-summary').textContent = data.rows.length + ' players with both a projection and a salary' +
@@ -347,7 +375,46 @@
         d.no_projection, function (r) { return r.name + ' · ' + (r.position || '?') + ' ' + (r.team || '') + ' · ' + money(r.salary); });
     }
 
-    ['pd-search', 'pd-min-sal', 'pd-max-sal', 'pd-min-proj'].forEach(function (id) { $(id).addEventListener('input', render); });
+    ['pd-search', 'pd-min-proj'].forEach(function (id) { $(id).addEventListener('input', render); });
+
+    // ---------- salary range ----------
+    // The slider and the Min $ / Max $ boxes are one filter: moving either
+    // updates the other. A handle parked at the end of the track means "no
+    // limit", so its box is left blank.
+    function setRangeBounds() {
+      var sal = state.rows.map(function (r) { return r.salary; });
+      var lo = sal.length ? Math.floor(Math.min.apply(null, sal) / 100) * 100 : 0;
+      var hi = sal.length ? Math.ceil(Math.max.apply(null, sal) / 100) * 100 : 10000;
+      ['pd-range-lo', 'pd-range-hi'].forEach(function (id) { $(id).min = lo; $(id).max = hi; });
+      syncSliderFromBoxes();
+    }
+    function syncSliderFromBoxes() {
+      var lo = $('pd-range-lo'), hi = $('pd-range-hi');
+      var min = Number($('pd-min-sal').value), max = Number($('pd-max-sal').value);
+      lo.value = min || lo.min;
+      hi.value = max || hi.max;
+      showRange();
+    }
+    function showRange() {
+      var lo = Number($('pd-range-lo').value), hi = Number($('pd-range-hi').value);
+      $('pd-range-out').textContent = money(lo) + ' – ' + money(hi);
+    }
+    function onSlide(e) {
+      var lo = $('pd-range-lo'), hi = $('pd-range-hi');
+      // Handles can meet but never cross.
+      if (Number(lo.value) > Number(hi.value)) {
+        if (e.target === lo) lo.value = hi.value; else hi.value = lo.value;
+      }
+      $('pd-min-sal').value = Number(lo.value) > Number(lo.min) ? lo.value : '';
+      $('pd-max-sal').value = Number(hi.value) < Number(hi.max) ? hi.value : '';
+      showRange();
+      render();
+    }
+    $('pd-range-lo').addEventListener('input', onSlide);
+    $('pd-range-hi').addEventListener('input', onSlide);
+    ['pd-min-sal', 'pd-max-sal'].forEach(function (id) {
+      $(id).addEventListener('input', function () { syncSliderFromBoxes(); render(); });
+    });
     $('pd-hide-out').addEventListener('change', render);
 
     loadSaved().catch(function () {});
