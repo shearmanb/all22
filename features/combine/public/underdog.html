@@ -58,8 +58,13 @@
 
     <div class="card">
       <h2><span class="step-num">2.</span> The rankings to upload</h2>
-      <p class="muted small">A Fantasy Points weekly export, a FantasyPros CSV, Scott Barrett's sheet, any spreadsheet with a player-name column — or paste a list, one player per line. Columns are detected from the header.</p>
+      <p class="muted small">A Fantasy Points weekly export, a FantasyPros CSV, Scott Barrett's sheet, any spreadsheet with a player-name column — or paste a list, one player per line. Columns are detected from the header. A file you choose is saved, and Pay Dirt uses the same one — enter it once a week.</p>
       <div class="row">
+        <select id="uq-rk-saved" class="inline grow"></select>
+        <button id="uq-rk-forget" class="danger" hidden>Delete</button>
+      </div>
+      <div id="uq-rk-saved-note" class="muted small section-gap"></div>
+      <div class="row section-gap">
         <input id="uq-rk-file" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" class="inline">
         <span id="uq-rk-note" class="muted small"></span>
       </div>
@@ -101,6 +106,7 @@
   </main>
 
   <script src="/app.js"></script>
+  <script src="/fp-files.js"></script>
   <script>
     var state = {
       udCsv: '', udName: '', udFromFile: false, savedWeek: null, savedAt: null,
@@ -230,16 +236,23 @@
       checkStale();
     }
 
-    $('uq-rk-file').addEventListener('change', async function () {
-      var f = this.files[0];
-      if (!f) return;
-      try {
-        state.rkText = await readFile(f);
-        state.rkName = f.name;
-        state.rkModified = f.lastModified || null;
-        $('uq-rk-note').textContent = f.name + ' — reading…';
-        await inspectRankings(state.rkText, state.rkModified);
-      } catch (e) { showError(e.message); }
+    // The rankings file is a saved, shared one: choosing a file saves it, and
+    // the newest saved file is picked on open (Pay Dirt reads the same list).
+    var fpPicker = FpFiles.mount({
+      select: $('uq-rk-saved'), file: $('uq-rk-file'), note: $('uq-rk-saved-note'), forget: $('uq-rk-forget'),
+      onPick: function (saved) {
+        if (!saved) {
+          state.rkText = ''; state.rkName = ''; state.rkModified = null;
+          state.meta = { week: null, season: null };
+          $('uq-rk-note').textContent = '';
+          checkStale();
+          return;
+        }
+        state.rkText = saved.rankings;
+        state.rkName = saved.name;
+        state.rkModified = saved.file_modified || null;
+        inspectRankings(state.rkText, state.rkModified).catch(function () {});
+      },
     });
 
     $('uq-rk-text').addEventListener('change', async function () {
@@ -406,6 +419,7 @@
     }
 
     loadSaved().catch(function () { /* banner already shown */ });
+    fpPicker.load().catch(function () { /* banner already shown */ });
   </script>
 </body>
 </html>

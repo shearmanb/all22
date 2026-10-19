@@ -82,12 +82,15 @@
       </div>
       <div id="pd-saved-note" class="muted small section-gap"></div>
       <details id="pd-new" class="section-gap">
-        <summary><strong>New slate</strong> <span class="muted small">— upload this week's two files</span></summary>
+        <summary><strong>New slate</strong> <span class="muted small">— this week's FanDuel salaries</span></summary>
         <h3 class="section-gap"><span class="step-num">1.</span> Fantasy Points projections</h3>
-        <p class="muted small">The same weekly export you use for the Underdog upload (it has the FPTS column). FanDuel scores half-PPR, so download it in Half PPR.</p>
+        <p class="muted small">The same saved file the Underdog upload uses — if you already chose it there, it is picked here. Otherwise choose the weekly export (it has the FPTS column) and the Underdog page gets it too. FanDuel scores half-PPR, so download it in Half PPR.</p>
         <div class="row">
+          <select id="pd-fp-saved" class="inline grow"></select>
+        </div>
+        <div id="pd-fp-note" class="muted small section-gap"></div>
+        <div class="row section-gap">
           <input id="pd-fp-file" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" class="inline">
-          <span id="pd-fp-note" class="muted small"></span>
         </div>
         <h3 class="section-gap"><span class="step-num">2.</span> FanDuel salaries</h3>
         <p class="muted small">In the FanDuel contest lobby, <strong>Download players list</strong> (a CSV) — or paste salaries, one player per line, like <code>Josh Allen QB BUF $9,200</code>.</p>
@@ -143,6 +146,7 @@
   </main>
 
   <script src="/app.js"></script>
+  <script src="/fp-files.js"></script>
   <script>
     var POSITIONS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'FLEX', 'DST', 'K'];
     var COLUMNS = [
@@ -220,13 +224,13 @@
     });
 
     // ---------- new slate ----------
-    $('pd-fp-file').addEventListener('change', async function () {
-      var f = this.files[0];
-      if (!f) return;
-      try {
-        state.fpText = await readFile(f);
-        $('pd-fp-note').textContent = f.name + ' — ' + countRows(state.fpText) + ' rows';
-      } catch (e) { showError(e.message); }
+    // Fantasy Points file: the saved one shared with the Underdog page.
+    var fpPicker = FpFiles.mount({
+      select: $('pd-fp-saved'), file: $('pd-fp-file'), note: $('pd-fp-note'), projectionsOnly: true,
+      onPick: function (saved) {
+        state.fpText = saved ? saved.rankings : '';
+        if (saved && saved.nfl_week && !$('pd-name').value.trim()) $('pd-name').placeholder = 'FanDuel Week ' + saved.nfl_week;
+      },
     });
     $('pd-fd-file').addEventListener('change', async function () {
       var f = this.files[0];
@@ -418,6 +422,7 @@
     $('pd-hide-out').addEventListener('change', render);
 
     loadSaved().catch(function () {});
+    fpPicker.load().catch(function () {});
   </script>
 </body>
 </html>

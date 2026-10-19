@@ -695,6 +695,73 @@ router.post('/underdog/inspect', (req, res) => {
   }
 });
 
+// Saved Fantasy Points files — the weekly export entered ONCE and shared by the
+// Underdog quick upload and Pay Dirt. Saved the moment it is chosen on either
+// page; choosing the identical file again returns the copy already stored.
+const FP_FILE_COLS = 'id, name, nfl_week, season, row_count, has_projections, file_modified, created_at';
+
+router.get('/rankings-files', async (req, res) => {
+  try {
+    if (!hasDb()) return res.json({ ok: true, data: [] });
+    const onlyProj = req.query.projections === '1';
+    const { rows } = await pool.query(
+      `SELECT ${FP_FILE_COLS} FROM fp_rankings_files ${onlyProj ? 'WHERE has_projections' : ''} ORDER BY created_at DESC LIMIT 30`
+    );
+    res.json({ ok: true, data: rows });
+  } catch (err) {
+    console.error(`GET /api/combine/rankings-files: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not load saved Fantasy Points files.' });
+  }
+});
+
+// Body: { rankings, name?, file_modified? }.
+router.post('/rankings-files', async (req, res) => {
+  try {
+    if (!hasDb()) return res.status(400).json({ ok: false, error: 'Saving files needs a database (DATABASE_URL is not set).' });
+    const text = String((req.body || {}).rankings || '');
+    if (!text.trim()) return res.status(400).json({ ok: false, error: 'That rankings file is empty.' });
+    const { rows: same } = await pool.query(`SELECT ${FP_FILE_COLS} FROM fp_rankings_files WHERE rankings = $1 ORDER BY created_at DESC LIMIT 1`, [text]);
+    if (same.length) return res.json({ ok: true, data: same[0] });
+    const meta = underdogQuick.detectMeta(text);
+    let hasProjections = true;
+    try { require('../paydirt/lib/value').parseProjections(text); } catch (e) { hasProjections = false; }
+    const modified = (req.body || {}).file_modified ? new Date(req.body.file_modified) : null;
+    const name = String((req.body || {}).name || '').trim().slice(0, 120) || underdogQuick.suggestLabel(meta, modified);
+    const { rows } = await pool.query(
+      `INSERT INTO fp_rankings_files (name, nfl_week, season, row_count, has_projections, file_modified, rankings)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING ${FP_FILE_COLS}`,
+      [name, meta.week, meta.season, meta.rows, hasProjections, modified && Number.isFinite(modified.getTime()) ? modified : null, text]
+    );
+    res.json({ ok: true, data: rows[0] });
+  } catch (err) {
+    console.error(`POST /api/combine/rankings-files: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not save that Fantasy Points file.' });
+  }
+});
+
+router.get('/rankings-files/:id', async (req, res) => {
+  try {
+    if (!hasDb()) return res.status(400).json({ ok: false, error: 'Saved files need a database.' });
+    const { rows } = await pool.query(`SELECT ${FP_FILE_COLS}, rankings FROM fp_rankings_files WHERE id = $1`, [req.params.id]);
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'That saved Fantasy Points file no longer exists.' });
+    res.json({ ok: true, data: rows[0] });
+  } catch (err) {
+    console.error(`GET /api/combine/rankings-files/:id: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not load that Fantasy Points file.' });
+  }
+});
+
+router.delete('/rankings-files/:id', async (req, res) => {
+  try {
+    if (!hasDb()) return res.status(400).json({ ok: false, error: 'Saved files need a database.' });
+    await pool.query('DELETE FROM fp_rankings_files WHERE id = $1', [req.params.id]);
+    res.json({ ok: true, data: { id: Number(req.params.id) } });
+  } catch (err) {
+    console.error(`DELETE /api/combine/rankings-files/:id: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not delete that file.' });
+  }
+});
+
 // Teach the app that Underdog spells a player differently, so next week's
 // upload matches him without being told again. Writes through the SAME alias
 // store the Player DB edits (players_master.aliases, keyed by site) — there is
