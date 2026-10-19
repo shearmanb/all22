@@ -81,6 +81,10 @@
         <button id="pd-forget" class="danger" hidden>Delete</button>
       </div>
       <div id="pd-saved-note" class="muted small section-gap"></div>
+      <div id="pd-newer" class="notice-banner">
+        <span id="pd-newer-text"></span>
+        <button id="pd-newer-go" class="section-gap">Update projections</button>
+      </div>
       <details id="pd-new" class="section-gap">
         <summary><strong>New slate</strong> <span class="muted small">— this week's FanDuel salaries</span></summary>
         <h3 class="section-gap"><span class="step-num">1.</span> Fantasy Points projections</h3>
@@ -213,6 +217,16 @@
       show(data);
     }
 
+    $('pd-newer-go').addEventListener('click', async function () {
+      var id = $('pd-saved').value;
+      if (!id || !state.newer) return;
+      this.disabled = true;
+      try {
+        show(await apiPost('/api/paydirt/slates/' + id + '/projections', { fp_file_id: state.newer.id }));
+        toast('Projections updated — same FanDuel salaries');
+      } catch (e) { /* banner already shown */ } finally { this.disabled = false; }
+    });
+
     $('pd-saved').addEventListener('change', function () { openSaved().catch(function () {}); });
     $('pd-forget').addEventListener('click', async function () {
       var id = $('pd-saved').value;
@@ -276,7 +290,14 @@
       state.rows = data.rows;
       setRangeBounds();
       var s = data.slate;
-      $('pd-saved-note').textContent = s ? (s.name + (data.week ? ' · week ' + data.week : '') + ' · saved ' + timeAgo(s.created_at)) : '';
+      $('pd-saved-note').textContent = s ? (s.name + (data.week ? ' · week ' + data.week : '') +
+        ' · projections from ' + FpFiles.when({ created_at: s.projections_at || s.created_at })) : '';
+      // Fantasy Points re-published since this slate was built: one tap swaps in
+      // the new projections and keeps the FanDuel salaries.
+      var nb = data.newer_projections;
+      state.newer = nb || null;
+      $('pd-newer-text').textContent = nb ? 'Newer Fantasy Points projections were saved (' + FpFiles.when(nb) + '). This slate still uses the older ones.' : '';
+      $('pd-newer').classList.toggle('visible', !!nb);
       $('pd-summary').textContent = data.rows.length + ' players with both a projection and a salary' +
         (data.week ? ' · Fantasy Points week ' + data.week : '') + '.';
       $('pd-result').hidden = false;

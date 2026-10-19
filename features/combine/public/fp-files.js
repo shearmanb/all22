@@ -23,8 +23,20 @@ var FpFiles = (function () {
     });
   }
 
+  // When this version of the file is from: the file's own timestamp (Fantasy
+  // Points re-publishes over a weekend, and every update has the same name),
+  // else when it was saved. "Sun 9:30 AM" within the week, a date beyond it.
+  function when(s) {
+    var d = new Date((s && (s.file_modified || s.created_at)) || '');
+    if (isNaN(d.getTime())) return '';
+    var recent = Math.abs(Date.now() - d.getTime()) < 6 * 864e5;
+    return d.toLocaleString(undefined, recent
+      ? { weekday: 'short', hour: 'numeric', minute: '2-digit' }
+      : { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+
   function describe(s) {
-    return s.name + (s.nfl_week ? ' · week ' + s.nfl_week : '') + ' · saved ' + timeAgo(s.created_at);
+    return (s.nfl_week ? 'Week ' + s.nfl_week + ' · ' : '') + when(s) + ' · ' + s.name;
   }
 
   function mount(opts) {
@@ -38,10 +50,10 @@ var FpFiles = (function () {
       none.value = '';
       none.textContent = files.length ? 'Choose a saved Fantasy Points file…' : 'No Fantasy Points file saved yet — choose one below';
       sel.appendChild(none);
-      files.forEach(function (s) {
+      files.forEach(function (s, i) {
         var o = document.createElement('option');
         o.value = s.id;
-        o.textContent = describe(s);
+        o.textContent = describe(s) + (i === 0 && files.length > 1 ? ' — newest' : '');
         sel.appendChild(o);
       });
       // The newest file is this week's, so it is picked without being asked.
@@ -101,5 +113,5 @@ var FpFiles = (function () {
     return { load: load };
   }
 
-  return { mount: mount };
+  return { mount: mount, when: when };
 })();
