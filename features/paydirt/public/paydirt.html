@@ -22,8 +22,8 @@
     #pd-table-wrap { max-height: 75vh; overflow: auto; }
     .filters input[type=search] { flex: 2 1 200px; }
     .filters input[type=number] { width: 96px; }
-    .filters label.check { display: inline-flex; align-items: center; gap: 6px; }
-    .filters label.check input { width: auto; margin: 0; }
+    .filters label.check, #pd-fill label.check { display: inline-flex; align-items: center; gap: 6px; }
+    .filters label.check input, #pd-fill label.check input { width: auto; margin: 0; }
     #pd-misses li { padding: 2px 0; }
     /* Two-handle salary range: two range inputs stacked on one track. */
     .sal-range { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -49,6 +49,25 @@
     #pd-table th:nth-child(2), #pd-table td:nth-child(2) { position: sticky; left: 0; background: var(--surface); }
     #pd-table th:nth-child(2) { background: var(--field); z-index: 2; }
     #pd-table td:nth-child(2) { white-space: normal; min-width: 130px; }
+    /* Fill the rest */
+    #pd-fill-budget { width: 120px; font-size: 1.1rem; font-weight: 700; }
+    .slot-steps { display: flex; flex-wrap: wrap; gap: 8px; }
+    .slot-step { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--border-strong); border-radius: 8px; padding: 2px 4px 2px 8px; }
+    .slot-step.on { border-color: var(--accent); background: var(--chip); }
+    .slot-step .lbl { font-weight: 700; min-width: 2.6em; }
+    .slot-step button { min-width: 36px; height: 36px; padding: 0; font-size: 1.1rem; line-height: 1; }
+    .slot-step b { min-width: 1.4em; text-align: center; }
+    #pd-fill-excl .chip-btn { cursor: pointer; }
+    #pd-fill-names-in { flex: 1 1 200px; }
+    .combo { border: 1px solid var(--border-strong); border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
+    .combo.best { border-color: var(--accent); }
+    .combo .head { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; }
+    .combo .head .pts { font-size: 1.2rem; font-weight: 800; color: var(--accent-strong); }
+    .combo table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+    .combo td { padding: 4px 6px 4px 0; vertical-align: middle; }
+    .combo td.r { text-align: right; white-space: nowrap; }
+    .combo td.who { width: 100%; }
+    #pd-fill-msg.bad { color: var(--error-text); }
   </style>
 </head>
 <body>
@@ -118,6 +137,32 @@
       </details>
     </div>
 
+    <div id="pd-fill-card" class="card" hidden>
+      <details id="pd-fill">
+        <summary><strong>Fill the rest</strong> <span class="muted small">— I have $X left: the best combos for the money</span></summary>
+        <p class="muted small section-gap">Type what's left under FanDuel's $60,000 cap and tap the slots still open. You get the combinations of players on this slate that fit the money with the most projected points — ranked by total points, not by points per dollar, because once the budget is fixed the goal is points.</p>
+        <div class="row section-gap">
+          <label><span class="field-label">$ left</span>
+            <input id="pd-fill-budget" type="number" step="100" min="100" max="60000" inputmode="numeric" placeholder="12,400"></label>
+          <label class="small check"><input id="pd-fill-skip-out" type="checkbox" checked> Skip players ruled out</label>
+        </div>
+        <div class="section-gap"><span class="field-label">Slots still open</span></div>
+        <div class="slot-steps" id="pd-fill-slots"></div>
+        <div class="section-gap"><span class="field-label">Already in my lineup</span> <span class="muted small">— so they aren't offered again</span></div>
+        <div class="row">
+          <input id="pd-fill-names-in" list="pd-fill-names" type="search" placeholder="Type a name, pick him from the list" class="inline" autocomplete="off">
+          <datalist id="pd-fill-names"></datalist>
+        </div>
+        <div class="chip-row section-gap" id="pd-fill-excl"></div>
+        <div class="row section-gap">
+          <button id="pd-fill-go">Suggest combos</button>
+          <span id="pd-fill-msg" class="small muted"></span>
+        </div>
+        <div id="pd-fill-out"></div>
+        <div class="row section-gap"><button id="pd-fill-more" class="link" hidden>Show 5 more</button></div>
+      </details>
+    </div>
+
     <div id="pd-result" class="card" hidden>
       <p id="pd-summary"></p>
       <div class="row filters">
@@ -151,6 +196,7 @@
 
   <script src="/app.js"></script>
   <script src="/fp-files.js"></script>
+  <script src="/paydirt-fill.js"></script>
   <script>
     var POSITIONS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'FLEX', 'DST', 'K'];
     var COLUMNS = [
@@ -212,7 +258,7 @@
     async function openSaved() {
       var id = $('pd-saved').value;
       $('pd-forget').hidden = !id;
-      if (!id) { $('pd-result').hidden = true; $('pd-saved-note').textContent = ''; return; }
+      if (!id) { $('pd-result').hidden = true; $('pd-fill-card').hidden = true; $('pd-saved-note').textContent = ''; return; }
       var data = await apiFetch('/api/paydirt/slates/' + id);
       show(data);
     }
@@ -234,6 +280,7 @@
       await apiPost('/api/paydirt/slates/' + id, {}, 'DELETE');
       toast('Deleted');
       $('pd-result').hidden = true;
+      $('pd-fill-card').hidden = true;
       await loadSaved();
     });
 
@@ -303,6 +350,12 @@
       $('pd-result').hidden = false;
       render();
       renderMisses();
+      $('pd-fill-card').hidden = false;
+      fillNames();
+      // A new slate means new players: last visit's answer no longer applies.
+      $('pd-fill-out').textContent = '';
+      $('pd-fill-msg').textContent = '';
+      $('pd-fill-more').hidden = true;
     }
 
     function renderHead() {
@@ -401,6 +454,127 @@
     }
 
     ['pd-search', 'pd-min-proj'].forEach(function (id) { $(id).addEventListener('input', render); });
+
+    // ---------- fill the rest ----------
+    // The search itself is PaydirtFill.fill (paydirt-fill.js, golden-tested);
+    // this is only the form around it. Inputs survive a re-render of the table.
+    var fillState = { slots: {}, exclude: [], result: null, shown: 0 };
+
+    function fillNames() {
+      var dl = $('pd-fill-names');
+      dl.textContent = '';
+      state.rows.slice().sort(function (a, b) { return a.name.localeCompare(b.name); }).forEach(function (r) {
+        var o = el('option');
+        o.value = r.name + ' (' + r.position + (r.team ? ' ' + r.team : '') + ')';
+        dl.appendChild(o);
+      });
+    }
+
+    function renderSlots() {
+      var wrap = $('pd-fill-slots');
+      wrap.textContent = '';
+      PaydirtFill.SLOT_ORDER.forEach(function (slot) {
+        var n = fillState.slots[slot] || 0;
+        var max = PaydirtFill.LINEUP[slot];
+        var box = el('span', 'slot-step' + (n ? ' on' : ''));
+        box.appendChild(el('span', 'lbl', PaydirtFill.SLOT_LABELS[slot]));
+        var minus = el('button', 'link', '\u2212'); minus.type = 'button'; minus.disabled = n <= 0; minus.setAttribute('aria-label', 'One fewer ' + slot);
+        var plus = el('button', 'link', '+'); plus.type = 'button'; plus.disabled = n >= max; plus.setAttribute('aria-label', 'One more ' + slot);
+        minus.addEventListener('click', function () { fillState.slots[slot] = Math.max(0, n - 1); renderSlots(); });
+        plus.addEventListener('click', function () { fillState.slots[slot] = Math.min(max, n + 1); renderSlots(); });
+        box.appendChild(minus);
+        box.appendChild(el('b', null, String(n)));
+        box.appendChild(plus);
+        wrap.appendChild(box);
+      });
+    }
+
+    function renderExcl() {
+      var wrap = $('pd-fill-excl');
+      wrap.textContent = '';
+      fillState.exclude.forEach(function (name, i) {
+        var b = el('button', 'chip-btn on', name + ' \u00d7');
+        b.type = 'button';
+        b.title = 'Remove';
+        b.addEventListener('click', function () { fillState.exclude.splice(i, 1); renderExcl(); });
+        wrap.appendChild(b);
+      });
+    }
+
+    // The datalist option reads "Name (POS TEAM)"; a bare typed name also works
+    // when it is one player's, or the start of exactly one player's.
+    function addExcluded(typed) {
+      var q = String(typed || '').replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
+      if (!q) return;
+      var exact = state.rows.filter(function (r) { return r.name.toLowerCase() === q || (r.fd_name || '').toLowerCase() === q; });
+      var hits = exact.length ? exact : state.rows.filter(function (r) { return r.name.toLowerCase().indexOf(q) === 0 || (r.fd_name || '').toLowerCase().indexOf(q) === 0; });
+      if (!hits.length) { toast('No player on this slate is named "' + typed.trim() + '"'); return; }
+      if (hits.length > 1) { toast(hits.length + ' players match "' + typed.trim() + '" — pick one from the list'); return; }
+      if (fillState.exclude.indexOf(hits[0].name) < 0) fillState.exclude.push(hits[0].name);
+      $('pd-fill-names-in').value = '';
+      renderExcl();
+    }
+    $('pd-fill-names-in').addEventListener('change', function () { addExcluded(this.value); });
+    $('pd-fill-names-in').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addExcluded(this.value); } });
+
+    function runFill() {
+      var budget = Number($('pd-fill-budget').value);
+      var out = PaydirtFill.fill(state.rows, {
+        budget: budget, slots: fillState.slots, exclude: fillState.exclude,
+        skipOut: $('pd-fill-skip-out').checked, limit: 10,
+      });
+      fillState.result = out;
+      fillState.shown = 0;
+      var msg = $('pd-fill-msg');
+      msg.className = 'small ' + (out.error ? 'bad' : 'muted');
+      $('pd-fill-out').textContent = '';
+      $('pd-fill-more').hidden = true;
+      if (out.error) { msg.textContent = out.error; return; }
+      var open = PaydirtFill.describeSlots(out.slots);
+      msg.textContent = out.combos.length
+        ? 'Filling ' + open + ' with ' + money(budget) + ' — best by projected points' + (out.truncated ? ' (search cut short on this big a slate; these are the best found, not proven best)' : '') + '.'
+        : 'Nothing fits ' + open + ' for ' + money(budget) + '.';
+      showMoreCombos();
+    }
+
+    function showMoreCombos() {
+      var out = fillState.result;
+      if (!out) return;
+      var from = fillState.shown, to = Math.min(out.combos.length, from + 5);
+      for (var i = from; i < to; i++) $('pd-fill-out').appendChild(comboCard(out.combos[i], i));
+      fillState.shown = to;
+      $('pd-fill-more').hidden = to >= out.combos.length;
+    }
+
+    function comboCard(c, i) {
+      var card = el('div', 'combo' + (i === 0 ? ' best' : ''));
+      var head = el('div', 'head');
+      head.appendChild(el('span', 'muted', '#' + (i + 1)));
+      head.appendChild(el('span', 'pts', c.fpts.toFixed(1) + ' pts'));
+      head.appendChild(el('span', null, money(c.salary)));
+      head.appendChild(el('span', 'muted small', c.left > 0 ? money(c.left) + ' left over' : 'every dollar used'));
+      card.appendChild(head);
+      var t = el('table');
+      c.players.forEach(function (p) {
+        var tr = el('tr');
+        var slot = el('td'); slot.appendChild(el('span', 'pos-badge pos-' + p.position, PaydirtFill.SLOT_LABELS[p.slot])); tr.appendChild(slot);
+        var who = el('td', 'who');
+        who.appendChild(el('strong', null, p.name));
+        if (p.injury) { who.appendChild(document.createTextNode(' ')); who.appendChild(el('span', 'pill ' + (p.injury === 'O' || p.injury === 'IR' ? 'bad' : 'warn'), p.injury)); }
+        who.appendChild(el('div', 'alt muted small', (p.slot === 'FLEX' ? p.position + ' · ' : '') + (p.team || '') + (p.opp ? ' v ' + p.opp : '')));
+        tr.appendChild(who);
+        tr.appendChild(el('td', 'r', money(p.salary)));
+        tr.appendChild(el('td', 'r', p.fpts.toFixed(1)));
+        t.appendChild(tr);
+      });
+      card.appendChild(t);
+      return card;
+    }
+
+    $('pd-fill-go').addEventListener('click', runFill);
+    $('pd-fill-budget').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); runFill(); } });
+    $('pd-fill-more').addEventListener('click', showMoreCombos);
+    renderSlots();
 
     // ---------- salary range ----------
     // The slider and the Min $ / Max $ boxes are one filter: moving either
