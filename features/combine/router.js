@@ -590,7 +590,7 @@ router.get('/sets/:id/export/:format', async (req, res) => {
 router.get('/underdog/sets', async (req, res) => {
   try {
     if (!hasDb()) return res.json({ ok: true, data: [] });
-    const { rows } = await pool.query('SELECT id, name, player_count, nfl_week, season, created_at FROM underdog_id_sets ORDER BY created_at DESC');
+    const { rows } = await pool.query('SELECT id, name, player_count, nfl_week, season, slate, created_at FROM underdog_id_sets ORDER BY created_at DESC');
     res.json({ ok: true, data: rows });
   } catch (err) {
     console.error(`GET /api/combine/underdog/sets: ${err.message}`);
@@ -602,6 +602,7 @@ router.post('/underdog/sets', async (req, res) => {
   try {
     if (!hasDb()) return res.status(400).json({ ok: false, error: 'Saving an Underdog file needs a database.' });
     const { name, csv, nfl_week, season } = req.body || {};
+    const slate = underdogQuick.normalizeSlate((req.body || {}).slate);
     if (!name || !String(name).trim()) return res.status(400).json({ ok: false, error: 'Give this Underdog file a name (e.g. the contest) before saving.' });
     if (!csv || !String(csv).trim()) return res.status(400).json({ ok: false, error: 'Paste or choose the CSV you downloaded from Underdog first.' });
     let count;
@@ -610,8 +611,8 @@ router.post('/underdog/sets', async (req, res) => {
     const week = Number.isFinite(Number(nfl_week)) && Number(nfl_week) > 0 ? Number(nfl_week) : null;
     const yr = Number.isFinite(Number(season)) && Number(season) > 2000 ? Number(season) : null;
     const { rows } = await pool.query(
-      'INSERT INTO underdog_id_sets (name, csv, player_count, nfl_week, season) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, player_count, nfl_week, season, created_at',
-      [String(name).trim(), String(csv), count, week, yr]
+      'INSERT INTO underdog_id_sets (name, csv, player_count, nfl_week, season, slate) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, player_count, nfl_week, season, slate, created_at',
+      [String(name).trim(), String(csv), count, week, yr, slate]
     );
     res.json({ ok: true, data: rows[0] });
   } catch (err) {
@@ -626,7 +627,7 @@ router.get('/underdog/sets/:id', async (req, res) => {
   try {
     if (!hasDb()) return res.status(400).json({ ok: false, error: 'Saved Underdog files need a database.' });
     const { rows } = await pool.query(
-      'SELECT id, name, csv, player_count, nfl_week, season, created_at FROM underdog_id_sets WHERE id = $1',
+      'SELECT id, name, csv, player_count, nfl_week, season, slate, created_at FROM underdog_id_sets WHERE id = $1',
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ ok: false, error: 'That Underdog file was not found — it may have been deleted.' });
@@ -685,9 +686,10 @@ router.post('/underdog/inspect', (req, res) => {
     const { rankings, file_modified } = req.body || {};
     if (!rankings || !String(rankings).trim()) return res.status(400).json({ ok: false, error: 'Choose or paste the rankings first.' });
     const meta = underdogQuick.detectMeta(String(rankings));
+    const slate = underdogQuick.normalizeSlate((req.body || {}).slate);
     res.json({
       ok: true,
-      data: { rows: meta.rows, week: meta.week, season: meta.season, label: underdogQuick.suggestLabel(meta, file_modified) },
+      data: { rows: meta.rows, week: meta.week, season: meta.season, label: underdogQuick.suggestLabel(meta, file_modified, slate) },
     });
   } catch (err) {
     console.error(`POST /api/combine/underdog/inspect: ${err.message}`);

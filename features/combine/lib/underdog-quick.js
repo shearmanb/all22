@@ -84,6 +84,16 @@ function detectMeta(text) {
   return out;
 }
 
+// Which Underdog contest a file belongs to. Underdog runs a MAIN slate (every
+// game) and a LATE slate (afternoon games only) each week, each with its own
+// player pool and its own IDs, so the owner keeps one file per slate. Anything
+// unrecognised is the main slate — the one every file was before slates existed.
+const SLATES = { main: 'Main slate', late: 'Late slate' };
+function normalizeSlate(value) {
+  const s = String(value || '').trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(SLATES, s) ? s : 'main';
+}
+
 // Two digits, for a timestamp that has to survive being a file name.
 function pad(n) { return String(n).padStart(2, '0'); }
 
@@ -91,15 +101,20 @@ function pad(n) { return String(n).padStart(2, '0'); }
 // were published — because the same week gets re-ranked as news breaks, and the
 // only thing separating two files for week 2 is their timestamp.
 //   "UD RANKINGS - Week 2 FP 2026-09-12 0930"
+//   "UD RANKINGS LATE - Week 2 FP 2026-09-12 0930"   (the late slate's file)
 // `modified` is the rankings file's own last-modified time (the browser reads
 // it off the file); without one, the moment the build ran is the honest stamp.
-function suggestLabel(meta, modified) {
+// The slate goes in the name because the two downloads land side by side in a
+// phone's download list, and uploading the main file to the late contest fails
+// silently on Underdog's side (every ID is wrong).
+function suggestLabel(meta, modified, slate) {
   const d = modified ? new Date(modified) : new Date();
   const when = Number.isFinite(d.getTime()) ? d : new Date();
   const stamp = `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())} ` +
     `${pad(when.getHours())}${pad(when.getMinutes())}`;
   const week = (meta && meta.week) ? `Week ${meta.week}` : 'Week ?';
-  return `UD RANKINGS - ${week} FP ${stamp}`;
+  const tag = normalizeSlate(slate) === 'main' ? '' : ` ${normalizeSlate(slate).toUpperCase()}`;
+  return `UD RANKINGS${tag} - ${week} FP ${stamp}`;
 }
 
 // Build the upload. Returns
@@ -129,4 +144,4 @@ function build(underdogCsv, rankingsText) {
   return { csv: exp.csv, total: exp.total, ranked: ranked.length, matched: exp.matched, unmatched, flagged: exp.flagged };
 }
 
-module.exports = { parseRankings, detectMeta, suggestLabel, build };
+module.exports = { parseRankings, detectMeta, suggestLabel, build, normalizeSlate, SLATES };

@@ -10,6 +10,7 @@
   <script src="/module-nav.js"></script>
   <style>
     .step-num { display: inline-block; min-width: 1.6em; font-weight: 700; color: var(--accent-strong); }
+    #uq-slates .chip-btn { padding: 8px 14px; font-size: 0.95rem; }
     #uq-preview li, #uq-unmatched li, #uq-flagged li { padding: 3px 0; }
     #uq-unmatched .sugg { color: var(--warn-text); }
     #uq-unmatched li button, #uq-unmatched li select { margin-left: 6px; font-size: 0.85em; }
@@ -43,8 +44,9 @@
 
     <div class="card">
       <h2><span class="step-num">1.</span> Underdog's CSV</h2>
-      <p class="muted small">On Underdog's Rankings page for the contest, tap <strong>CSV download</strong>. Saved files are kept here, so you can download once on a laptop and build from your phone.</p>
-      <div class="row">
+      <p class="muted small">On Underdog's Rankings page for the contest, tap <strong>CSV download</strong>. Saved files are kept here, so you can download once on a laptop and build from your phone. Underdog's main slate and late slate are different contests with different player IDs, so each gets its own file — pick the slate first, then build one upload per slate.</p>
+      <div class="row chip-row" id="uq-slates"></div>
+      <div class="row section-gap">
         <select id="uq-saved" class="inline grow"></select>
         <button id="uq-forget" class="danger" hidden>Delete</button>
       </div>
@@ -108,7 +110,12 @@
   <script src="/app.js"></script>
   <script src="/fp-files.js"></script>
   <script>
+    var SLATES = [
+      { id: 'main', label: 'Main slate', hint: 'all games' },
+      { id: 'late', label: 'Late slate', hint: 'late games only' },
+    ];
     var state = {
+      slate: 'main', sets: [],
       udCsv: '', udName: '', udFromFile: false, savedWeek: null, savedAt: null,
       rkText: '', rkName: '', rkModified: null, meta: { week: null, season: null },
       lastCsv: null, lastFilename: null,
@@ -132,14 +139,48 @@
       el.classList.toggle('visible', !!text);
     }
 
-    // ---------- step 1: saved Underdog files ----------
-    async function loadSaved(selectId) {
-      var sets = await apiFetch('/api/combine/underdog/sets').catch(function () { return []; });
+    // ---------- step 1: which slate, then its saved Underdog files ----------
+    function slateLabel(id) {
+      var s = SLATES.filter(function (x) { return x.id === id; })[0];
+      return s ? s.label : 'Main slate';
+    }
+
+    function renderSlates() {
+      var wrap = $('uq-slates');
+      wrap.textContent = '';
+      SLATES.forEach(function (sl) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'chip-btn' + (state.slate === sl.id ? ' on' : '');
+        b.textContent = sl.label + ' · ' + sl.hint;
+        b.addEventListener('click', function () { chooseSlate(sl.id).catch(function () {}); });
+        wrap.appendChild(b);
+      });
+    }
+
+    // Switching slate swaps in that slate's newest saved file (or none) and
+    // renames the download, because the main file uploaded to the late contest
+    // is every ID wrong and Underdog won't say so.
+    async function chooseSlate(id) {
+      if (state.slate === id) return;
+      state.slate = id;
+      renderSlates();
+      $('uq-ud-file').value = '';
+      $('uq-ud-note').textContent = '';
+      state.udFromFile = false;
+      renderSavedOptions();
+      var pasted = $('uq-rk-text').value.trim();
+      if (pasted || state.rkText) await inspectRankings(pasted || state.rkText, pasted ? null : state.rkModified);
+    }
+
+    // The picker shows only the chosen slate's files; the newest is picked.
+    function renderSavedOptions(selectId) {
+      var sets = state.sets.filter(function (s) { return (s.slate || 'main') === state.slate; });
       var sel = $('uq-saved');
       sel.textContent = '';
       var none = document.createElement('option');
       none.value = '';
-      none.textContent = sets.length ? 'Choose a saved Underdog file…' : 'No Underdog file saved yet — choose one below';
+      none.textContent = sets.length ? 'Choose a saved Underdog file…' : 'No ' + slateLabel(state.slate).toLowerCase() + ' file saved yet — choose Underdog\'s download for that contest below';
       sel.appendChild(none);
       sets.forEach(function (s) {
         var o = document.createElement('option');
@@ -151,8 +192,15 @@
       });
       // Default to the newest saved file (the list comes back newest first).
       var want = selectId || (sets.length ? sets[0].id : '');
-      if (want) { sel.value = String(want); await useSaved(); }
+      sel.value = want ? String(want) : '';
       $('uq-forget').hidden = !sel.value;
+      return useSaved();
+    }
+
+    async function loadSaved(selectId) {
+      state.sets = await apiFetch('/api/combine/underdog/sets').catch(function () { return []; });
+      renderSlates();
+      await renderSavedOptions(selectId);
     }
 
     async function useSaved() {
@@ -226,7 +274,7 @@
     // ---------- step 2: the rankings ----------
     async function inspectRankings(text, modified) {
       var data = await apiPost('/api/combine/underdog/inspect', {
-        rankings: text, file_modified: modified || null,
+        rankings: text, file_modified: modified || null, slate: state.slate,
       }).catch(function () { return null; });
       if (!data) return;
       state.meta = { week: data.week, season: data.season };
@@ -268,7 +316,7 @@
       clearError();
       var pasted = $('uq-rk-text').value.trim();
       var rankings = pasted || state.rkText;
-      if (!state.udCsv) { showError('Choose a saved Underdog file, or the CSV you downloaded from Underdog (step 1).'); return; }
+      if (!state.udCsv) { showError('Choose a saved Underdog file for the ' + slateLabel(state.slate).toLowerCase() + ', or the CSV you downloaded from Underdog for that contest (step 1).'); return; }
       if (!rankings) { showError('Choose a rankings file or paste the rankings (step 2).'); return; }
       var btn = this;
       btn.disabled = true; btn.textContent = 'Building…';
@@ -292,10 +340,11 @@
 
     async function saveUnderdogFile() {
       var week = state.meta.week;
-      var name = 'Underdog ' + (week ? 'week ' + week : state.udName.replace(/\.csv$/i, '').slice(0, 40));
+      var name = 'Underdog ' + (week ? 'week ' + week : state.udName.replace(/\.csv$/i, '').slice(0, 40)) +
+        (state.slate === 'main' ? '' : ' ' + state.slate + ' slate');
       try {
         var saved = await apiPost('/api/combine/underdog/sets', {
-          name: name, csv: state.udCsv, nfl_week: week, season: state.meta.season,
+          name: name, csv: state.udCsv, nfl_week: week, season: state.meta.season, slate: state.slate,
         });
         state.udFromFile = false;
         await loadSaved(saved.id);
@@ -318,7 +367,8 @@
       if (data.matched === 0) {
         notice(warn, 'Nothing matched. Check that step 1 is Underdog\'s download for the right contest and step 2 has a player-name column.');
       } else if (missRatio > 0.5) {
-        notice(warn, 'More than half the ranked players are not in this Underdog file. That is normal for a weekly slate, which carries only the teams playing and no kickers or defenses — make sure it is the contest you meant.');
+        notice(warn, 'More than half the ranked players are not in this Underdog file. That is normal for a weekly slate, which carries only the teams playing and no kickers or defenses' +
+          (state.slate === 'late' ? ', and the late slate carries only the afternoon games' : '') + ' — make sure it is the contest you meant.');
       } else {
         notice(warn, '');
       }

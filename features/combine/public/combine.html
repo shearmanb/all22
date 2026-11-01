@@ -837,7 +837,7 @@
       sets.forEach(function (s) {
         var o = document.createElement('option');
         o.value = s.id;
-        o.textContent = s.name + ' (' + s.player_count + ' players)';
+        o.textContent = s.name + ' (' + s.player_count + ' players' + (s.slate && s.slate !== 'main' ? ', ' + s.slate + ' slate' : '') + ')';
         sel.appendChild(o);
       });
       var list = $('ud-list');

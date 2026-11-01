@@ -1,7 +1,7 @@
 // Tests for the stateless Underdog quick upload. Run with: node --test
 const test = require('node:test');
 const assert = require('node:assert');
-const { parseRankings, build } = require('./underdog-quick');
+const { parseRankings, build, suggestLabel, normalizeSlate } = require('./underdog-quick');
 
 const UD =
   '"id","playerId","firstName","lastName","adp","slotName","teamName"\n' +
@@ -78,4 +78,17 @@ test('build reorders Underdog\'s file to the rankings and reports every miss', (
   assert.ok(lines[4].includes('"Chase"'));      // unranked keep Underdog's order after
   assert.ok(lines[5].includes('"Demarcus"'));
   assert.equal(lines.length, 6);                 // header + every Underdog row, none lost
+});
+
+test('the late slate is named in the download; anything else is the main slate', () => {
+  const when = new Date(2026, 8, 12, 9, 30);
+  assert.equal(suggestLabel({ week: 2 }, when), 'UD RANKINGS - Week 2 FP 2026-09-12 0930');
+  assert.equal(suggestLabel({ week: 2 }, when, 'main'), 'UD RANKINGS - Week 2 FP 2026-09-12 0930');
+  assert.equal(suggestLabel({ week: 2 }, when, 'late'), 'UD RANKINGS LATE - Week 2 FP 2026-09-12 0930');
+  assert.equal(suggestLabel({ week: null }, when, 'LATE'), 'UD RANKINGS LATE - Week ? FP 2026-09-12 0930');
+  assert.equal(normalizeSlate('late'), 'late');
+  assert.equal(normalizeSlate(' Late '), 'late');
+  assert.equal(normalizeSlate(''), 'main');
+  assert.equal(normalizeSlate('showdown'), 'main');
+  assert.equal(normalizeSlate(undefined), 'main');
 });
