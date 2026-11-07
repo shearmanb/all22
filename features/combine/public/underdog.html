@@ -111,6 +111,31 @@
         </div>
       </div>
     </div>
+
+    <div class="card">
+      <h2><span class="step-num">4.</span> FanDuel salaries <span class="muted small">— saves this week's Pay Dirt slate</span></h2>
+      <p class="muted small">Same rankings file as step 2, so there is nothing to upload twice. In the <a href="https://www.fanduel.com/contests/nfl" target="_blank" rel="noopener noreferrer">FanDuel lobby</a>, <strong>Download players list</strong> (a CSV) — or paste salaries, one player per line, like <code>Josh Allen QB BUF $9,200</code>. Building saves the slate and Pay Dirt opens straight to it.</p>
+      <div id="uq-fd-existing" class="muted small"></div>
+      <div class="row section-gap">
+        <input id="uq-fd-file" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" class="inline">
+        <span id="uq-fd-note" class="muted small"></span>
+      </div>
+      <details class="section-gap">
+        <summary class="muted small">…or paste salaries as text</summary>
+        <textarea id="uq-fd-text" rows="8" placeholder="Josh Allen QB BUF $9,200&#10;Bijan Robinson RB ATL $8,800&#10;…"></textarea>
+      </details>
+      <div class="row section-gap">
+        <label class="grow">
+          <span class="field-label">Name for the slate</span>
+          <input id="uq-fd-name" placeholder="FanDuel Week 1 — Sunday main">
+        </label>
+      </div>
+      <div class="row section-gap">
+        <button id="uq-fd-build">Build &amp; save Pay Dirt slate</button>
+        <a id="uq-fd-open" class="pill accent" href="/paydirt.html" hidden>Open in Pay Dirt ↗</a>
+      </div>
+      <p id="uq-fd-result" class="muted small section-gap" hidden></p>
+    </div>
   </main>
 
   <script src="/app.js"></script>
@@ -125,6 +150,7 @@
       udCsv: '', udName: '', udFromFile: false, savedWeek: null, savedAt: null,
       rkText: '', rkName: '', rkModified: null, meta: { week: null, season: null },
       lastCsv: null, lastFilename: null,
+      fdText: '', fdName: '',
     };
 
     function readFile(file) {
@@ -285,6 +311,8 @@
       if (!data) return;
       state.meta = { week: data.week, season: data.season };
       $('uq-label').value = data.label;
+      if (data.week) $('uq-fd-name').placeholder = 'FanDuel Week ' + data.week + ' \u2014 Sunday main';
+      showExistingSlate();
       $('uq-rk-note').textContent = (state.rkName ? state.rkName + ' — ' : '') + data.rows + ' rows' +
         (data.week ? ' · week ' + data.week : ' · no week published');
       checkStale();
@@ -357,6 +385,74 @@
         toast('Underdog file saved as "' + name + '"');
       } catch (e) { /* banner already shown; the upload file is already downloaded */ }
     }
+
+    // ---------- step 4: FanDuel salaries -> a Pay Dirt slate ----------
+    // Same rankings file as step 2, so the owner enters the week's files on
+    // this one page; Pay Dirt reads the saved slate (it opens the newest, and
+    // the link below names this one outright).
+    var paydirtSlates = [];
+    async function loadPaydirtSlates() {
+      paydirtSlates = await apiFetch('/api/paydirt/slates').catch(function () { return []; });
+      showExistingSlate();
+    }
+    function showExistingSlate() {
+      var week = state.meta.week;
+      var hit = paydirtSlates.filter(function (s) { return !week || !s.nfl_week || s.nfl_week === week; })[0];
+      var box = $('uq-fd-existing');
+      box.textContent = '';
+      if (!hit) return;
+      box.appendChild(document.createTextNode('Already saved' + (hit.nfl_week ? ' for week ' + hit.nfl_week : '') + ': ' + hit.name + ' \u00b7 ' + timeAgo(hit.created_at) + ' \u2014 '));
+      var a = document.createElement('a');
+      a.href = '/paydirt.html?slate=' + encodeURIComponent(hit.id);
+      a.textContent = 'open in Pay Dirt';
+      box.appendChild(a);
+      box.appendChild(document.createTextNode('. Building again saves a new slate alongside it.'));
+    }
+
+    $('uq-fd-file').addEventListener('change', async function () {
+      var f = this.files[0];
+      if (!f) return;
+      try {
+        state.fdText = await readFile(f);
+        state.fdName = f.name;
+        $('uq-fd-note').textContent = f.name + ' \u2014 ' + countRows(state.fdText) + ' players';
+      } catch (e) { showError(e.message); }
+    });
+
+    $('uq-fd-build').addEventListener('click', async function () {
+      clearError();
+      var pasted = $('uq-rk-text').value.trim();
+      var projections = pasted || state.rkText;
+      var salaries = $('uq-fd-text').value.trim() || state.fdText;
+      if (!projections) { showError('Choose the Fantasy Points file with projections (step 2) \u2014 Pay Dirt needs its FPTS column.'); return; }
+      if (!salaries) { showError('Choose the FanDuel players-list CSV or paste the salaries (step 4).'); return; }
+      var btn = this;
+      btn.disabled = true; btn.textContent = 'Building\u2026';
+      try {
+        var data = await apiPost('/api/paydirt/slates', {
+          projections: projections, salaries: salaries, name: $('uq-fd-name').value.trim(),
+        });
+        var n = (data.rows || []).length;
+        var noSalary = (data.no_salary || []).length, noProj = (data.no_projection || []).length;
+        var out = $('uq-fd-result');
+        out.hidden = false;
+        out.textContent = 'Saved "' + data.slate.name + '" \u2014 ' + n + ' players priced and projected' +
+          (data.week ? ' \u00b7 week ' + data.week : '') +
+          (noSalary ? ' \u00b7 ' + noSalary + ' projected but not on the slate' : '') +
+          (noProj ? ' \u00b7 ' + noProj + ' on the slate but unprojected' : '') +
+          '. Pay Dirt opens to it, with both lists.';
+        var open = $('uq-fd-open');
+        open.href = '/paydirt.html?slate=' + encodeURIComponent(data.slate.id);
+        open.hidden = false;
+        toast('Saved ' + data.slate.name);
+        await loadPaydirtSlates();
+      } catch (e) {
+        /* banner already shown by apiPost */
+      } finally {
+        btn.disabled = false; btn.textContent = 'Build & save Pay Dirt slate';
+      }
+    });
+    loadPaydirtSlates().catch(function () {});
 
     $('uq-download').addEventListener('click', function () {
       if (state.lastCsv) triggerDownload(new Blob([state.lastCsv], { type: 'text/csv' }), state.lastFilename);

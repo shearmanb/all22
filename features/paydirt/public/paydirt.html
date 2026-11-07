@@ -107,7 +107,7 @@
       <details id="pd-new" class="section-gap">
         <summary><strong>New slate</strong> <span class="muted small">— this week's FanDuel salaries</span></summary>
         <h3 class="section-gap"><span class="step-num">1.</span> Fantasy Points projections</h3>
-        <p class="muted small">The same saved file the Underdog upload uses — if you already chose it there, it is picked here. Otherwise choose the weekly export (it has the FPTS column) and the Underdog page gets it too. FanDuel scores half-PPR, so download it in Half PPR.</p>
+        <p class="muted small">The same saved file the Underdog upload uses — if you already chose it there, it is picked here. Otherwise choose the weekly export (it has the FPTS column) and the Underdog page gets it too. FanDuel scores half-PPR, so download it in Half PPR. (The Underdog page can save a slate as well, in its step 4, so one visit covers both uploads.)</p>
         <div class="row">
           <select id="pd-fp-saved" class="inline grow"></select>
         </div>
@@ -616,7 +616,8 @@
     });
     $('pd-hide-out').addEventListener('change', render);
 
-    loadSaved().catch(function () {});
+    // ?slate=<id> comes from the Underdog page, which can save a slate too.
+    loadSaved(new URLSearchParams(location.search).get('slate') || undefined).catch(function () {});
     fpPicker.load().catch(function () {});
   </script>
 </body>
