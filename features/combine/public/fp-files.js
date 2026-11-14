@@ -1,4 +1,4 @@
-// Saved Fantasy Points files — the picker shared by the Underdog upload page
+// Saved Fantasy Points files — the picker shared by the Handoff page
 // and Pay Dirt, so the weekly export is entered once and both pages use it.
 // One copy on purpose: two pickers would drift and the pages would disagree
 // about which file is "this week's".
@@ -48,7 +48,7 @@ var FpFiles = (function () {
       sel.textContent = '';
       var none = document.createElement('option');
       none.value = '';
-      none.textContent = files.length ? 'Choose a saved Fantasy Points file…' : 'No Fantasy Points file saved yet — choose one below';
+      none.textContent = files.length ? 'Choose a saved Fantasy Points file…' : 'No Fantasy Points file saved yet';
       sel.appendChild(none);
       files.forEach(function (s, i) {
         var o = document.createElement('option');
@@ -66,7 +66,7 @@ var FpFiles = (function () {
       if (opts.forget) opts.forget.hidden = !sel.value;
       if (!sel.value) { opts.note.textContent = ''; opts.onPick(null); return; }
       var s = await apiFetch('/api/combine/rankings-files/' + sel.value);
-      opts.note.textContent = 'Using ' + describe(s) + ' — ' + (s.row_count || 0) + ' rows. Shared by the Underdog upload and Pay Dirt.';
+      opts.note.textContent = 'Using ' + describe(s) + ' — ' + (s.row_count || 0) + ' rows. Shared by Handoff and Pay Dirt.';
       opts.onPick(s);
     }
 
@@ -88,7 +88,7 @@ var FpFiles = (function () {
           showError(f.name + ' has no FPTS (projected points) column, so Pay Dirt cannot use it. Download Fantasy Points\' weekly projections export.');
           return;
         }
-        toast('Saved ' + saved.name + ' — the Underdog page and Pay Dirt both have it now');
+        toast('Saved ' + saved.name + ' — Handoff and Pay Dirt both have it now');
         await load(saved.id);
       } catch (e) {
         // Couldn't save (the banner says why) — still use the file for this

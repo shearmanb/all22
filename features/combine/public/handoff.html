@@ -1,0 +1,703 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Handoff — All22</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/theme.js"></script>
+  <script src="/module-icon.js"></script>
+  <script src="/module-nav.js"></script>
+  <style>
+    #uq-slates .chip-btn { padding: 6px 12px; font-size: 0.9rem; }
+    #uq-preview li, #uq-unmatched li, #uq-flagged li { padding: 3px 0; }
+    #uq-unmatched .sugg { color: var(--warn-text); }
+    #uq-unmatched li button, #uq-unmatched li select { margin-left: 6px; font-size: 0.85em; }
+    #uq-unmatched li button { padding: 2px 8px; }
+    #uq-unmatched li.taught { opacity: 0.65; }
+
+    /* Three file tiles: drop a file on one, or tap it to choose. */
+    .ho-tiles { display: grid; gap: 14px; grid-template-columns: 1fr; margin-top: 16px; }
+    @media (min-width: 900px) { .ho-tiles { grid-template-columns: 1fr 1fr 1fr; } }
+    .ho-tile {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0;
+    }
+    .ho-tile.ready { border-color: var(--ok-border); }
+    .ho-head { display: flex; align-items: center; gap: 8px; }
+    .ho-head h2 { margin: 0; font-size: 1.05rem; flex: 1; }
+    .ho-num {
+      width: 26px; height: 26px; border-radius: 50%; flex: none;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 0.9rem;
+      border: 1px solid var(--border-strong); color: var(--text-dim);
+    }
+    .ho-tile.ready .ho-num { background: var(--ok-bg); border-color: var(--ok-border); color: var(--ok-text); }
+    .ho-tile.ready .ho-num::before { content: '\2713'; }
+    .ho-tile.ready .ho-num span { display: none; }
+    .ho-used { font-size: 0.75rem; color: var(--text-dim); }
+    .ho-drop { padding: 22px 12px; }
+    .ho-drop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .ho-drop .big { font-size: 1.6rem; display: block; line-height: 1; margin-bottom: 6px; }
+    .ho-status { font-size: 0.88rem; color: var(--text-dim); min-height: 1.2em; overflow-wrap: anywhere; }
+    .ho-tile.ready .ho-status { color: var(--text-body); }
+    .ho-status:empty { display: none; }
+    .ho-saved { display: flex; gap: 6px; align-items: center; }
+    .ho-saved select { flex: 1; min-width: 0; font-size: 0.85rem; }
+    .ho-saved button { padding: 4px 10px; font-size: 0.85rem; }
+    .ho-tile details summary { font-size: 0.85rem; }
+    .ho-tile textarea { margin-top: 6px; }
+    .ho-actions { display: grid; gap: 10px; grid-template-columns: 1fr; }
+    @media (min-width: 640px) { .ho-actions { grid-template-columns: 1fr 1fr; } }
+    .ho-actions button { width: 100%; }
+    .ho-needs { font-size: 0.8rem; color: var(--text-dim); margin-top: 4px; text-align: center; }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">All<em>22</em></span>
+    <a href="/">Hub</a>
+    <a href="/combine.html" class="active">Combine</a>
+    <a href="/myrankings.html">My Rankings</a>
+    <a href="/boards.html">Big Board</a>
+    <a href="/auction.html">War Chest</a>
+    <a href="/drafts.html">Playbook</a>
+    <a href="/adp.html">Edge Rush</a>
+    <a href="/warroom.html">War Room</a>
+    <a href="/paydirt.html">Pay Dirt</a>
+    <a href="/players.html">Player DB</a>
+    <a href="/notes.html">Notes</a>
+    <a href="/wire.html">The Wire</a>
+    <a href="/settings.html">Settings</a>
+    <form method="POST" action="/logout"><button type="submit" class="link">Log out</button></form>
+  </nav>
+  <div id="error-banner"></div>
+
+  <main>
+    <h1>Handoff <span class="muted small">Underdog + FanDuel, every week</span></h1>
+    <p class="muted">Drop in this week's three files, then build. You get Underdog's file back in your rankings order, and FanDuel's salaries become a Pay Dirt slate.</p>
+    <div class="row chip-row" id="uq-site-links">
+      <span class="muted small">Open:</span>
+      <a class="pill accent" href="https://underdogfantasy.com/rankings" target="_blank" rel="noopener noreferrer" title="Underdog's Rankings page — download the contest's CSV here, then upload the rebuilt file here too">Underdog ↗</a>
+      <a class="pill accent" href="https://www.fantasypros.com/nfl/rankings/half-point-ppr.php" target="_blank" rel="noopener noreferrer" title="FantasyPros weekly rankings — export the CSV">FantasyPros ↗</a>
+      <a class="pill accent" href="https://www.fanduel.com/contests/nfl" target="_blank" rel="noopener noreferrer" title="FanDuel NFL lobby — Download players list">FanDuel ↗</a>
+    </div>
+
+    <div class="ho-tiles">
+      <!-- 1. Underdog's CSV (one per slate) -->
+      <section class="ho-tile" id="tile-ud">
+        <div class="ho-head">
+          <span class="ho-num"><span>1</span></span>
+          <h2>Underdog CSV</h2>
+          <span class="ho-used">for Underdog</span>
+        </div>
+        <div class="row chip-row" id="uq-slates" title="Main and late slate are different contests with different player IDs — each gets its own file"></div>
+        <div id="uq-ud-drop" class="dropzone ho-drop" role="button" tabindex="0" aria-label="Choose Underdog's CSV">
+          <span class="big">⇪</span>
+          <strong>Drop Underdog's CSV</strong><br>
+          <span class="small">or tap to choose · <em>CSV download</em> on Underdog's Rankings page</span>
+          <input id="uq-ud-file" type="file" accept=".csv,text/csv" hidden>
+        </div>
+        <div id="uq-ud-status" class="ho-status"></div>
+        <div class="ho-saved">
+          <select id="uq-saved" aria-label="Saved Underdog files"></select>
+          <button id="uq-forget" class="danger" hidden>Delete</button>
+        </div>
+        <div id="uq-stale" class="notice-banner"></div>
+      </section>
+
+      <!-- 2. The rankings (shared with Pay Dirt) -->
+      <section class="ho-tile" id="tile-rk">
+        <div class="ho-head">
+          <span class="ho-num"><span>2</span></span>
+          <h2>Rankings</h2>
+          <span class="ho-used">for both</span>
+        </div>
+        <div id="uq-rk-drop" class="dropzone ho-drop" role="button" tabindex="0" aria-label="Choose a rankings file">
+          <span class="big">⇪</span>
+          <strong>Drop the rankings file</strong><br>
+          <span class="small">or tap to choose · Fantasy Points export, FantasyPros CSV, any spreadsheet with player names</span>
+          <input id="uq-rk-file" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden>
+        </div>
+        <div id="uq-rk-status" class="ho-status"></div>
+        <div class="ho-saved">
+          <select id="uq-rk-saved" aria-label="Saved rankings files"></select>
+          <button id="uq-rk-forget" class="danger" hidden>Delete</button>
+        </div>
+        <details>
+          <summary class="muted">…or paste a list</summary>
+          <textarea id="uq-rk-text" rows="6" placeholder="1. Jahmyr Gibbs RB DET&#10;2. Bijan Robinson RB ATL&#10;…"></textarea>
+        </details>
+      </section>
+
+      <!-- 3. FanDuel salaries -> Pay Dirt slate -->
+      <section class="ho-tile" id="tile-fd">
+        <div class="ho-head">
+          <span class="ho-num"><span>3</span></span>
+          <h2>FanDuel salaries</h2>
+          <span class="ho-used">for Pay Dirt</span>
+        </div>
+        <div id="uq-fd-drop" class="dropzone ho-drop" role="button" tabindex="0" aria-label="Choose FanDuel's players list">
+          <span class="big">⇪</span>
+          <strong>Drop FanDuel's players list</strong><br>
+          <span class="small">or tap to choose · <em>Download players list</em> in the FanDuel lobby</span>
+          <input id="uq-fd-file" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden>
+        </div>
+        <div id="uq-fd-status" class="ho-status"></div>
+        <div id="uq-fd-existing" class="muted small"></div>
+        <details>
+          <summary class="muted">…or paste salaries</summary>
+          <textarea id="uq-fd-text" rows="6" placeholder="Josh Allen QB BUF $9,200&#10;Bijan Robinson RB ATL $8,800&#10;…"></textarea>
+        </details>
+      </section>
+    </div>
+
+    <div class="card section-gap">
+      <div class="ho-actions">
+        <div>
+          <button id="uq-build" class="big">Build Underdog upload</button>
+          <div class="ho-needs">uses 1 + 2 · downloads the file to upload</div>
+        </div>
+        <div>
+          <button id="uq-fd-build" class="big">Save Pay Dirt slate</button>
+          <div class="ho-needs">uses 2 + 3 · <a id="uq-fd-open" href="/paydirt.html">open Pay Dirt ↗</a></div>
+        </div>
+      </div>
+      <details class="section-gap">
+        <summary class="muted small">File names</summary>
+        <div class="row section-gap">
+          <label class="grow">
+            <span class="field-label">Underdog download</span>
+            <input id="uq-label" placeholder="UD RANKINGS - Week 1 FP …">
+          </label>
+          <label class="grow">
+            <span class="field-label">Pay Dirt slate</span>
+            <input id="uq-fd-name" placeholder="FanDuel Week 1 — Sunday main">
+          </label>
+        </div>
+      </details>
+      <p id="uq-fd-result" class="ok-banner"></p>
+    </div>
+
+    <div id="uq-result" class="card" hidden>
+      <div class="row">
+        <h2 class="grow" style="margin:0">Underdog upload</h2>
+        <button id="uq-download" class="secondary" hidden>Download again</button>
+      </div>
+      <p id="uq-summary"></p>
+      <div id="uq-warning" class="notice-banner"></div>
+      <h3>Top of the upload</h3>
+      <ol id="uq-preview" class="muted small"></ol>
+      <div id="uq-flagged-wrap" hidden>
+        <h3>Matched, but filed at different positions <span id="uq-flagged-count" class="muted small"></span></h3>
+        <p class="muted small">Included on an exact name match — the two sites just list them at different positions. Nothing to fix.</p>
+        <ul id="uq-flagged"></ul>
+      </div>
+      <div id="uq-unmatched-wrap" hidden>
+        <h3>Not in Underdog's file <span id="uq-unmatched-count" class="muted small"></span></h3>
+        <p class="muted small">Can't be uploaded. Expect plenty: kickers, defenses and every team not in this contest. Where Underdog has someone this could be, pick him and tap <strong>Same player</strong> — it's remembered for every week after.</p>
+        <ul id="uq-unmatched"></ul>
+      </div>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script src="/fp-files.js"></script>
+  <script>
+    var SLATES = [
+      { id: 'main', label: 'Main slate', hint: 'all games' },
+      { id: 'late', label: 'Late slate', hint: 'late games only' },
+    ];
+    var state = {
+      slate: 'main', sets: [],
+      udCsv: '', udName: '', udFromFile: false, savedWeek: null, savedAt: null,
+      rkText: '', rkName: '', rkModified: null, meta: { week: null, season: null },
+      lastCsv: null, lastFilename: null,
+      fdText: '', fdName: '',
+    };
+
+    function readFile(file) {
+      return new Promise(function (resolve, reject) {
+        var r = new FileReader();
+        r.onload = function () { resolve(r.result); };
+        r.onerror = function () { reject(new Error('Could not read ' + file.name)); };
+        r.readAsText(file);
+      });
+    }
+
+    function countRows(text) {
+      return String(text || '').split(/\r?\n/).filter(function (l) { return l.trim(); }).length - 1;
+    }
+
+    function notice(el, text) {
+      el.textContent = text || '';
+      el.classList.toggle('visible', !!text);
+    }
+
+    // ---------- the three tiles: drop a file anywhere on one, or tap to choose ----------
+    // A dropped file is handed to the tile's own <input type=file> and the
+    // usual change handler runs, so dropping and choosing are one code path.
+    function dropZone(tile, zone, input) {
+      zone.addEventListener('click', function (e) { if (e.target !== input) input.click(); });
+      zone.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+      });
+      function hasFiles(e) { return e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') >= 0; }
+      ['dragenter', 'dragover'].forEach(function (ev) {
+        tile.addEventListener(ev, function (e) {
+          if (!hasFiles(e)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+          zone.classList.add('drag');
+        });
+      });
+      tile.addEventListener('dragleave', function (e) {
+        if (!tile.contains(e.relatedTarget)) zone.classList.remove('drag');
+      });
+      tile.addEventListener('drop', function (e) {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        zone.classList.remove('drag');
+        var files = e.dataTransfer.files;
+        if (!files || !files.length) return;
+        try { input.files = files; } catch (err) { /* checked below */ }
+        if (!input.files || !input.files.length) {
+          showError('This browser would not take a dropped file. Tap the box to choose it instead.');
+          return;
+        }
+        input.dispatchEvent(new Event('change'));
+      });
+    }
+    // A file dropped beside a tile must not navigate away from the page.
+    ['dragover', 'drop'].forEach(function (ev) {
+      window.addEventListener(ev, function (e) {
+        if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') >= 0) e.preventDefault();
+      });
+    });
+    dropZone($('tile-ud'), $('uq-ud-drop'), $('uq-ud-file'));
+    dropZone($('tile-rk'), $('uq-rk-drop'), $('uq-rk-file'));
+    dropZone($('tile-fd'), $('uq-fd-drop'), $('uq-fd-file'));
+
+    function rankingsText() { return $('uq-rk-text').value.trim() || state.rkText; }
+    function salariesText() { return $('uq-fd-text').value.trim() || state.fdText; }
+
+    // Green tile + check mark once a tile has what the builds need.
+    function refreshTiles() {
+      $('tile-ud').classList.toggle('ready', !!state.udCsv);
+      $('tile-rk').classList.toggle('ready', !!rankingsText());
+      $('tile-fd').classList.toggle('ready', !!salariesText());
+    }
+
+    // ---------- box 1: which slate, then its saved Underdog files ----------
+    function slateLabel(id) {
+      var s = SLATES.filter(function (x) { return x.id === id; })[0];
+      return s ? s.label : 'Main slate';
+    }
+
+    function renderSlates() {
+      var wrap = $('uq-slates');
+      wrap.textContent = '';
+      SLATES.forEach(function (sl) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'chip-btn' + (state.slate === sl.id ? ' on' : '');
+        b.textContent = sl.label;
+        b.title = sl.hint;
+        b.addEventListener('click', function () { chooseSlate(sl.id).catch(function () {}); });
+        wrap.appendChild(b);
+      });
+    }
+
+    // Switching slate swaps in that slate's newest saved file (or none) and
+    // renames the download, because the main file uploaded to the late contest
+    // is every ID wrong and Underdog won't say so.
+    async function chooseSlate(id) {
+      if (state.slate === id) return;
+      state.slate = id;
+      renderSlates();
+      $('uq-ud-file').value = '';
+      state.udFromFile = false;
+      renderSavedOptions();
+      var pasted = $('uq-rk-text').value.trim();
+      if (pasted || state.rkText) await inspectRankings(pasted || state.rkText, pasted ? null : state.rkModified);
+    }
+
+    // The picker shows only the chosen slate's files; the newest is picked.
+    function renderSavedOptions(selectId) {
+      var sets = state.sets.filter(function (s) { return (s.slate || 'main') === state.slate; });
+      var sel = $('uq-saved');
+      sel.textContent = '';
+      var none = document.createElement('option');
+      none.value = '';
+      none.textContent = sets.length ? 'Saved files…' : 'No ' + slateLabel(state.slate).toLowerCase() + ' file saved yet';
+      sel.appendChild(none);
+      sets.forEach(function (s) {
+        var o = document.createElement('option');
+        o.value = s.id;
+        o.textContent = s.name + ' · ' + s.player_count + ' players' + (s.nfl_week ? ' · week ' + s.nfl_week : '');
+        o.dataset.week = s.nfl_week || '';
+        o.dataset.at = s.created_at || '';
+        sel.appendChild(o);
+      });
+      // Default to the newest saved file (the list comes back newest first).
+      var want = selectId || (sets.length ? sets[0].id : '');
+      sel.value = want ? String(want) : '';
+      $('uq-forget').hidden = !sel.value;
+      return useSaved();
+    }
+
+    async function loadSaved(selectId) {
+      state.sets = await apiFetch('/api/combine/underdog/sets').catch(function () { return []; });
+      renderSlates();
+      await renderSavedOptions(selectId);
+    }
+
+    async function useSaved() {
+      var sel = $('uq-saved');
+      $('uq-forget').hidden = !sel.value;
+      if (!sel.value) {
+        state.udCsv = ''; state.udName = ''; state.savedWeek = null; state.savedAt = null;
+        $('uq-ud-status').textContent = '';
+        checkStale();
+        refreshTiles();
+        return;
+      }
+      var opt = sel.options[sel.selectedIndex];
+      var set = await apiFetch('/api/combine/underdog/sets/' + sel.value);
+      state.udCsv = set.csv;
+      state.udName = set.name;
+      state.udFromFile = false;
+      state.savedWeek = set.nfl_week || null;
+      state.savedAt = set.created_at || null;
+      $('uq-ud-file').value = '';
+      $('uq-ud-status').textContent = '✓ ' + set.name + ' · ' + set.player_count + ' players · saved ' + timeAgo(set.created_at);
+      checkStale();
+      refreshTiles();
+    }
+
+    // A saved Underdog file is only good for the week it was downloaded in:
+    // the IDs are reissued, so last week's file builds an upload that looks
+    // right and is wrong. The rankings say which week this is, so compare.
+    function checkStale() {
+      var el = $('uq-stale');
+      var rankWeek = state.meta.week;
+      if (!state.udCsv || state.udFromFile || !rankWeek) { notice(el, ''); return; }
+      if (state.savedWeek && state.savedWeek < rankWeek) {
+        notice(el, 'That saved Underdog file is from week ' + state.savedWeek + ' and these rankings are week ' + rankWeek +
+          '. Underdog reissues its player IDs every week — drop in a fresh CSV from Underdog.');
+      } else if (state.savedWeek && state.savedWeek > rankWeek) {
+        notice(el, 'That saved Underdog file is from week ' + state.savedWeek + ' but these rankings are week ' + rankWeek + '. Check you picked the right pair.');
+      } else if (!state.savedWeek) {
+        notice(el, 'That saved Underdog file has no week recorded (it was saved before the app tracked that), so it cannot be checked against these week ' +
+          rankWeek + ' rankings. If it is older than this week, download a fresh one.');
+      } else {
+        notice(el, '');
+      }
+    }
+
+    $('uq-saved').addEventListener('change', function () { useSaved().catch(function () {}); });
+
+    $('uq-forget').addEventListener('click', async function () {
+      var id = $('uq-saved').value;
+      if (!id) return;
+      await apiPost('/api/combine/underdog/sets/' + id, {}, 'DELETE');
+      toast('Deleted');
+      await loadSaved();
+    });
+
+    $('uq-ud-file').addEventListener('change', async function () {
+      var f = this.files[0];
+      if (!f) return;
+      try {
+        state.udCsv = await readFile(f);
+        state.udName = f.name;
+        state.udFromFile = true;
+        state.savedWeek = null;
+        this.value = '';
+        $('uq-saved').value = '';
+        $('uq-forget').hidden = true;
+        $('uq-ud-status').textContent = '✓ ' + f.name + ' · ' + countRows(state.udCsv) + ' players · saved when you build';
+        checkStale();
+        refreshTiles();
+      } catch (e) { showError(e.message); }
+    });
+
+    // ---------- box 2: the rankings ----------
+    async function inspectRankings(text, modified) {
+      var data = await apiPost('/api/combine/underdog/inspect', {
+        rankings: text, file_modified: modified || null, slate: state.slate,
+      }).catch(function () { return null; });
+      if (!data) return;
+      state.meta = { week: data.week, season: data.season };
+      $('uq-label').value = data.label;
+      if (data.week) $('uq-fd-name').placeholder = 'FanDuel Week ' + data.week + ' \u2014 Sunday main';
+      showExistingSlate();
+      if ($('uq-rk-text').value.trim()) {
+        $('uq-rk-status').textContent = '✓ Pasted list · ' + data.rows + ' rows' + (data.week ? ' · week ' + data.week : '');
+      }
+      checkStale();
+      refreshTiles();
+    }
+
+    // The rankings file is a saved, shared one: choosing a file saves it, and
+    // the newest saved file is picked on open (Pay Dirt reads the same list).
+    var fpPicker = FpFiles.mount({
+      select: $('uq-rk-saved'), file: $('uq-rk-file'), note: $('uq-rk-status'), forget: $('uq-rk-forget'),
+      onPick: function (saved) {
+        if (!saved) {
+          state.rkText = ''; state.rkName = ''; state.rkModified = null;
+          state.meta = { week: null, season: null };
+          checkStale();
+          refreshTiles();
+          return;
+        }
+        state.rkText = saved.rankings;
+        state.rkName = saved.name;
+        state.rkModified = saved.file_modified || null;
+        refreshTiles();
+        inspectRankings(state.rkText, state.rkModified).catch(function () {});
+      },
+    });
+
+    $('uq-rk-text').addEventListener('input', refreshTiles);
+    $('uq-rk-text').addEventListener('change', async function () {
+      var t = this.value.trim();
+      if (!t) return;
+      state.rkName = '';
+      state.rkModified = null;
+      await inspectRankings(t, null);
+    });
+
+    // ---------- build the Underdog upload (boxes 1 + 2) ----------
+    $('uq-build').addEventListener('click', async function () {
+      clearError();
+      var rankings = rankingsText();
+      if (!state.udCsv) { showError('Box 1 is empty: drop in the CSV you downloaded from Underdog for the ' + slateLabel(state.slate).toLowerCase() + ', or pick a saved one.'); return; }
+      if (!rankings) { showError('Box 2 is empty: drop in a rankings file or paste the rankings.'); return; }
+      var btn = this;
+      btn.disabled = true; btn.textContent = 'Building…';
+      try {
+        var data = await apiPost('/api/combine/underdog/quick', {
+          underdog_csv: state.udCsv, rankings: rankings, label: $('uq-label').value.trim(),
+        });
+        state.lastCsv = data.csv; state.lastFilename = data.filename;
+        triggerDownload(new Blob([data.csv], { type: 'text/csv' }), data.filename);
+        render(data);
+        toast('Downloaded ' + data.filename);
+        // A freshly chosen Underdog file is worth keeping, now that the week is
+        // known — that is what makes next week's build a two-tap job on a phone.
+        if (state.udFromFile) await saveUnderdogFile();
+      } catch (e) {
+        /* banner already shown by apiPost */
+      } finally {
+        btn.disabled = false; btn.textContent = 'Build Underdog upload';
+      }
+    });
+
+    async function saveUnderdogFile() {
+      var week = state.meta.week;
+      var name = 'Underdog ' + (week ? 'week ' + week : state.udName.replace(/\.csv$/i, '').slice(0, 40)) +
+        (state.slate === 'main' ? '' : ' ' + state.slate + ' slate');
+      try {
+        var saved = await apiPost('/api/combine/underdog/sets', {
+          name: name, csv: state.udCsv, nfl_week: week, season: state.meta.season, slate: state.slate,
+        });
+        state.udFromFile = false;
+        await loadSaved(saved.id);
+        toast('Underdog file saved as "' + name + '"');
+      } catch (e) { /* banner already shown; the upload file is already downloaded */ }
+    }
+
+    // ---------- box 3: FanDuel salaries -> a Pay Dirt slate (boxes 2 + 3) ----------
+    // Same rankings file as box 2, so the owner enters the week's files on
+    // this one page; Pay Dirt reads the saved slate (it opens the newest, and
+    // the link below names this one outright).
+    var paydirtSlates = [];
+    async function loadPaydirtSlates() {
+      paydirtSlates = await apiFetch('/api/paydirt/slates').catch(function () { return []; });
+      showExistingSlate();
+    }
+    function showExistingSlate() {
+      var week = state.meta.week;
+      var hit = paydirtSlates.filter(function (s) { return !week || !s.nfl_week || s.nfl_week === week; })[0];
+      var box = $('uq-fd-existing');
+      box.textContent = '';
+      if (!hit) return;
+      $('uq-fd-open').href = '/paydirt.html?slate=' + encodeURIComponent(hit.id);
+      box.appendChild(document.createTextNode('Already saved' + (hit.nfl_week ? ' for week ' + hit.nfl_week : '') + ': ' + hit.name + ' \u00b7 ' + timeAgo(hit.created_at) + ' \u2014 '));
+      var a = document.createElement('a');
+      a.href = '/paydirt.html?slate=' + encodeURIComponent(hit.id);
+      a.textContent = 'open in Pay Dirt';
+      box.appendChild(a);
+      box.appendChild(document.createTextNode('. Saving again adds a new slate beside it.'));
+    }
+
+    $('uq-fd-file').addEventListener('change', async function () {
+      var f = this.files[0];
+      if (!f) return;
+      try {
+        state.fdText = await readFile(f);
+        state.fdName = f.name;
+        this.value = '';
+        $('uq-fd-status').textContent = '\u2713 ' + f.name + ' \u00b7 ' + countRows(state.fdText) + ' players';
+        refreshTiles();
+      } catch (e) { showError(e.message); }
+    });
+
+    $('uq-fd-text').addEventListener('input', refreshTiles);
+
+    $('uq-fd-build').addEventListener('click', async function () {
+      clearError();
+      var projections = rankingsText();
+      var salaries = salariesText();
+      if (!projections) { showError('Box 2 is empty: drop in the Fantasy Points file with projections \u2014 Pay Dirt needs its FPTS column.'); return; }
+      if (!salaries) { showError('Box 3 is empty: drop in FanDuel\'s players list or paste the salaries.'); return; }
+      var btn = this;
+      btn.disabled = true; btn.textContent = 'Building\u2026';
+      try {
+        var data = await apiPost('/api/paydirt/slates', {
+          projections: projections, salaries: salaries, name: $('uq-fd-name').value.trim(),
+        });
+        var n = (data.rows || []).length;
+        var noSalary = (data.no_salary || []).length, noProj = (data.no_projection || []).length;
+        notice($('uq-fd-result'), 'Saved "' + data.slate.name + '" \u2014 ' + n + ' players priced and projected' +
+          (data.week ? ' \u00b7 week ' + data.week : '') +
+          (noSalary ? ' \u00b7 ' + noSalary + ' projected but not on the slate' : '') +
+          (noProj ? ' \u00b7 ' + noProj + ' on the slate but unprojected' : '') +
+          '. Pay Dirt opens to it, with both lists.');
+        var open = $('uq-fd-open');
+        open.href = '/paydirt.html?slate=' + encodeURIComponent(data.slate.id);
+        toast('Saved ' + data.slate.name);
+        await loadPaydirtSlates();
+      } catch (e) {
+        /* banner already shown by apiPost */
+      } finally {
+        btn.disabled = false; btn.textContent = 'Save Pay Dirt slate';
+      }
+    });
+    loadPaydirtSlates().catch(function () {});
+
+    $('uq-download').addEventListener('click', function () {
+      if (state.lastCsv) triggerDownload(new Blob([state.lastCsv], { type: 'text/csv' }), state.lastFilename);
+    });
+
+    function render(data) {
+      $('uq-result').hidden = false;
+      $('uq-download').hidden = false;
+      $('uq-summary').textContent = 'Matched ' + data.matched + ' of ' + data.ranked + ' ranked players to Underdog IDs. ' +
+        'The file holds all ' + data.total + ' of Underdog\'s players: your ' + data.matched + ' on top in rank order, the rest after in Underdog\'s order.';
+
+      var warn = $('uq-warning');
+      var missRatio = data.ranked ? (data.ranked - data.matched) / data.ranked : 0;
+      if (data.matched === 0) {
+        notice(warn, 'Nothing matched. Check that box 1 is Underdog\'s download for the right contest and box 2 has a player-name column.');
+      } else if (missRatio > 0.5) {
+        notice(warn, 'More than half the ranked players are not in this Underdog file. That is normal for a weekly slate, which carries only the teams playing and no kickers or defenses' +
+          (state.slate === 'late' ? ', and the late slate carries only the afternoon games' : '') + ' — make sure it is the contest you meant.');
+      } else {
+        notice(warn, '');
+      }
+
+      var lines = String(data.csv || '').replace(/^﻿/, '').split(/\r?\n/).filter(function (l) { return l.trim(); });
+      var prev = $('uq-preview');
+      prev.textContent = '';
+      var head = parseCsvLine(lines[0] || '');
+      var iF = head.indexOf('firstName'), iL = head.indexOf('lastName'), iP = head.indexOf('slotName'), iT = head.indexOf('teamName');
+      var n = Math.min(data.matched, 12);
+      for (var i = 1; i <= n; i++) {
+        var f = parseCsvLine(lines[i] || '');
+        var li = document.createElement('li');
+        li.textContent = ((f[iF] || '') + ' ' + (f[iL] || '')).trim() + (iP >= 0 && f[iP] ? ' · ' + f[iP] : '') + (iT >= 0 && f[iT] ? ' · ' + f[iT] : '');
+        prev.appendChild(li);
+      }
+      if (data.matched > n) {
+        var more = document.createElement('li');
+        more.textContent = '… and ' + (data.matched - n) + ' more in rank order';
+        prev.appendChild(more);
+      }
+
+      var fl = data.flagged || [];
+      $('uq-flagged-wrap').hidden = !fl.length;
+      $('uq-flagged-count').textContent = fl.length ? '(' + fl.length + ')' : '';
+      var ful = $('uq-flagged');
+      ful.textContent = '';
+      fl.forEach(function (f) {
+        var li = document.createElement('li');
+        li.textContent = f.name + ' — your list says ' + (f.ranked_position || '?') + ', Underdog says ' + (f.underdog_position || '?');
+        ful.appendChild(li);
+      });
+
+      var um = data.unmatched || [];
+      $('uq-unmatched-wrap').hidden = !um.length;
+      $('uq-unmatched-count').textContent = um.length ? '(' + um.length + ')' : '';
+      var ul = $('uq-unmatched');
+      ul.textContent = '';
+      um.forEach(function (u) {
+        var li = document.createElement('li');
+        li.appendChild(document.createTextNode('#' + u.rank + ' ' + u.name + (u.position ? ' · ' + u.position : '') + (u.team ? ' · ' + u.team : '')));
+        var cands = u.candidates || [];
+        if (cands.length) {
+          var s = document.createElement('span');
+          s.className = 'sugg';
+          s.textContent = u.suggestion ? ' — closest on Underdog: ' : ' — on Underdog, could be: ';
+          li.appendChild(s);
+          var sel = document.createElement('select');
+          sel.className = 'inline';
+          cands.forEach(function (c) {
+            var o = document.createElement('option');
+            o.value = c; o.textContent = c;
+            sel.appendChild(o);
+          });
+          li.appendChild(sel);
+          var b = document.createElement('button');
+          b.className = 'secondary';
+          b.textContent = 'Same player';
+          b.addEventListener('click', function () { teach(u.name, sel.value, b, li); });
+          li.appendChild(b);
+        }
+        ul.appendChild(li);
+      });
+    }
+
+    // Remember that Underdog spells this player differently. It goes into the
+    // app's one player cross-reference (the same aliases the Player DB shows),
+    // so every future week matches him without being asked again.
+    async function teach(rankedName, underdogName, button, li) {
+      if (!underdogName) return;
+      button.disabled = true;
+      button.textContent = 'Saving…';
+      try {
+        var r = await apiPost('/api/combine/underdog/teach', { ranked_name: rankedName, underdog_name: underdogName });
+        li.classList.add('taught');
+        button.textContent = 'Remembered';
+        toast('Underdog\'s "' + r.learned + '" now means ' + r.player + '. Build again to include him.');
+      } catch (e) {
+        button.disabled = false;
+        button.textContent = 'Same player';
+      }
+    }
+
+    // Minimal one-line CSV field splitter for the preview (quotes + "" escapes).
+    function parseCsvLine(line) {
+      var out = [], field = '', q = false;
+      for (var i = 0; i < line.length; i++) {
+        var c = line[i];
+        if (q) {
+          if (c === '"') { if (line[i + 1] === '"') { field += '"'; i++; } else q = false; }
+          else field += c;
+        } else if (c === '"') q = true;
+        else if (c === ',') { out.push(field); field = ''; }
+        else field += c;
+      }
+      out.push(field);
+      return out;
+    }
+
+    renderSlates();
+    refreshTiles();
+    loadSaved().catch(function () { /* banner already shown */ });
+    fpPicker.load().catch(function () { /* banner already shown */ });
+  </script>
+</body>
+</html>
