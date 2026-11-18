@@ -5,15 +5,23 @@ const express = require('express');
 const pool = require('../../db/pool');
 const value = require('./lib/value');
 const underdogQuick = require('../combine/lib/underdog-quick');
+const arb = require('./lib/arb');
+const dk = require('./lib/dk');
 
 const router = express.Router();
 const hasDb = () => Boolean(process.env.DATABASE_URL);
 
-function compute(projections, salaries) {
+function compute(projections, salaries, dkSalaries) {
   const out = value.build(projections, salaries);
   const meta = underdogQuick.detectMeta(projections);
   out.week = meta.week;
   out.season = meta.season;
+  // FanDuel vs DraftKings, when the slate carries DK salaries. A DK file that
+  // can't be read must not cost the owner the FanDuel table, so its error
+  // rides along instead of failing the whole slate.
+  if (dkSalaries && String(dkSalaries).trim()) {
+    try { out.arb = arb.compare(salaries, dkSalaries, out); } catch (e) { out.arb_error = e.message; }
+  }
   return out;
 }
 
@@ -69,12 +77,12 @@ router.post('/slates', async (req, res) => {
 // { status, error } or { data }.
 async function loadSlate(id) {
   const { rows } = await pool.query(
-    'SELECT id, name, nfl_week, season, created_at, projections_at, projections, salaries FROM dfs_slates WHERE id = $1', [id]
+    'SELECT id, name, nfl_week, season, created_at, projections_at, projections, salaries, dk_salaries, dk_source, dk_at FROM dfs_slates WHERE id = $1', [id]
   );
   if (!rows.length) return { status: 404, error: 'That saved slate no longer exists.' };
   const s = rows[0];
   let data;
-  try { data = compute(s.projections, s.salaries); } catch (e) { return { status: 400, error: `That saved slate could not be read: ${e.message}` }; }
+  try { data = compute(s.projections, s.salaries, s.dk_salaries); } catch (e) { return { status: 400, error: `That saved slate could not be read: ${e.message}` }; }
   const since = s.projections_at || s.created_at;
   const { rows: newer } = await pool.query(
     `SELECT id, name, nfl_week, file_modified, created_at FROM fp_rankings_files
@@ -83,7 +91,8 @@ async function loadSlate(id) {
       ORDER BY created_at DESC LIMIT 1`,
     [since, s.projections, s.nfl_week]
   );
-  data.slate = { id: s.id, name: s.name, nfl_week: s.nfl_week, season: s.season, created_at: s.created_at, projections_at: since };
+  data.slate = { id: s.id, name: s.name, nfl_week: s.nfl_week, season: s.season, created_at: s.created_at, projections_at: since,
+    dk_source: s.dk_salaries ? s.dk_source : null, dk_at: s.dk_salaries ? s.dk_at : null };
   data.newer_projections = newer[0] || null;
   return { data };
 }
@@ -122,6 +131,68 @@ router.post('/slates/:id/projections', async (req, res) => {
   } catch (err) {
     console.error(`POST /api/paydirt/slates/:id/projections: ${err.message}`);
     res.status(500).json({ ok: false, error: 'Could not update that slate\'s projections.' });
+  }
+});
+
+// ---------- DraftKings salaries (FanDuel vs DraftKings) ----------
+
+// DraftKings' open classic NFL slates, main slate first. Public, no login —
+// but DraftKings may refuse a cloud server, and the error says so.
+router.get('/dk/slates', async (req, res) => {
+  try {
+    const slates = await dk.fetchSlates();
+    res.json({ ok: true, data: slates });
+  } catch (err) {
+    console.error(`GET /api/paydirt/dk/slates: ${err.message}`);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// Attach DraftKings salaries to a saved slate. Body: { dk_salaries } (DK's
+// Export to CSV, as text) or { draft_group_id } (fetched here from DK's
+// public feed). Replaces any DK salaries the slate already had.
+router.post('/slates/:id/dk', async (req, res) => {
+  try {
+    if (!hasDb()) return res.status(400).json({ ok: false, error: 'Saved slates need a database.' });
+    const body = req.body || {};
+    let text, source;
+    if (body.draft_group_id) {
+      let got;
+      try { got = await dk.fetchSalaries(body.draft_group_id); } catch (e) {
+        console.error(`POST /api/paydirt/slates/:id/dk fetch: ${e.message}`);
+        return res.status(502).json({ ok: false, error: e.message });
+      }
+      text = got.csv;
+      source = `Fetched from DraftKings (slate ${got.id}${body.label ? ' · ' + String(body.label).slice(0, 120) : ''})`;
+    } else {
+      text = String(body.dk_salaries || '');
+      if (!text.trim()) return res.status(400).json({ ok: false, error: 'Choose DraftKings\' salaries CSV, or pick a slate to fetch.' });
+      source = `Uploaded${body.file_name ? ' · ' + String(body.file_name).slice(0, 120) : ''}`;
+    }
+    const { rows: sl } = await pool.query('SELECT projections, salaries FROM dfs_slates WHERE id = $1', [req.params.id]);
+    if (!sl.length) return res.status(404).json({ ok: false, error: 'That saved slate no longer exists.' });
+    // Read it before saving, so a wrong file is refused rather than stored.
+    try { arb.compare(sl[0].salaries, text, null); } catch (e) { return res.status(400).json({ ok: false, error: e.message }); }
+    await pool.query('UPDATE dfs_slates SET dk_salaries = $2, dk_source = $3, dk_at = now() WHERE id = $1', [req.params.id, text, source]);
+    const out = await loadSlate(req.params.id);
+    if (out.error) return res.status(out.status).json({ ok: false, error: out.error });
+    res.json({ ok: true, data: out.data });
+  } catch (err) {
+    console.error(`POST /api/paydirt/slates/:id/dk: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not save the DraftKings salaries.' });
+  }
+});
+
+router.delete('/slates/:id/dk', async (req, res) => {
+  try {
+    if (!hasDb()) return res.status(400).json({ ok: false, error: 'Saved slates need a database.' });
+    await pool.query('UPDATE dfs_slates SET dk_salaries = NULL, dk_source = NULL, dk_at = NULL WHERE id = $1', [req.params.id]);
+    const out = await loadSlate(req.params.id);
+    if (out.error) return res.status(out.status).json({ ok: false, error: out.error });
+    res.json({ ok: true, data: out.data });
+  } catch (err) {
+    console.error(`DELETE /api/paydirt/slates/:id/dk: ${err.message}`);
+    res.status(500).json({ ok: false, error: 'Could not remove the DraftKings salaries.' });
   }
 });
 

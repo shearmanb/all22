@@ -68,6 +68,21 @@
     .combo td.r { text-align: right; white-space: nowrap; }
     .combo td.who { width: 100%; }
     #pd-fill-msg.bad { color: var(--error-text); }
+    /* FanDuel vs DraftKings */
+    #arb-table th.sort { cursor: pointer; user-select: none; }
+    #arb-table th.sort.on { color: var(--accent-strong); }
+    #arb-table th.sort.on::after { content: ' \25BE'; }
+    #arb-table th.sort.on.asc::after { content: ' \25B4'; }
+    #arb-table td.r, #arb-table th.r { text-align: right; }
+    #arb-table .alt { color: var(--text-dim); font-size: 0.78rem; }
+    #arb-table td.edge { font-weight: 700; white-space: nowrap; }
+    #arb-table td.edge.dk { color: var(--green); }
+    #arb-table td.edge.fd { color: var(--accent-strong); }
+    #arb-table-wrap { max-height: 75vh; overflow: auto; }
+    #arb-table th:nth-child(1), #arb-table td:nth-child(1) { position: sticky; left: 0; background: var(--surface); }
+    #arb-table th:nth-child(1) { background: var(--field); z-index: 2; }
+    #arb-table td:nth-child(1) { white-space: normal; min-width: 130px; }
+    #arb-misses li { padding: 2px 0; }
   </style>
 </head>
 <body>
@@ -91,7 +106,7 @@
   <div id="error-banner"></div>
 
   <main>
-    <h1>Pay Dirt <span class="muted small">FanDuel points per dollar</span></h1>
+    <h1>Pay Dirt <span class="muted small">FanDuel points per dollar · FD vs DK prices</span></h1>
     <p class="muted">Fantasy Points' weekly projections against FanDuel salaries — projected points per $1,000 of salary for every player on the slate. 3.0 means 3 points per $1K: a $7,000 player projected for 21.</p>
 
     <div class="card">
@@ -192,6 +207,54 @@
       </div>
       <div id="pd-misses" class="section-gap"></div>
     </div>
+    <div id="arb-card" class="card" hidden>
+      <h2>FanDuel vs DraftKings <span class="muted small">— where the two sites price a player differently</span></h2>
+      <p class="muted small">Each site's salaries are compared against <em>the slate's own exchange rate</em>: for every position, a line fitted through all the players priced on both sites says what a FanDuel price "should" cost on DraftKings. <strong>Edge</strong> is how far a player's real DraftKings price sits from that. <strong>Cheaper on DK</strong> = play him on DraftKings; <strong>cheaper on FD</strong> = play him on FanDuel. Raw dollars aren't compared because the caps differ ($60K vs $50K), and fitting per position keeps DraftKings' full-PPR scoring from looking like a mispricing.</p>
+      <div id="arb-status" class="small section-gap"></div>
+      <details id="arb-add" class="section-gap">
+        <summary><strong id="arb-add-title">Add DraftKings salaries</strong></summary>
+        <h3 class="section-gap">Fetch from DraftKings</h3>
+        <p class="muted small">No login needed. DraftKings sometimes refuses cloud servers — if it does, the message says so and the CSV below always works.</p>
+        <div class="row">
+          <button id="arb-load-slates" type="button">Load DraftKings slates</button>
+          <select id="arb-dk-slate" class="inline grow" hidden></select>
+          <button id="arb-fetch" type="button" hidden>Fetch salaries</button>
+        </div>
+        <h3 class="section-gap">…or upload DraftKings' CSV</h3>
+        <p class="muted small">In a <a href="https://www.draftkings.com/lobby#/NFL" target="_blank" rel="noopener">DraftKings NFL classic contest</a>, open <strong>Draft Team</strong> and tap <strong>Export to CSV</strong> (DKSalaries.csv).</p>
+        <div class="row">
+          <input id="arb-dk-file" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" class="inline">
+        </div>
+        <div class="row section-gap">
+          <button id="arb-remove" type="button" class="danger" hidden>Remove DraftKings salaries</button>
+        </div>
+      </details>
+      <div id="arb-result" hidden>
+        <p id="arb-summary" class="section-gap"></p>
+        <div class="row filters">
+          <input id="arb-search" type="search" placeholder="Search player or team…" class="inline">
+          <label class="small check"><input id="arb-hide-out" type="checkbox" checked> Hide players ruled out</label>
+        </div>
+        <div class="row section-gap">
+          <span class="chip-row" id="arb-pos"></span>
+        </div>
+        <div class="row section-gap">
+          <span class="chip-row" id="arb-side"></span>
+          <span id="arb-count" class="muted small"></span>
+        </div>
+        <div id="arb-table-wrap" class="table-wrap section-gap">
+          <table class="data" id="arb-table">
+            <thead><tr id="arb-head"></tr></thead>
+            <tbody id="arb-body"></tbody>
+          </table>
+        </div>
+        <details class="section-gap">
+          <summary class="muted small">The exchange rate per position</summary>
+          <ul id="arb-fits" class="small"></ul>
+        </details>
+        <div id="arb-misses" class="section-gap"></div>
+      </div>
+    </div>
   </main>
 
   <script src="/app.js"></script>
@@ -258,7 +321,7 @@
     async function openSaved() {
       var id = $('pd-saved').value;
       $('pd-forget').hidden = !id;
-      if (!id) { $('pd-result').hidden = true; $('pd-fill-card').hidden = true; $('pd-saved-note').textContent = ''; return; }
+      if (!id) { $('pd-result').hidden = true; $('pd-fill-card').hidden = true; $('arb-card').hidden = true; $('pd-saved-note').textContent = ''; return; }
       var data = await apiFetch('/api/paydirt/slates/' + id);
       show(data);
     }
@@ -281,6 +344,7 @@
       toast('Deleted');
       $('pd-result').hidden = true;
       $('pd-fill-card').hidden = true;
+      $('arb-card').hidden = true;
       await loadSaved();
     });
 
@@ -356,6 +420,7 @@
       $('pd-fill-out').textContent = '';
       $('pd-fill-msg').textContent = '';
       $('pd-fill-more').hidden = true;
+      showArb(data);
     }
 
     function renderHead() {
@@ -575,6 +640,201 @@
     $('pd-fill-budget').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); runFill(); } });
     $('pd-fill-more').addEventListener('click', showMoreCombos);
     renderSlots();
+
+
+    // ---------- FanDuel vs DraftKings ----------
+    // The comparison itself is server-side (lib/arb.js, golden-tested); the
+    // slate's payload carries it as data.arb. This is the form and the table.
+    var ARB_COLUMNS = [
+      { key: 'name', label: 'Player', asc: true },
+      { key: 'position', label: 'Pos', asc: true },
+      { key: 'fd_salary', label: 'FD $', num: true },
+      { key: 'dk_salary', label: 'DK $', num: true },
+      { key: 'fd_pct', label: 'FD cap %', num: true },
+      { key: 'dk_pct', label: 'DK cap %', num: true },
+      { key: 'dk_expected', label: 'DK $ expected', num: true },
+      { key: 'edge_pct', label: 'Edge', num: true, abs: true },
+      { key: 'fpts', label: 'Proj', num: true },
+    ];
+    var arbState = { rows: [], sort: 'edge_pct', dir: -1, pos: 'ALL', side: 'ALL' };
+
+    function showArb(data) {
+      $('arb-card').hidden = false;
+      var s = data.slate || {};
+      var has = !!data.arb;
+      $('arb-status').textContent = s.dk_source
+        ? 'DraftKings salaries: ' + s.dk_source + (s.dk_at ? ' · ' + timeAgo(s.dk_at) : '')
+        : 'No DraftKings salaries on this slate yet.';
+      if (data.arb_error) showError('DraftKings salaries on this slate could not be read: ' + data.arb_error);
+      $('arb-add-title').textContent = s.dk_source ? 'Replace DraftKings salaries' : 'Add DraftKings salaries';
+      $('arb-add').open = !s.dk_source;
+      $('arb-remove').hidden = !s.dk_source;
+      $('arb-result').hidden = !has;
+      if (!has) { arbState.rows = []; return; }
+      arbState.rows = data.arb.rows;
+      var dkCheap = data.arb.rows.filter(function (r) { return r.cheaper_on === 'DK'; }).length;
+      var fdCheap = data.arb.rows.filter(function (r) { return r.cheaper_on === 'FD'; }).length;
+      $('arb-summary').textContent = data.arb.rows.length + ' players priced on both sites · ' +
+        dkCheap + ' cheaper on DraftKings, ' + fdCheap + ' cheaper on FanDuel than the rate says. Biggest gaps first.';
+      var fits = $('arb-fits');
+      fits.textContent = '';
+      Object.keys(data.arb.fits).sort().forEach(function (pos) {
+        var f = data.arb.fits[pos];
+        fits.appendChild(el('li', null, pos + ': DK $ ≈ ' + f.slope.toFixed(2) + ' × FD $ ' +
+          (f.intercept < 0 ? '− ' : '+ ') + money(Math.abs(f.intercept)) + ' (' + f.n + ' players' +
+          (f.pooled ? '; too few to fit their own line, so the all-positions line is used' : '') + ')'));
+      });
+      renderArb();
+      renderArbMisses(data.arb);
+    }
+
+    function renderArb() {
+      var head = $('arb-head');
+      head.textContent = '';
+      ARB_COLUMNS.forEach(function (c) {
+        var th = el('th', 'sort' + (c.num ? ' r' : '') + (arbState.sort === c.key ? ' on' + (arbState.dir > 0 ? ' asc' : '') : ''), c.label);
+        th.addEventListener('click', function () {
+          if (arbState.sort === c.key) arbState.dir = -arbState.dir;
+          else { arbState.sort = c.key; arbState.dir = c.asc ? 1 : -1; }
+          renderArb();
+        });
+        head.appendChild(th);
+      });
+      var pw = $('arb-pos');
+      pw.textContent = '';
+      POSITIONS.forEach(function (p) {
+        var b = el('button', 'chip-btn' + (arbState.pos === p ? ' on' : ''), p === 'ALL' ? 'All' : p);
+        b.addEventListener('click', function () { arbState.pos = p; renderArb(); });
+        pw.appendChild(b);
+      });
+      var sw = $('arb-side');
+      sw.textContent = '';
+      [['ALL', 'Both ways'], ['DK', 'Cheaper on DK'], ['FD', 'Cheaper on FD']].forEach(function (o) {
+        var b = el('button', 'chip-btn' + (arbState.side === o[0] ? ' on' : ''), o[1]);
+        b.addEventListener('click', function () { arbState.side = o[0]; renderArb(); });
+        sw.appendChild(b);
+      });
+
+      var q = $('arb-search').value.trim().toLowerCase();
+      var hideOut = $('arb-hide-out').checked;
+      var key = arbState.sort, dir = arbState.dir;
+      var col = ARB_COLUMNS.filter(function (c) { return c.key === key; })[0];
+      var rows = arbState.rows.filter(function (r) {
+        if (arbState.pos === 'FLEX') { if (['RB', 'WR', 'TE'].indexOf(r.position) < 0) return false; }
+        else if (arbState.pos !== 'ALL' && r.position !== arbState.pos) return false;
+        if (arbState.side !== 'ALL' && r.cheaper_on !== arbState.side) return false;
+        if (hideOut && (r.injury === 'O' || r.injury === 'IR')) return false;
+        if (q && [r.name, r.dk_name, r.team, r.opp, r.position].join(' ').toLowerCase().indexOf(q) < 0) return false;
+        return true;
+      }).sort(function (a, b) {
+        var x = a[key], y = b[key];
+        if (col && col.num) {
+          if (col.abs) { x = x == null ? null : Math.abs(x); y = y == null ? null : Math.abs(y); }
+          return ((x == null ? -Infinity : x) - (y == null ? -Infinity : y)) * dir;
+        }
+        return String(x || '').localeCompare(String(y || '')) * dir;
+      });
+      $('arb-count').textContent = rows.length + ' of ' + arbState.rows.length + ' shown';
+      var body = $('arb-body');
+      body.textContent = '';
+      rows.forEach(function (r) {
+        var tr = el('tr');
+        var name = el('td');
+        name.appendChild(el('strong', null, r.name));
+        if (r.injury) { name.appendChild(document.createTextNode(' ')); name.appendChild(el('span', 'pill ' + (r.injury === 'O' || r.injury === 'IR' ? 'bad' : 'warn'), r.injury)); }
+        name.appendChild(el('div', 'alt', [r.team, r.opp ? 'v ' + r.opp : ''].filter(Boolean).join(' ') + (r.dk_name ? ' · DraftKings: ' + r.dk_name : '')));
+        tr.appendChild(name);
+        var pos = el('td'); pos.appendChild(posBadge(r.position)); tr.appendChild(pos);
+        tr.appendChild(el('td', 'r', money(r.fd_salary)));
+        tr.appendChild(el('td', 'r', money(r.dk_salary)));
+        tr.appendChild(el('td', 'r muted', r.fd_pct.toFixed(1) + '%'));
+        tr.appendChild(el('td', 'r muted', r.dk_pct.toFixed(1) + '%'));
+        tr.appendChild(el('td', 'r muted', r.dk_expected == null ? '—' : money(r.dk_expected)));
+        var edge = el('td', 'r edge' + (r.cheaper_on === 'DK' ? ' dk' : r.cheaper_on === 'FD' ? ' fd' : ''));
+        if (r.edge == null) edge.textContent = '—';
+        else if (!r.cheaper_on) edge.textContent = 'even';
+        else {
+          edge.appendChild(document.createTextNode('Cheaper on ' + r.cheaper_on));
+          edge.appendChild(el('div', 'alt', (r.edge > 0 ? '+' : '−') + money(Math.abs(r.edge)) + ' DK (' + (r.edge_pct > 0 ? '+' : '') + r.edge_pct + '%)'));
+        }
+        tr.appendChild(edge);
+        tr.appendChild(el('td', 'r', r.fpts == null ? '—' : r.fpts.toFixed(1)));
+        body.appendChild(tr);
+      });
+    }
+
+    function renderArbMisses(a) {
+      var wrap = $('arb-misses');
+      wrap.textContent = '';
+      function list(title, note, items) {
+        if (!items.length) return;
+        var det = el('details');
+        det.appendChild(el('summary', 'muted small', title + ' (' + items.length + ')'));
+        det.appendChild(el('p', 'muted small', note));
+        var ul = el('ul', 'small');
+        items.forEach(function (r) { ul.appendChild(el('li', null, r.name + ' · ' + (r.position || '?') + ' ' + (r.team || '') + ' · ' + money(r.salary))); });
+        det.appendChild(ul);
+        wrap.appendChild(det);
+      }
+      var note = 'Usually a game on one site\'s slate but not the other\'s (the two main slates don\'t always cover the same games). If a player IS on both, the sites spell his name differently — teach the name in Player DB and reopen the slate.';
+      list('On FanDuel only', note, a.fd_only);
+      list('On DraftKings only', note, a.dk_only);
+    }
+
+    ['arb-search'].forEach(function (id) { $(id).addEventListener('input', renderArb); });
+    $('arb-hide-out').addEventListener('change', renderArb);
+
+    $('arb-load-slates').addEventListener('click', async function () {
+      var btn = this;
+      btn.disabled = true;
+      try {
+        var slates = await apiFetch('/api/paydirt/dk/slates');
+        var sel = $('arb-dk-slate');
+        sel.textContent = '';
+        if (!slates.length) { showError('DraftKings has no classic NFL slates open right now.'); return; }
+        slates.forEach(function (g, i) {
+          var o = el('option', null, g.label + (i === 0 ? ' (main)' : ''));
+          o.value = g.id;
+          sel.appendChild(o);
+        });
+        sel.hidden = false;
+        $('arb-fetch').hidden = false;
+      } catch (e) { /* banner already shown */ } finally { btn.disabled = false; }
+    });
+
+    $('arb-fetch').addEventListener('click', async function () {
+      var id = $('pd-saved').value;
+      var sel = $('arb-dk-slate');
+      if (!id || !sel.value) return;
+      var btn = this;
+      btn.disabled = true;
+      try {
+        var data = await apiPost('/api/paydirt/slates/' + id + '/dk', {
+          draft_group_id: sel.value, label: sel.options[sel.selectedIndex].textContent,
+        });
+        show(data);
+        toast('DraftKings salaries saved to this slate');
+      } catch (e) { /* banner already shown */ } finally { btn.disabled = false; }
+    });
+
+    $('arb-dk-file').addEventListener('change', async function () {
+      var f = this.files[0];
+      var id = $('pd-saved').value;
+      if (!f || !id) return;
+      var input = this;
+      try {
+        var text = await readFile(f);
+        var data = await apiPost('/api/paydirt/slates/' + id + '/dk', { dk_salaries: text, file_name: f.name });
+        show(data);
+        toast('DraftKings salaries saved to this slate');
+      } catch (e) { if (e && /^Could not read/.test(e.message)) showError(e.message); /* API errors: banner already shown */ } finally { input.value = ''; }
+    });
+
+    $('arb-remove').addEventListener('click', async function () {
+      var id = $('pd-saved').value;
+      if (!id || !confirm('Remove the DraftKings salaries from this slate?')) return;
+      try { show(await apiPost('/api/paydirt/slates/' + id + '/dk', {}, 'DELETE')); toast('Removed'); } catch (e) { /* banner */ }
+    });
 
     // ---------- salary range ----------
     // The slider and the Min $ / Max $ boxes are one filter: moving either

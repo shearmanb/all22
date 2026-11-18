@@ -100,7 +100,10 @@ function parseSalaries(text) {
   if (!raw.trim()) throw new Error('The FanDuel salaries are empty.');
   const table = csvImport.parseTable(raw);
   let headerIdx = -1;
-  for (let i = 0; i < Math.min(5, table.length); i++) {
+  // DraftKings' bulk-entry template puts its player list (with its own header)
+  // a few rows down and to the right of the entries block, so look deeper than
+  // the first line; columns are found by label, so the offset doesn't matter.
+  for (let i = 0; i < Math.min(15, table.length); i++) {
     if (table[i].some((c) => /^salary$/i.test(String(c).trim()))) { headerIdx = i; break; }
   }
   const out = [];
@@ -109,11 +112,15 @@ function parseSalaries(text) {
     const col = (re) => h.findIndex((l) => re.test(l));
     const c = {
       nick: col(/^nickname$/), first: col(/^first ?name$/), last: col(/^last ?name$/),
-      name: col(/^(name|player|player ?name)$/), pos: col(/^(position|pos)$/), team: col(/^(team|tm)$/),
+      name: col(/^(name|player|player ?name)$/), pos: col(/^(position|pos)$/), team: col(/^(team|tm|teamabbrev|team ?abbrev(iation)?)$/),
       opp: col(/^opp(onent)?$/), salary: col(/^salary$/), injury: col(/^injury ?indicator$/),
+      slot: col(/^roster ?position$/),
     };
     for (const r of table.slice(headerIdx + 1)) {
       const cell = (i) => (i >= 0 ? String(r[i] == null ? '' : r[i]).trim() : '');
+      // Single-game files list every player twice — once at a captain's 1.5x
+      // salary. The captain row is not his price.
+      if (/^(cpt|captain|mvp)$/i.test(cell(c.slot))) continue;
       const first = cell(c.first), last = cell(c.last);
       // Nickname is the name FanDuel shows in the lobby ("Hollywood Brown").
       const name = players.display(cell(c.nick) || cell(c.name) || [first, last].filter(Boolean).join(' '));
@@ -187,6 +194,7 @@ function build(projectionsText, salariesText) {
       rank: p.rank, name: p.name, position: p.position || s.position, team: p.team || s.team,
       opp: s.opp || p.opp, fpts: p.fpts, salary: s.salary, value: perK(p.fpts, s.salary),
       injury: s.injury, fd_name: players.key(s.name) === players.key(p.name) ? null : s.name,
+      fd_idx: idx,
     });
   }
   const noProjection = fd
@@ -196,4 +204,4 @@ function build(projectionsText, salariesText) {
   return { rows, no_salary: noSalary, no_projection: noProjection };
 }
 
-module.exports = { parseProjections, parseSalaries, perK, build, normPos };
+module.exports = { parseProjections, parseSalaries, perK, build, normPos, defenseTeam };
